@@ -4,98 +4,143 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day by Day</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <!-- Header with clock -->
+
+    <!-- Top Bar: branding + clock -->
     <header id="header">
-      <h1 class="app-title">Day by Day</h1>
-      <div id="clock">
-        <span id="time"></span>
-        <span id="date"></span>
+      <div class="header-left">
+        <h1 class="app-title">Day by Day</h1>
+        <p class="tagline">Small steps, big goals.</p>
       </div>
-      <p class="tagline">Focus on what matters. One day at a time.</p>
+      <div class="header-right">
+        <div id="clock">
+          <span id="time"></span>
+          <span id="date"></span>
+        </div>
+      </div>
     </header>
 
     <!-- Motivational banner -->
     <div id="nudge-banner" class="nudge-banner hidden">
+      <span id="nudge-icon">&#x1F331;</span>
       <span id="nudge-text"></span>
       <button id="nudge-dismiss" class="nudge-dismiss">&times;</button>
     </div>
 
-    <!-- Main content -->
-    <main>
-      <!-- Top 5 Goals -->
-      <section id="goals-section" class="card">
-        <div class="card-header">
-          <h2>Top 5 Goals for Today</h2>
-          <p class="card-subtitle">What matters most right now?</p>
-        </div>
-        <div id="goals-list" class="task-list">
-          <!-- Dynamically populated -->
-        </div>
-        <div class="add-task-row" id="add-goal-row">
-          <input type="text" id="goal-input" placeholder="Add a goal..." maxlength="100">
-          <button id="add-goal-btn" class="btn btn-primary">Add</button>
-        </div>
-      </section>
+    <!-- Two-column main -->
+    <main class="two-col">
 
-      <!-- 5 Distractions to Avoid -->
-      <section id="distractions-section" class="card card-warning">
-        <div class="card-header">
-          <h2>5 Distractions to Avoid</h2>
-          <p class="card-subtitle">Stay away from these today</p>
-        </div>
-        <div id="distractions-list" class="task-list">
-          <!-- Dynamically populated -->
-        </div>
-        <div class="add-task-row" id="add-distraction-row">
-          <input type="text" id="distraction-input" placeholder="Add a distraction to avoid..." maxlength="100">
-          <button id="add-distraction-btn" class="btn btn-warn">Add</button>
-        </div>
-      </section>
-
-      <!-- Daily Summary -->
-      <section id="summary-section" class="card card-summary">
-        <div class="card-header">
-          <h2>Daily Summary</h2>
-          <p class="card-subtitle">How your day is shaping up</p>
-        </div>
-        <div id="summary-content">
-          <div class="summary-stats">
-            <div class="stat">
-              <span class="stat-value" id="total-hours">0</span>
-              <span class="stat-label">Hours Logged</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value" id="avg-progress">0%</span>
-              <span class="stat-label">Avg Progress</span>
-            </div>
-            <div class="stat">
-              <span class="stat-value" id="goals-count">0/0</span>
-              <span class="stat-label">Goals Set</span>
+      <!-- LEFT COLUMN — Goals -->
+      <div class="col col-goals">
+        <section id="goals-section" class="card">
+          <div class="card-header">
+            <div class="card-icon goal-icon">&#x1F3AF;</div>
+            <div>
+              <h2>Today's Top 5</h2>
+              <p class="card-subtitle">Focus on what moves the needle</p>
             </div>
           </div>
-          <div id="summary-breakdown"></div>
-          <div class="summary-actions">
-            <button id="reset-day-btn" class="btn btn-secondary">Start New Day</button>
+          <div id="goals-list" class="task-list"></div>
+          <div class="add-task-row" id="add-goal-row">
+            <input type="text" id="goal-input" placeholder="What's your next goal?" maxlength="100">
+            <button id="add-goal-btn" class="btn btn-primary">Add</button>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <!-- Daily Summary below goals on left -->
+        <section id="summary-section" class="card card-summary">
+          <div class="card-header">
+            <div class="card-icon summary-icon">&#x1F4CA;</div>
+            <div>
+              <h2>Today's Progress</h2>
+              <p class="card-subtitle">You're doing great — keep going</p>
+            </div>
+          </div>
+          <div id="summary-content">
+            <div class="summary-ring-row">
+              <div class="ring-stat">
+                <svg class="progress-ring" viewBox="0 0 80 80">
+                  <circle class="ring-bg" cx="40" cy="40" r="34"></circle>
+                  <circle class="ring-fill ring-fill-progress" id="ring-progress" cx="40" cy="40" r="34"></circle>
+                </svg>
+                <div class="ring-label">
+                  <span class="ring-value" id="avg-progress">0%</span>
+                  <span class="ring-caption">Progress</span>
+                </div>
+              </div>
+              <div class="ring-stat">
+                <svg class="progress-ring" viewBox="0 0 80 80">
+                  <circle class="ring-bg" cx="40" cy="40" r="34"></circle>
+                  <circle class="ring-fill ring-fill-hours" id="ring-hours" cx="40" cy="40" r="34"></circle>
+                </svg>
+                <div class="ring-label">
+                  <span class="ring-value" id="total-hours">0h</span>
+                  <span class="ring-caption">Goal Hours</span>
+                </div>
+              </div>
+              <div class="ring-stat">
+                <svg class="progress-ring" viewBox="0 0 80 80">
+                  <circle class="ring-bg" cx="40" cy="40" r="34"></circle>
+                  <circle class="ring-fill ring-fill-distraction" id="ring-distraction-hours" cx="40" cy="40" r="34"></circle>
+                </svg>
+                <div class="ring-label">
+                  <span class="ring-value" id="distraction-hours">0h</span>
+                  <span class="ring-caption">Distraction Hours</span>
+                </div>
+              </div>
+            </div>
+            <div id="summary-breakdown"></div>
+            <div class="summary-actions">
+              <button id="reset-day-btn" class="btn btn-ghost">Start Fresh Day</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- RIGHT COLUMN — Distractions -->
+      <div class="col col-distractions">
+        <section id="distractions-section" class="card card-distraction">
+          <div class="card-header">
+            <div class="card-icon distraction-icon">&#x1F6AB;</div>
+            <div>
+              <h2>5 to Avoid</h2>
+              <p class="card-subtitle">Keep these off your plate today</p>
+            </div>
+          </div>
+          <div id="distractions-list" class="task-list"></div>
+          <div class="add-task-row" id="add-distraction-row">
+            <input type="text" id="distraction-input" placeholder="What should you avoid?" maxlength="100">
+            <button id="add-distraction-btn" class="btn btn-secondary-orange">Add</button>
+          </div>
+        </section>
+
+        <!-- Encouragement card -->
+        <section class="card card-encouragement">
+          <div id="encouragement-text" class="encouragement-body">
+            Every hour you spend on your goals instead of distractions compounds into something remarkable. Trust the process.
+          </div>
+        </section>
+      </div>
+
     </main>
 
     <!-- Notification permission prompt -->
     <div id="notification-prompt" class="notification-prompt hidden">
-      <p>Enable notifications to get gentle focus reminders throughout the day?</p>
+      <p>Get gentle focus reminders throughout the day?</p>
       <div class="prompt-actions">
-        <button id="enable-notifications-btn" class="btn btn-primary">Enable</button>
-        <button id="dismiss-notifications-btn" class="btn btn-secondary">Not now</button>
+        <button id="enable-notifications-btn" class="btn btn-primary">Enable Notifications</button>
+        <button id="dismiss-notifications-btn" class="btn btn-ghost">Maybe Later</button>
       </div>
     </div>
 
     <footer>
-      <p>Day by Day &mdash; small steps, big goals.</p>
+      <p>Day by Day &mdash; one day at a time.</p>
     </footer>
   </div>
 

@@ -1,17 +1,13 @@
 // === Day by Day — Notifications & Nudge System ===
-// Handles browser notifications, in-app nudges, guilt-trip messages,
-// and 4000 Weeks philosophy integration.
 
 (function () {
   'use strict';
 
-  // --- Config ---
-  const NUDGE_INTERVAL_MS = 25 * 60 * 1000;  // Every 25 minutes
-  const GUILT_CHECK_INTERVAL_MS = 40 * 60 * 1000; // Every 40 minutes
+  const NUDGE_INTERVAL_MS = 25 * 60 * 1000;
+  const GUILT_CHECK_INTERVAL_MS = 40 * 60 * 1000;
   const PREFS_KEY = 'daybyday_prefs';
 
   // --- 4000 Weeks Wisdom ---
-  // Insights from Oliver Burkeman's "Four Thousand Weeks"
   const wisdomMessages = [
     "You don't need to feel ready. The leap is what creates the readiness.",
     "The real problem isn't that you might fail — it's that the result will never match the perfect version in your head. Do it anyway.",
@@ -24,65 +20,55 @@
     "The anxiety of not starting is always worse than the discomfort of doing the work.",
     "You don't procrastinate because you're lazy. You procrastinate because the real thing is harder than the imagined thing. Begin anyway.",
     "Every time you choose your goal over a distraction, you're voting for the person you want to become.",
-    "The seconds are ticking whether you use them or not. But only the present moment is actually yours.",
     "Stop waiting for motivation. Action creates motivation, not the other way around.",
     "Your goals don't need to be done perfectly. They need to be done by you, imperfectly, today.",
-    "The discomfort you feel when starting? That's the feeling of doing something that matters."
+    "The discomfort you feel when starting? That's the feeling of doing something that matters.",
+    "Time is not a resource you manage — it's the medium you exist in. Spend it on what counts."
   ];
 
-  // --- Motivational Messages (encouraging) ---
   const motivationalMessages = [
     "How's your top goal coming along? Small progress is still progress.",
     "You set your goals for a reason. Trust that reason.",
     "Quick check-in: are you working on what matters most right now?",
     "The little things you do today add up to big results.",
     "One goal at a time. That's all it takes.",
-    "How much progress have you made? Take a moment to log it.",
-    "Every hour spent on your goals is an hour invested in your future.",
+    "Take a moment to log your progress — tracking builds awareness.",
+    "Every hour on your goals is an hour invested in your future.",
     "Feeling stuck? Take a 5-minute break, then come back stronger.",
-    "You chose these goals for today. Honor that commitment.",
-    "Don't forget to note your wins in the journal — celebrate your progress."
+    "Don't forget to note your wins in the journal — celebrate progress.",
+    "Remember why you chose these goals. Your reasons still hold."
   ];
 
-  // --- Guilt-Trip Messages (specific, goal-aware) ---
+  // --- Guilt-trip messages ---
   function getGuiltTripMessage() {
     if (!window.DayByDayApp) return null;
-
     const goals = window.DayByDayApp.getGoals();
-    const distractions = window.DayByDayApp.getDistractions();
+    const dists = window.DayByDayApp.getDistractions();
+    if (!goals.length || !dists.length) return null;
 
-    if (goals.length === 0 || distractions.length === 0) return null;
+    const dh = dists.reduce((s, d) => s + (d.hours || 0), 0);
+    if (dh <= 0) return null;
 
-    const distHours = distractions.reduce((sum, d) => sum + (d.hours || 0), 0);
-    const goalHours = goals.reduce((sum, g) => sum + (g.hours || 0), 0);
+    const td = dists.reduce((m, d) => (d.hours || 0) > (m.hours || 0) ? d : m, dists[0]);
+    const ng = goals.reduce((m, g) => (g.progress || 0) < (m.progress || 0) ? g : m, goals[0]);
+    if ((td.hours || 0) <= 0) return null;
 
-    if (distHours <= 0) return null;
-
-    // Find the biggest distraction and the most neglected goal
-    const topDist = distractions.reduce((max, d) =>
-      (d.hours || 0) > (max.hours || 0) ? d : max, distractions[0]);
-    const neglectedGoal = goals.reduce((min, g) =>
-      (g.progress || 0) < (min.progress || 0) ? g : min, goals[0]);
-
-    if ((topDist.hours || 0) <= 0) return null;
-
+    const gh = goals.reduce((s, g) => s + (g.hours || 0), 0);
     const templates = [
-      `You've spent ${topDist.hours}h on "${topDist.name}" today. Meanwhile, "${neglectedGoal.name}" is sitting at ${neglectedGoal.progress || 0}%. What if you gave it just 30 minutes right now?`,
-      `Honest check: ${distHours}h on distractions vs ${goalHours}h on goals. "${neglectedGoal.name}" is waiting. The work won't be perfect, but it'll be real.`,
-      `"${topDist.name}" got ${topDist.hours}h of your life today. That same time on "${neglectedGoal.name}" could've been a breakthrough. It's not too late to shift.`,
-      `${topDist.hours} hours on "${topDist.name}" — that's ${topDist.hours} hours you can't get back. But the rest of today? That's still yours. "${neglectedGoal.name}" needs you.`,
-      `Your future self is watching. They see ${distHours}h on distractions and "${neglectedGoal.name}" at ${neglectedGoal.progress || 0}%. What would they want you to do right now?`
+      `You've spent ${td.hours}h on "${td.name}" today. Meanwhile, "${ng.name}" is at ${ng.progress || 0}%. What if you gave it just 30 minutes?`,
+      `Honest check: ${dh}h on distractions vs ${gh}h on goals. "${ng.name}" is waiting — the work won't be perfect, but it'll be real.`,
+      `"${td.name}" got ${td.hours}h of your life today. That time on "${ng.name}" could've been a breakthrough. It's not too late.`,
+      `${td.hours}h on "${td.name}" — hours you can't get back. But the rest of today is still yours. "${ng.name}" needs you.`,
+      `Your future self sees ${dh}h on distractions and "${ng.name}" at ${ng.progress || 0}%. What would they want you to do right now?`
     ];
-
     return templates[Math.floor(Math.random() * templates.length)];
   }
 
   // --- State ---
-  let nudgeTimer = null;
-  let guiltTimer = null;
-  let notificationsEnabled = false;
+  let browserNotificationsEnabled = false;
+  let timersStarted = false;
 
-  // --- DOM References ---
+  // --- DOM ---
   const notificationPrompt = document.getElementById('notification-prompt');
   const enableBtn = document.getElementById('enable-notifications-btn');
   const dismissBtn = document.getElementById('dismiss-notifications-btn');
@@ -90,67 +76,60 @@
   const nudgeText = document.getElementById('nudge-text');
   const nudgeDismiss = document.getElementById('nudge-dismiss');
 
-  // --- Preferences ---
+  // --- Prefs ---
   function loadPrefs() {
     try {
       if (window.DayByDayApp && window.DayByDayApp.storageGet) {
-        const raw = window.DayByDayApp.storageGet(PREFS_KEY);
-        return raw ? JSON.parse(raw) : {};
+        const r = window.DayByDayApp.storageGet(PREFS_KEY);
+        return r ? JSON.parse(r) : {};
       }
-      const raw = localStorage.getItem(PREFS_KEY);
-      return raw ? JSON.parse(raw) : {};
+      return {};
     } catch (e) { return {}; }
   }
-
-  function savePrefs(prefs) {
+  function savePrefs(p) {
     try {
       if (window.DayByDayApp && window.DayByDayApp.storageSet) {
-        window.DayByDayApp.storageSet(PREFS_KEY, JSON.stringify(prefs));
-      } else {
-        localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+        window.DayByDayApp.storageSet(PREFS_KEY, JSON.stringify(p));
       }
     } catch (e) {}
   }
 
-  // --- Initialization ---
+  // --- Init ---
   function init() {
     const prefs = loadPrefs();
 
+    // Always start in-app nudge timers (they don't need notification permission)
+    startTimers();
+
+    // Browser notifications
     if ('Notification' in window) {
       if (Notification.permission === 'granted') {
-        notificationsEnabled = true;
-        startTimers();
+        browserNotificationsEnabled = true;
+        // Test: send one immediately to verify delivery
+        sendBrowserNotification('Day by Day', 'Notifications are working. Stay focused!');
       } else if (Notification.permission === 'default' && !prefs.notificationsDismissed) {
-        // Only show prompt if user hasn't dismissed before
         setTimeout(showNotificationPrompt, 3000);
       }
-      // If 'denied' or previously dismissed, don't pester
-    } else {
-      // Browser doesn't support notifications — start in-app only timers
-      startTimers();
     }
 
-    // Banner dismiss
+    // Banner dismiss — stays until user clicks X
     if (nudgeDismiss) {
       nudgeDismiss.addEventListener('click', () => {
         nudgeBanner.classList.add('hidden');
       });
     }
 
-    // Permission prompt buttons
     if (enableBtn) enableBtn.addEventListener('click', requestPermission);
     if (dismissBtn) dismissBtn.addEventListener('click', () => {
       notificationPrompt.classList.add('hidden');
-      const prefs = loadPrefs();
-      prefs.notificationsDismissed = true;
-      savePrefs(prefs);
+      const p = loadPrefs(); p.notificationsDismissed = true; savePrefs(p);
     });
 
-    // Welcome nudge
+    // Show initial nudge after a moment
     setTimeout(() => {
-      const allMessages = [...wisdomMessages, ...motivationalMessages];
-      showInAppNudge(allMessages[Math.floor(Math.random() * allMessages.length)]);
-    }, 2000);
+      const all = [...wisdomMessages, ...motivationalMessages];
+      showInAppNudge(all[Math.floor(Math.random() * all.length)]);
+    }, 1500);
   }
 
   function showNotificationPrompt() {
@@ -159,68 +138,63 @@
 
   async function requestPermission() {
     if (notificationPrompt) notificationPrompt.classList.add('hidden');
-
-    const prefs = loadPrefs();
-    prefs.notificationsDismissed = true; // Don't show prompt again regardless
-    savePrefs(prefs);
+    const p = loadPrefs(); p.notificationsDismissed = true; savePrefs(p);
 
     try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        notificationsEnabled = true;
-        startTimers();
-        sendBrowserNotification('Day by Day', "Notifications on! I'll nudge you gently to stay focused.");
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        browserNotificationsEnabled = true;
+        sendBrowserNotification('Day by Day', "Notifications enabled! I'll nudge you gently to stay focused.");
       }
     } catch (e) {
       console.warn('Notification permission failed:', e);
     }
   }
 
-  // --- Browser Notifications ---
+  // --- Browser notifications ---
   function sendBrowserNotification(title, body) {
-    if (!notificationsEnabled) return;
+    if (!browserNotificationsEnabled) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     try {
-      const n = new Notification(title, {
+      new Notification(title, {
         body: body,
         tag: 'daybyday-' + Date.now(),
-        requireInteraction: false,
-        silent: false
+        requireInteraction: false
       });
-      setTimeout(() => n.close(), 10000);
     } catch (e) {
-      console.warn('Notification failed:', e);
+      console.warn('Notification send failed:', e);
     }
   }
 
-  // --- In-App Nudge Banner ---
+  // --- In-app nudge banner ---
+  // STAYS visible until user dismisses. New messages replace current text.
   function showInAppNudge(message) {
     if (!nudgeText || !nudgeBanner) return;
     nudgeText.textContent = message;
     nudgeBanner.classList.remove('hidden');
-    setTimeout(() => {
-      nudgeBanner.classList.add('hidden');
-    }, 20000);
+    // NO auto-hide — user must dismiss manually
   }
 
   // --- Timers ---
   function startTimers() {
-    // Combined motivational + wisdom nudges
-    nudgeTimer = setInterval(() => {
-      const allMessages = [...motivationalMessages, ...wisdomMessages];
-      const msg = allMessages[Math.floor(Math.random() * allMessages.length)];
+    if (timersStarted) return;
+    timersStarted = true;
+
+    // Motivational + wisdom nudge every 25 min
+    setInterval(() => {
+      const all = [...motivationalMessages, ...wisdomMessages];
+      const msg = all[Math.floor(Math.random() * all.length)];
       sendBrowserNotification('Day by Day', msg);
-      showInAppNudge(msg);
+      showInAppNudge(msg); // replaces current banner text
     }, NUDGE_INTERVAL_MS);
 
-    // Guilt-trip check (uses actual goal/distraction data)
-    guiltTimer = setInterval(() => {
-      const guiltMsg = getGuiltTripMessage();
-      if (guiltMsg) {
-        sendBrowserNotification('Focus Check', guiltMsg);
-        showInAppNudge(guiltMsg);
+    // Guilt-trip check every 40 min
+    setInterval(() => {
+      const gm = getGuiltTripMessage();
+      if (gm) {
+        sendBrowserNotification('Focus Check', gm);
+        showInAppNudge(gm);
       } else {
-        // Fall back to wisdom if no guilt message applies
         const msg = wisdomMessages[Math.floor(Math.random() * wisdomMessages.length)];
         sendBrowserNotification('Day by Day', msg);
         showInAppNudge(msg);
@@ -230,25 +204,19 @@
 
   // --- Public API ---
   window.DayByDayNotifications = {
-    onGoalsUpdated: function (goals) {
-      if (goals.length === 5) {
-        showInAppNudge("All 5 goals set. Now focus on #1 first — the rest can wait. You don't need to do everything at once.");
-      }
+    onGoalsUpdated(goals) {
+      if (goals.length === 5) showInAppNudge("All 5 goals set. Focus on #1 first — the rest can wait. You don't need to do everything at once.");
     },
     showNudge: showInAppNudge,
     sendNotification: sendBrowserNotification,
-    getWisdom: function () {
-      return wisdomMessages[Math.floor(Math.random() * wisdomMessages.length)];
-    }
+    getWisdom: () => wisdomMessages[Math.floor(Math.random() * wisdomMessages.length)]
   };
 
-  // --- Start ---
-  // Delay init slightly so app.js can expose DayByDayApp first
-  // (notifications.js loads before app.js in the HTML)
+  // --- Start after app.js has loaded ---
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 100));
+    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 50));
   } else {
-    setTimeout(init, 100);
+    setTimeout(init, 50);
   }
 
 })();

@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day by Day</title>
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%232D6A4F'/><text x='50' y='62' font-size='40' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>D</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -12,9 +14,9 @@
 <body>
   <div id="app">
 
-    <!-- Storage Warning (shown if localStorage unavailable) -->
+    <!-- Storage Warning -->
     <div id="storage-warning" class="storage-warning hidden">
-      Your browser is blocking data storage (common with file:// URLs). To fix this, serve the app with a local server or open it in Chrome. Your data won't persist between reloads until this is resolved.
+      Your browser is blocking data storage (common with file:// URLs). Serve with <code>python3 -m http.server 8000</code> and open <code>localhost:8000</code> to fix.
     </div>
 
     <!-- Top Bar -->
@@ -31,7 +33,7 @@
       </div>
     </header>
 
-    <!-- Carryover Banner (shown when yesterday's goals carry forward) -->
+    <!-- Carryover Banner -->
     <div id="carryover-banner" class="carryover-banner hidden">
       <div class="carryover-header">
         <span class="carryover-icon">&#x1F504;</span>
@@ -44,21 +46,21 @@
       </div>
     </div>
 
-    <!-- Motivational banner -->
+    <!-- Motivational banner — stays until dismissed -->
     <div id="nudge-banner" class="nudge-banner hidden">
       <span id="nudge-icon">&#x1F331;</span>
       <span id="nudge-text"></span>
-      <button id="nudge-dismiss" class="nudge-dismiss">&times;</button>
+      <button id="nudge-dismiss" class="nudge-dismiss" title="Dismiss">&times;</button>
     </div>
 
     <!-- Two-column main -->
     <main class="two-col">
 
       <!-- LEFT COLUMN -->
-      <div class="col col-goals">
+      <div class="col" id="col-left">
 
-        <!-- Goals -->
-        <section id="goals-section" class="card">
+        <section id="goals-section" class="card draggable-card" data-card-id="goals">
+          <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
           <div class="card-header">
             <div class="card-icon goal-icon">&#x1F3AF;</div>
             <div>
@@ -73,8 +75,8 @@
           </div>
         </section>
 
-        <!-- Today's Progress -->
-        <section id="summary-section" class="card card-summary">
+        <section id="summary-section" class="card card-summary draggable-card" data-card-id="summary">
+          <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
           <div class="card-header">
             <div class="card-icon summary-icon">&#x1F4CA;</div>
             <div>
@@ -125,10 +127,10 @@
       </div>
 
       <!-- RIGHT COLUMN -->
-      <div class="col col-distractions">
+      <div class="col" id="col-right">
 
-        <!-- Distractions -->
-        <section id="distractions-section" class="card card-distraction">
+        <section id="distractions-section" class="card card-distraction draggable-card" data-card-id="distractions">
+          <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
           <div class="card-header">
             <div class="card-icon distraction-icon">&#x1F6AB;</div>
             <div>
@@ -143,8 +145,8 @@
           </div>
         </section>
 
-        <!-- Journal: Wins & Lessons -->
-        <section id="journal-section" class="card card-journal">
+        <section id="journal-section" class="card card-journal draggable-card" data-card-id="journal">
+          <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
           <div class="card-header">
             <div class="card-icon journal-icon">&#x1F4DD;</div>
             <div>
@@ -152,7 +154,6 @@
               <p class="card-subtitle">Celebrate wins. Learn from the rest.</p>
             </div>
           </div>
-
           <div class="journal-block">
             <h3 class="journal-heading journal-heading-win">Wins</h3>
             <div id="successes-list" class="journal-list"></div>
@@ -161,7 +162,6 @@
               <button id="add-success-btn" class="btn btn-primary btn-sm">Add</button>
             </div>
           </div>
-
           <div class="journal-block">
             <h3 class="journal-heading journal-heading-lesson">Lessons</h3>
             <div id="failures-list" class="journal-list"></div>
@@ -172,8 +172,8 @@
           </div>
         </section>
 
-        <!-- Encouragement / Wisdom Card -->
-        <section class="card card-encouragement">
+        <section class="card card-encouragement draggable-card" data-card-id="encouragement">
+          <div class="card-drag-handle card-drag-handle-light" title="Drag to reorder">&#x2630;</div>
           <div id="encouragement-text" class="encouragement-body">
             You have roughly 4,000 weeks in a lifetime. This one counts. The work won't be perfect — it never is — but done beats imagined. Always.
           </div>

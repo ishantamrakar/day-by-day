@@ -7,10 +7,38 @@
   const MAX_GOALS = 5;
   const MAX_DISTRACTIONS = 5;
   const STORAGE_KEY = 'daybyday_data';
+  const HISTORY_KEY = 'daybyday_history';
+  const PREFS_KEY = 'daybyday_prefs';
   const RING_CIRCUMFERENCE = 2 * Math.PI * 34; // ~213.63
+
+  // --- Storage Test ---
+  // file:// protocol can block localStorage in some browsers
+  let storageAvailable = false;
+  try {
+    const testKey = '__daybyday_test__';
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+    storageAvailable = true;
+  } catch (e) {
+    console.warn('localStorage not available. Data will not persist between sessions.');
+  }
+
+  // --- Safe Storage Helpers ---
+  function storageGet(key) {
+    if (!storageAvailable) return null;
+    try { return localStorage.getItem(key); }
+    catch (e) { return null; }
+  }
+
+  function storageSet(key, value) {
+    if (!storageAvailable) return;
+    try { localStorage.setItem(key, value); }
+    catch (e) { console.warn('Storage write failed:', e); }
+  }
 
   // --- State ---
   let state = loadState();
+  let history = loadHistory();
 
   // --- DOM References ---
   const timeEl = document.getElementById('time');
@@ -31,8 +59,19 @@
   const ringProgress = document.getElementById('ring-progress');
   const ringHours = document.getElementById('ring-hours');
   const ringDistractionHours = document.getElementById('ring-distraction-hours');
+  const successesListEl = document.getElementById('successes-list');
+  const failuresListEl = document.getElementById('failures-list');
+  const successInputEl = document.getElementById('success-input');
+  const failureInputEl = document.getElementById('failure-input');
+  const addSuccessBtn = document.getElementById('add-success-btn');
+  const addFailureBtn = document.getElementById('add-failure-btn');
+  const carryoverBanner = document.getElementById('carryover-banner');
+  const carryoverList = document.getElementById('carryover-list');
+  const carryoverAccept = document.getElementById('carryover-accept');
+  const carryoverDismiss = document.getElementById('carryover-dismiss');
+  const storageWarning = document.getElementById('storage-warning');
 
-  // --- Clock (no seconds — calm, not stressful) ---
+  // --- Clock (no seconds) ---
   function updateClock() {
     const now = new Date();
     const hours = now.getHours();
@@ -46,30 +85,44 @@
   }
 
   updateClock();
-  setInterval(updateClock, 30000); // Update every 30s — no ticking anxiety
+  setInterval(updateClock, 30000);
+
+  // --- Date Helpers ---
+  function getTodayString() {
+    // Use local date, not UTC — avoids timezone mismatch bugs
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
 
   // --- State Management ---
   function getDefaultState() {
     return {
       date: getTodayString(),
       goals: [],
-      distractions: []
+      distractions: [],
+      successes: [],
+      failures: []
     };
-  }
-
-  function getTodayString() {
-    return new Date().toISOString().split('T')[0];
   }
 
   function loadState() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = storageGet(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.date !== getTodayString()) {
-          return getDefaultState();
+        // Ensure all fields exist (migration from older format)
+        parsed.successes = parsed.successes || [];
+        parsed.failures = parsed.failures || [];
+
+        if (parsed.date === getTodayString()) {
+          return parsed;
         }
-        return parsed;
+
+        // It's a new day — archive yesterday and check for carryover
+        archiveDay(parsed);
+        const newState = getDefaultState();
+        newState._carryover = getCarryoverGoals(parsed);
+        return newState;
       }
     } catch (e) {
       console.warn('Failed to load state:', e);
@@ -77,18 +130,94 @@
     return getDefaultState();
   }
 
-  function saveState() {
+  function getCarryoverGoals(oldState) {
+    if (!oldState || !oldState.goals) return [];
+    return oldState.goals
+      .filter(g => (g.progress || 0) < 100)
+      .map(g => ({ name: g.name, hours: 0, progress: g.progress || 0 }));
+  }
+
+  function archiveDay(dayState) {
+    if (!dayState || !dayState.date) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const hist = loadHistory();
+      // Don't duplicate
+      if (!hist.find(d => d.date === dayState.date)) {
+        hist.push({
+          date: dayState.date,
+          goals: dayState.goals || [],
+          distractions: dayState.distractions || [],
+          successes: dayState.successes || [],
+          failures: dayState.failures || []
+        });
+        // Keep last 30 days
+        while (hist.length > 30) hist.shift();
+        storageSet(HISTORY_KEY, JSON.stringify(hist));
+      }
     } catch (e) {
-      console.warn('Failed to save state:', e);
+      console.warn('Failed to archive:', e);
     }
+  }
+
+  function loadHistory() {
+    try {
+      const raw = storageGet(HISTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+
+  function saveState() {
+    storageSet(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  // --- Carryover UI ---
+  function showCarryoverIfNeeded() {
+    if (!state._carryover || state._carryover.length === 0) {
+      if (carryoverBanner) carryoverBanner.classList.add('hidden');
+      return;
+    }
+    // Show the carryover banner
+    carryoverList.innerHTML = '';
+    state._carryover.forEach(g => {
+      const li = document.createElement('li');
+      li.textContent = `${g.name} (${g.progress}% done)`;
+      carryoverList.appendChild(li);
+    });
+    carryoverBanner.classList.remove('hidden');
+  }
+
+  if (carryoverAccept) {
+    carryoverAccept.addEventListener('click', () => {
+      // Add carried-over goals
+      state._carryover.forEach(g => {
+        if (state.goals.length < MAX_GOALS) {
+          state.goals.push({ name: g.name, hours: 0, progress: g.progress });
+        }
+      });
+      delete state._carryover;
+      saveState();
+      carryoverBanner.classList.add('hidden');
+      render();
+    });
+  }
+
+  if (carryoverDismiss) {
+    carryoverDismiss.addEventListener('click', () => {
+      delete state._carryover;
+      carryoverBanner.classList.add('hidden');
+    });
+  }
+
+  // --- Storage Warning ---
+  if (storageWarning && !storageAvailable) {
+    storageWarning.classList.remove('hidden');
   }
 
   // --- Rendering ---
   function render() {
     renderGoals();
     renderDistractions();
+    renderJournal();
     renderSummary();
     updateAddButtonVisibility();
   }
@@ -103,8 +232,8 @@
   function createGoalElement(goal, index) {
     const item = document.createElement('div');
     item.className = 'task-item';
+    if ((goal.progress || 0) >= 100) item.classList.add('task-complete');
 
-    // Top row
     const topRow = document.createElement('div');
     topRow.className = 'task-top-row';
 
@@ -128,7 +257,6 @@
 
     topRow.append(number, name, deleteBtn);
 
-    // Logging row
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
 
@@ -173,6 +301,8 @@
       const val = parseInt(progressSlider.value);
       progressValue.textContent = val + '%';
       state.goals[index].progress = val;
+      if (val >= 100) item.classList.add('task-complete');
+      else item.classList.remove('task-complete');
       saveState();
       renderSummary();
     });
@@ -194,7 +324,6 @@
     const item = document.createElement('div');
     item.className = 'task-item distraction';
 
-    // Top row
     const topRow = document.createElement('div');
     topRow.className = 'task-top-row';
 
@@ -218,14 +347,13 @@
 
     topRow.append(number, name, deleteBtn);
 
-    // Hours logging row for distractions
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
 
     const hoursGroup = document.createElement('div');
     hoursGroup.className = 'log-group';
     const hoursLabel = document.createElement('label');
-    hoursLabel.textContent = 'Hours lost';
+    hoursLabel.textContent = 'Hours spent';
     const hoursInput = document.createElement('input');
     hoursInput.type = 'number';
     hoursInput.className = 'hours-input';
@@ -248,32 +376,91 @@
     return item;
   }
 
+  // --- Journal ---
+  function renderJournal() {
+    if (!successesListEl || !failuresListEl) return;
+
+    successesListEl.innerHTML = '';
+    state.successes.forEach((text, i) => {
+      successesListEl.appendChild(createJournalEntry(text, i, 'successes'));
+    });
+
+    failuresListEl.innerHTML = '';
+    state.failures.forEach((text, i) => {
+      failuresListEl.appendChild(createJournalEntry(text, i, 'failures'));
+    });
+  }
+
+  function createJournalEntry(text, index, type) {
+    const row = document.createElement('div');
+    row.className = 'journal-entry';
+
+    const span = document.createElement('span');
+    span.className = 'journal-text';
+    span.textContent = text;
+
+    const del = document.createElement('button');
+    del.className = 'task-delete';
+    del.textContent = '×';
+    del.addEventListener('click', () => {
+      state[type].splice(index, 1);
+      saveState();
+      renderJournal();
+    });
+
+    row.append(span, del);
+    return row;
+  }
+
+  function addSuccess() {
+    const text = successInputEl.value.trim();
+    if (!text) return;
+    state.successes.push(text);
+    successInputEl.value = '';
+    saveState();
+    renderJournal();
+  }
+
+  function addFailure() {
+    const text = failureInputEl.value.trim();
+    if (!text) return;
+    state.failures.push(text);
+    failureInputEl.value = '';
+    saveState();
+    renderJournal();
+  }
+
+  if (addSuccessBtn) {
+    addSuccessBtn.addEventListener('click', addSuccess);
+    successInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addSuccess(); });
+  }
+  if (addFailureBtn) {
+    addFailureBtn.addEventListener('click', addFailure);
+    failureInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addFailure(); });
+  }
+
   // --- Summary & Progress Rings ---
   function setRingProgress(ringEl, fraction) {
-    // fraction: 0 to 1
+    if (!ringEl) return;
     const offset = RING_CIRCUMFERENCE * (1 - Math.min(1, Math.max(0, fraction)));
     ringEl.style.strokeDashoffset = offset;
   }
 
   function renderSummary() {
-    // Goal hours
     const goalHours = state.goals.reduce((sum, g) => sum + (g.hours || 0), 0);
     totalHoursEl.textContent = goalHours > 0 ? goalHours.toFixed(1) + 'h' : '0h';
 
-    // Distraction hours
     const distHours = state.distractions.reduce((sum, d) => sum + (d.hours || 0), 0);
     distractionHoursEl.textContent = distHours > 0 ? distHours.toFixed(1) + 'h' : '0h';
 
-    // Average progress
     const avgProg = state.goals.length > 0
       ? Math.round(state.goals.reduce((sum, g) => sum + (g.progress || 0), 0) / state.goals.length)
       : 0;
     avgProgressEl.textContent = avgProg + '%';
 
-    // Update rings
     setRingProgress(ringProgress, avgProg / 100);
-    setRingProgress(ringHours, Math.min(goalHours / 8, 1)); // 8h = full ring
-    setRingProgress(ringDistractionHours, Math.min(distHours / 4, 1)); // 4h = full ring (bad!)
+    setRingProgress(ringHours, Math.min(goalHours / 8, 1));
+    setRingProgress(ringDistractionHours, Math.min(distHours / 4, 1));
 
     // Breakdown
     summaryBreakdownEl.innerHTML = '';
@@ -300,7 +487,6 @@
       summaryBreakdownEl.appendChild(row);
     });
 
-    // Update encouragement text based on state
     updateEncouragement(avgProg, goalHours, distHours);
   }
 
@@ -308,18 +494,30 @@
     const el = document.getElementById('encouragement-text');
     if (!el) return;
 
+    // Guilt-trip: when distraction hours are significant vs goals
+    if (distHours > 0 && state.distractions.length > 0 && state.goals.length > 0) {
+      const topDistraction = state.distractions.reduce((max, d) =>
+        (d.hours || 0) > (max.hours || 0) ? d : max, state.distractions[0]);
+      const topGoal = state.goals.reduce((min, g) =>
+        (g.progress || 0) < (min.progress || 0) ? g : min, state.goals[0]);
+
+      if ((topDistraction.hours || 0) > 0 && (topGoal.progress || 0) < 80) {
+        const potentialProgress = Math.min(100, (topGoal.progress || 0) + Math.round((topDistraction.hours || 0) * 12));
+        el.textContent = `You've spent ${topDistraction.hours}h on "${topDistraction.name}." That same time on "${topGoal.name}" could have brought it to ~${potentialProgress}%. The work won't be perfect — it never is. But done beats imagined.`;
+        return;
+      }
+    }
+
     if (state.goals.length === 0) {
-      el.textContent = "Start by adding your most important goal for today. Just one is enough to begin.";
+      el.textContent = "You have roughly 4,000 weeks in a lifetime. This one counts. Start by adding just one goal for today.";
     } else if (goalHours > 0 && distHours === 0) {
-      el.textContent = "Amazing — you're investing time in your goals and keeping distractions at bay. This is how progress happens.";
-    } else if (distHours > goalHours && goalHours > 0) {
-      el.textContent = "You've spent more time on distractions than goals today. No judgment — just gently shift your focus back. You've got this.";
+      el.textContent = "You're investing in what matters and keeping distractions at bay. This is how days become weeks become a life well-spent.";
     } else if (avgProg >= 75) {
-      el.textContent = "You're crushing it today! Over 75% average progress. Finish strong — your future self is cheering.";
+      el.textContent = "Over 75% progress. You showed up, did the work, and didn't wait for it to feel perfect. That's the whole game.";
     } else if (avgProg >= 40) {
-      el.textContent = "Solid progress so far. You're past the halfway mark on many goals. Keep the momentum going!";
+      el.textContent = "You're past the halfway mark. The hardest part was starting — you've already done that. Keep going.";
     } else {
-      el.textContent = "Every hour you spend on your goals instead of distractions compounds into something remarkable. Trust the process.";
+      el.textContent = "The future is never guaranteed — only this moment is real. Every hour on your goals is an hour you chose to spend on what matters most.";
     }
   }
 
@@ -351,18 +549,15 @@
   }
 
   addGoalBtn.addEventListener('click', addGoal);
-  goalInputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') addGoal();
-  });
+  goalInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addGoal(); });
 
   addDistractionBtn.addEventListener('click', addDistraction);
-  distractionInputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') addDistraction();
-  });
+  distractionInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addDistraction(); });
 
   // --- Reset Day ---
   resetDayBtn.addEventListener('click', () => {
-    if (confirm('Start a fresh day? This will clear all tasks and progress.')) {
+    if (confirm('Archive today and start fresh? Your progress will be saved in history.')) {
+      archiveDay(state);
       state = getDefaultState();
       saveState();
       render();
@@ -373,10 +568,13 @@
   window.DayByDayApp = {
     getState: () => state,
     getGoals: () => state.goals,
-    getDistractions: () => state.distractions
+    getDistractions: () => state.distractions,
+    storageGet: storageGet,
+    storageSet: storageSet
   };
 
-  // --- Initial Render ---
+  // --- Init ---
   render();
+  showCarryoverIfNeeded();
 
 })();

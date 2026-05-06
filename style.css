@@ -689,6 +689,146 @@ footer {
   color: var(--text-muted);
 }
 
+/* === Storage Warning === */
+.storage-warning {
+  background: var(--secondary-light);
+  border: 1px solid var(--secondary);
+  border-radius: var(--radius-sm);
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* === Carryover Banner === */
+.carryover-banner {
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--accent-light) 100%);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+  animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.carryover-header {
+  font-size: 0.92rem;
+  color: var(--text);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.carryover-icon {
+  font-size: 1.1rem;
+}
+
+.carryover-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+}
+
+.carryover-list li {
+  font-size: 0.88rem;
+  color: var(--primary);
+  padding: 6px 0 6px 20px;
+  position: relative;
+  font-weight: 500;
+}
+
+.carryover-list li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+.carryover-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* === Task Completion State === */
+.task-complete {
+  background: var(--accent-light) !important;
+  border-color: var(--accent) !important;
+}
+
+.task-complete .task-name {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.task-complete .task-number {
+  background: var(--accent);
+}
+
+/* === Journal === */
+.card-journal {
+  background: var(--surface);
+}
+
+.journal-icon {
+  background: #f0e6ff;
+}
+
+.journal-block {
+  margin-bottom: 20px;
+}
+
+.journal-block:last-child {
+  margin-bottom: 0;
+}
+
+.journal-heading {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--border-subtle);
+}
+
+.journal-heading-win {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.journal-heading-lesson {
+  color: var(--text-muted);
+  border-color: var(--text-muted);
+}
+
+.journal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.journal-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  font-size: 0.88rem;
+}
+
+.journal-text {
+  flex: 1;
+  color: var(--text);
+}
+
+.btn-sm {
+  padding: 8px 14px;
+  font-size: 0.82rem;
+}
+
 /* === Responsive — stack on narrow screens === */
 @media (max-width: 800px) {
   #app {

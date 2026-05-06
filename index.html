@@ -12,7 +12,12 @@
 <body>
   <div id="app">
 
-    <!-- Top Bar: branding + clock -->
+    <!-- Storage Warning (shown if localStorage unavailable) -->
+    <div id="storage-warning" class="storage-warning hidden">
+      Your browser is blocking data storage (common with file:// URLs). To fix this, serve the app with a local server or open it in Chrome. Your data won't persist between reloads until this is resolved.
+    </div>
+
+    <!-- Top Bar -->
     <header id="header">
       <div class="header-left">
         <h1 class="app-title">Day by Day</h1>
@@ -26,6 +31,19 @@
       </div>
     </header>
 
+    <!-- Carryover Banner (shown when yesterday's goals carry forward) -->
+    <div id="carryover-banner" class="carryover-banner hidden">
+      <div class="carryover-header">
+        <span class="carryover-icon">&#x1F504;</span>
+        <strong>Welcome back!</strong> These goals carried over from yesterday:
+      </div>
+      <ul id="carryover-list" class="carryover-list"></ul>
+      <div class="carryover-actions">
+        <button id="carryover-accept" class="btn btn-primary">Continue These Goals</button>
+        <button id="carryover-dismiss" class="btn btn-ghost">Start Fresh</button>
+      </div>
+    </div>
+
     <!-- Motivational banner -->
     <div id="nudge-banner" class="nudge-banner hidden">
       <span id="nudge-icon">&#x1F331;</span>
@@ -36,8 +54,10 @@
     <!-- Two-column main -->
     <main class="two-col">
 
-      <!-- LEFT COLUMN — Goals -->
+      <!-- LEFT COLUMN -->
       <div class="col col-goals">
+
+        <!-- Goals -->
         <section id="goals-section" class="card">
           <div class="card-header">
             <div class="card-icon goal-icon">&#x1F3AF;</div>
@@ -53,13 +73,13 @@
           </div>
         </section>
 
-        <!-- Daily Summary below goals on left -->
+        <!-- Today's Progress -->
         <section id="summary-section" class="card card-summary">
           <div class="card-header">
             <div class="card-icon summary-icon">&#x1F4CA;</div>
             <div>
               <h2>Today's Progress</h2>
-              <p class="card-subtitle">You're doing great — keep going</p>
+              <p class="card-subtitle">Every bit counts</p>
             </div>
           </div>
           <div id="summary-content">
@@ -91,20 +111,23 @@
                 </svg>
                 <div class="ring-label">
                   <span class="ring-value" id="distraction-hours">0h</span>
-                  <span class="ring-caption">Distraction Hours</span>
+                  <span class="ring-caption">Distraction Hrs</span>
                 </div>
               </div>
             </div>
             <div id="summary-breakdown"></div>
             <div class="summary-actions">
-              <button id="reset-day-btn" class="btn btn-ghost">Start Fresh Day</button>
+              <button id="reset-day-btn" class="btn btn-ghost">Archive &amp; Start Fresh</button>
             </div>
           </div>
         </section>
+
       </div>
 
-      <!-- RIGHT COLUMN — Distractions -->
+      <!-- RIGHT COLUMN -->
       <div class="col col-distractions">
+
+        <!-- Distractions -->
         <section id="distractions-section" class="card card-distraction">
           <div class="card-header">
             <div class="card-icon distraction-icon">&#x1F6AB;</div>
@@ -120,19 +143,49 @@
           </div>
         </section>
 
-        <!-- Encouragement card -->
-        <section class="card card-encouragement">
-          <div id="encouragement-text" class="encouragement-body">
-            Every hour you spend on your goals instead of distractions compounds into something remarkable. Trust the process.
+        <!-- Journal: Wins & Lessons -->
+        <section id="journal-section" class="card card-journal">
+          <div class="card-header">
+            <div class="card-icon journal-icon">&#x1F4DD;</div>
+            <div>
+              <h2>Today's Journal</h2>
+              <p class="card-subtitle">Celebrate wins. Learn from the rest.</p>
+            </div>
+          </div>
+
+          <div class="journal-block">
+            <h3 class="journal-heading journal-heading-win">Wins</h3>
+            <div id="successes-list" class="journal-list"></div>
+            <div class="add-task-row">
+              <input type="text" id="success-input" placeholder="What went well today?" maxlength="200">
+              <button id="add-success-btn" class="btn btn-primary btn-sm">Add</button>
+            </div>
+          </div>
+
+          <div class="journal-block">
+            <h3 class="journal-heading journal-heading-lesson">Lessons</h3>
+            <div id="failures-list" class="journal-list"></div>
+            <div class="add-task-row">
+              <input type="text" id="failure-input" placeholder="What would you do differently?" maxlength="200">
+              <button id="add-failure-btn" class="btn btn-ghost btn-sm">Add</button>
+            </div>
           </div>
         </section>
+
+        <!-- Encouragement / Wisdom Card -->
+        <section class="card card-encouragement">
+          <div id="encouragement-text" class="encouragement-body">
+            You have roughly 4,000 weeks in a lifetime. This one counts. The work won't be perfect — it never is — but done beats imagined. Always.
+          </div>
+        </section>
+
       </div>
 
     </main>
 
     <!-- Notification permission prompt -->
     <div id="notification-prompt" class="notification-prompt hidden">
-      <p>Get gentle focus reminders throughout the day?</p>
+      <p>Get gentle focus reminders and wisdom nudges throughout the day?</p>
       <div class="prompt-actions">
         <button id="enable-notifications-btn" class="btn btn-primary">Enable Notifications</button>
         <button id="dismiss-notifications-btn" class="btn btn-ghost">Maybe Later</button>
@@ -140,11 +193,11 @@
     </div>
 
     <footer>
-      <p>Day by Day &mdash; one day at a time.</p>
+      <p>Day by Day &mdash; 4,000 weeks, one day at a time.</p>
     </footer>
   </div>
 
-  <script src="notifications.js"></script>
   <script src="app.js"></script>
+  <script src="notifications.js"></script>
 </body>
 </html>

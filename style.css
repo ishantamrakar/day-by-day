@@ -827,6 +827,18 @@ footer {
   gap: 10px;
 }
 
+/* === Carried-over goal hours badge === */
+.prev-hours-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-light);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* === Task Completion State === */
 .task-complete {
   background: var(--accent-light) !important;

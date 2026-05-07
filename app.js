@@ -31,6 +31,10 @@
   // --- State ---
   let state = loadState();
 
+  // --- Undo stack ---
+  // Each entry: { type: 'goal'|'distraction'|'success'|'failure', item, index }
+  const undoStack = [];
+
   // --- DOM ---
   const timeEl = document.getElementById('time');
   const dateEl = document.getElementById('date');
@@ -103,7 +107,7 @@
         if (p.date === getTodayString()) return p;
         archiveDay(p);
         const ns = getDefaultState();
-        ns._carryover = p.goals ? p.goals.filter(g => (g.progress || 0) < 100).map(g => ({ name: g.name, hours: 0, progress: g.progress || 0 })) : [];
+        ns._carryover = p.goals ? p.goals.filter(g => (g.progress || 0) < 100).map(g => ({ name: g.name, hours: 0, progress: g.progress || 0, prevHours: g.hours || 0 })) : [];
         return ns;
       }
     } catch (e) {}
@@ -139,14 +143,18 @@
     carryoverList.innerHTML = '';
     state._carryover.forEach(g => {
       const li = document.createElement('li');
-      li.textContent = `${g.name} (${g.progress}% done)`;
+      const hrs = g.prevHours > 0 ? ` — ${g.prevHours}h invested` : '';
+      li.textContent = `${g.name} (${g.progress}% done${hrs})`;
       carryoverList.appendChild(li);
     });
     carryoverBanner.classList.remove('hidden');
   }
 
   if (carryoverAccept) carryoverAccept.addEventListener('click', () => {
-    (state._carryover || []).forEach(g => { if (state.goals.length < MAX_GOALS) state.goals.push({ name: g.name, hours: 0, progress: g.progress }); });
+    (state._carryover || []).forEach(g => {
+      if (state.goals.length < MAX_GOALS)
+        state.goals.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0 });
+    });
     delete state._carryover;
     saveState();
     carryoverBanner.classList.add('hidden');
@@ -238,9 +246,20 @@
     deleteBtn.className = 'task-delete';
     deleteBtn.textContent = '×';
     deleteBtn.title = 'Remove';
-    deleteBtn.addEventListener('click', () => { state.goals.splice(index, 1); saveState(); render(); });
+    deleteBtn.addEventListener('click', () => {
+      undoStack.push({ type: 'goal', item: state.goals[index], index });
+      state.goals.splice(index, 1); saveState(); render();
+    });
 
-    topRow.append(number, name, deleteBtn);
+    if (goal.prevHours > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'prev-hours-badge';
+      badge.title = 'Hours invested in previous sessions';
+      badge.textContent = `${goal.prevHours}h prev`;
+      topRow.append(number, name, badge, deleteBtn);
+    } else {
+      topRow.append(number, name, deleteBtn);
+    }
 
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
@@ -306,7 +325,10 @@
     deleteBtn.className = 'task-delete';
     deleteBtn.textContent = '×';
     deleteBtn.title = 'Remove';
-    deleteBtn.addEventListener('click', () => { state.distractions.splice(index, 1); saveState(); render(); });
+    deleteBtn.addEventListener('click', () => {
+      undoStack.push({ type: 'distraction', item: state.distractions[index], index });
+      state.distractions.splice(index, 1); saveState(); render();
+    });
 
     topRow.append(number, name, deleteBtn);
 
@@ -349,7 +371,10 @@
     const del = document.createElement('button');
     del.className = 'task-delete';
     del.textContent = '×';
-    del.addEventListener('click', () => { state[type].splice(index, 1); saveState(); renderJournal(); });
+    del.addEventListener('click', () => {
+      undoStack.push({ type, item: state[type][index], index });
+      state[type].splice(index, 1); saveState(); renderJournal();
+    });
     row.append(span, del);
     return row;
   }
@@ -535,6 +560,54 @@
       });
     } catch (e) {}
   }
+
+  // =========================================================
+  // UNDO — Cmd+Z / Ctrl+Z restores last deleted item
+  // =========================================================
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+      if (!undoStack.length) return;
+      e.preventDefault();
+      const { type, item, index } = undoStack.pop();
+      if (type === 'goal') {
+        state.goals.splice(Math.min(index, state.goals.length), 0, item);
+        saveState(); render();
+      } else if (type === 'distraction') {
+        state.distractions.splice(Math.min(index, state.distractions.length), 0, item);
+        saveState(); render();
+      } else if (type === 'successes' || type === 'failures') {
+        state[type].splice(Math.min(index, state[type].length), 0, item);
+        saveState(); renderJournal();
+      }
+    }
+  });
+
+  // =========================================================
+  // AUTO NEW-DAY DETECTION — checks on every clock tick
+  // =========================================================
+  function checkForNewDay() {
+    const today = getTodayString();
+    if (state.date !== today) {
+      archiveDay(state);
+      const ns = getDefaultState();
+      ns._carryover = state.goals
+        ? state.goals.filter(g => (g.progress || 0) < 100).map(g => ({ name: g.name, hours: 0, progress: g.progress || 0, prevHours: g.hours || 0 }))
+        : [];
+      state = ns;
+      saveState();
+      render();
+      showCarryoverIfNeeded();
+      updateClock();
+    }
+  }
+  // Syncs to the same minute boundary as the clock, then checks every 60s
+  (function scheduleNewDayCheck() {
+    const msLeft = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
+    setTimeout(() => {
+      checkForNewDay();
+      setInterval(checkForNewDay, 60000);
+    }, msLeft);
+  })();
 
   // =========================================================
   // PUBLIC API

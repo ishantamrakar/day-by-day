@@ -713,7 +713,7 @@ footer {
   color: var(--text-muted);
 }
 
-/* === Card Drag & Drop === */
+/* === Card Drag & Drop (pointer-events based) === */
 .card-drag-handle {
   position: absolute;
   top: 12px;
@@ -726,6 +726,7 @@ footer {
   user-select: none;
   line-height: 1;
   padding: 4px;
+  touch-action: none;
 }
 
 .card-drag-handle-light {
@@ -745,12 +746,61 @@ footer {
 }
 
 .card-dragging {
-  opacity: 0.5;
-  transform: scale(0.98);
+  opacity: 0.15;
+  transform: scale(0.97);
+  pointer-events: none;
 }
 
-.card-drag-over {
-  box-shadow: 0 0 0 2px var(--primary), var(--shadow-hover) !important;
+/* Animated drop indicator between cards */
+.card-drop-indicator {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--primary);
+  margin: 4px 0;
+  animation: indicatorPop 0.15s ease;
+}
+
+@keyframes indicatorPop {
+  from { opacity: 0; transform: scaleX(0.6); }
+  to   { opacity: 1; transform: scaleX(1); }
+}
+
+/* === Task Drag & Drop === */
+.task-drag-handle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--transition);
+  user-select: none;
+  letter-spacing: -1px;
+  padding: 4px 2px;
+  flex-shrink: 0;
+  touch-action: none;
+  line-height: 1;
+}
+
+.task-item:hover .task-drag-handle {
+  opacity: 0.4;
+}
+
+.task-drag-handle:hover {
+  opacity: 0.8 !important;
+  cursor: grab;
+}
+
+.task-dragging {
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+/* Animated drop indicator between tasks */
+.task-drop-indicator {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+  margin: 2px 0;
+  animation: indicatorPop 0.12s ease;
 }
 
 /* === Journal text editable hover === */
@@ -852,6 +902,156 @@ footer {
 
 .task-complete .task-number {
   background: var(--accent);
+}
+
+@keyframes goalComplete {
+  0%   { transform: scale(1); opacity: 1; }
+  40%  { transform: scale(1.04); background: var(--accent-light); }
+  100% { transform: scale(0.96); opacity: 0; }
+}
+
+.task-completing {
+  animation: goalComplete 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* === Completed Goals Card === */
+.card-completed {
+  background: linear-gradient(135deg, var(--accent-light) 0%, #d4edda 100%);
+  border: 1.5px solid rgba(64, 145, 108, 0.2);
+}
+
+.completed-icon {
+  background: #d4edda;
+}
+
+.completed-goal-item {
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+
+.task-check-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.completed-hours {
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 600;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.btn-uncomplete {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: var(--font);
+  flex-shrink: 0;
+}
+
+.btn-uncomplete:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* === Backlog Card === */
+.card-backlog {
+  background: var(--surface);
+}
+
+.backlog-icon {
+  background: #eef2ff;
+}
+
+.backlog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.backlog-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  border: 1px solid transparent;
+  transition: all var(--transition);
+}
+
+.backlog-item:hover {
+  border-color: var(--border);
+}
+
+.backlog-name {
+  flex: 1;
+  font-size: 0.88rem;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background var(--transition);
+}
+
+.backlog-name:hover {
+  background: rgba(45, 106, 79, 0.06);
+}
+
+.backlog-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-promote {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-light);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: var(--font);
+}
+
+.btn-promote:hover {
+  background: var(--primary);
+  color: white;
+  transform: scale(1.03);
+}
+
+/* Summary breakdown done state */
+.breakdown-name-done {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.breakdown-bar-done {
+  background: linear-gradient(90deg, var(--accent), #52b788) !important;
 }
 
 /* === Journal === */

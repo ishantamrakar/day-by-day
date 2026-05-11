@@ -75,6 +75,18 @@
           </div>
         </section>
 
+        <section id="completed-section" class="card card-completed draggable-card hidden" data-card-id="completed">
+          <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
+          <div class="card-header">
+            <div class="card-icon completed-icon">&#x2705;</div>
+            <div>
+              <h2>Completed Today</h2>
+              <p class="card-subtitle">Every finish line crossed matters</p>
+            </div>
+          </div>
+          <div id="completed-list" class="task-list"></div>
+        </section>
+
         <section id="summary-section" class="card card-summary draggable-card" data-card-id="summary">
           <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
           <div class="card-header">
@@ -169,6 +181,22 @@
               <input type="text" id="failure-input" placeholder="What would you do differently?" maxlength="200">
               <button id="add-failure-btn" class="btn btn-ghost btn-sm">Add</button>
             </div>
+          </div>
+        </section>
+
+        <section id="backlog-section" class="card card-backlog draggable-card" data-card-id="backlog">
+          <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
+          <div class="card-header">
+            <div class="card-icon backlog-icon">&#x1F4CB;</div>
+            <div>
+              <h2>Backlog</h2>
+              <p class="card-subtitle">Queue up what comes next</p>
+            </div>
+          </div>
+          <div id="backlog-list" class="backlog-list"></div>
+          <div class="add-task-row">
+            <input type="text" id="backlog-input" placeholder="What's waiting in the wings?" maxlength="100">
+            <button id="add-backlog-btn" class="btn btn-ghost">Add</button>
           </div>
         </section>
 

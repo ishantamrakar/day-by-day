@@ -8,6 +8,7 @@
   const STORAGE_KEY = 'daybyday_data';
   const HISTORY_KEY = 'daybyday_history';
   const LAYOUT_KEY = 'daybyday_layout';
+  const BACKLOG_KEY = 'daybyday_backlog';
   const RING_CIRCUMFERENCE = 2 * Math.PI * 34;
 
   // --- Storage ---
@@ -30,15 +31,17 @@
 
   // --- State ---
   let state = loadState();
+  let backlog = loadBacklog();
 
   // --- Undo stack ---
-  // Each entry: { type: 'goal'|'distraction'|'success'|'failure', item, index }
   const undoStack = [];
 
   // --- DOM ---
   const timeEl = document.getElementById('time');
   const dateEl = document.getElementById('date');
   const goalsListEl = document.getElementById('goals-list');
+  const completedListEl = document.getElementById('completed-list');
+  const completedSection = document.getElementById('completed-section');
   const distractionsListEl = document.getElementById('distractions-list');
   const goalInputEl = document.getElementById('goal-input');
   const addGoalBtn = document.getElementById('add-goal-btn');
@@ -65,9 +68,12 @@
   const carryoverAccept = document.getElementById('carryover-accept');
   const carryoverDismiss = document.getElementById('carryover-dismiss');
   const storageWarning = document.getElementById('storage-warning');
+  const backlogListEl = document.getElementById('backlog-list');
+  const backlogInputEl = document.getElementById('backlog-input');
+  const addBacklogBtn = document.getElementById('add-backlog-btn');
 
   // =========================================================
-  // CLOCK — syncs to system clock, updates on the exact minute
+  // CLOCK
   // =========================================================
   function updateClock() {
     const now = new Date();
@@ -78,12 +84,8 @@
     dateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   }
   updateClock();
-  // Sync to the next minute boundary, then tick every 60s
   const msUntilNextMinute = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
-  setTimeout(() => {
-    updateClock();
-    setInterval(updateClock, 60000);
-  }, msUntilNextMinute);
+  setTimeout(() => { updateClock(); setInterval(updateClock, 60000); }, msUntilNextMinute);
 
   // =========================================================
   // DATE / STATE MANAGEMENT
@@ -107,12 +109,25 @@
         if (p.date === getTodayString()) return p;
         archiveDay(p);
         const ns = getDefaultState();
-        ns._carryover = p.goals ? p.goals.filter(g => (g.progress || 0) < 100).map(g => ({ name: g.name, hours: 0, progress: g.progress || 0, prevHours: g.hours || 0 })) : [];
+        ns._carryover = p.goals
+          ? p.goals.filter(g => (g.progress || 0) < 100).map(g => ({
+              name: g.name, hours: 0, progress: g.progress || 0, prevHours: g.hours || 0
+            }))
+          : [];
         return ns;
       }
     } catch (e) {}
     return getDefaultState();
   }
+
+  function loadBacklog() {
+    try {
+      const raw = storageGet(BACKLOG_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+
+  function saveBacklog() { storageSet(BACKLOG_KEY, JSON.stringify(backlog)); }
 
   function archiveDay(ds) {
     if (!ds || !ds.date) return;
@@ -169,13 +184,13 @@
   if (storageWarning && !storageAvailable) storageWarning.classList.remove('hidden');
 
   // =========================================================
-  // INLINE EDITING — click any task name to edit it
+  // INLINE EDITING
   // =========================================================
   function makeEditable(spanEl, onSave) {
     spanEl.style.cursor = 'pointer';
     spanEl.title = 'Click to edit';
     spanEl.addEventListener('click', () => {
-      if (spanEl.querySelector('input')) return; // already editing
+      if (spanEl.querySelector('input')) return;
       const current = spanEl.textContent;
       const input = document.createElement('input');
       input.type = 'text';
@@ -201,7 +216,7 @@
   }
 
   // =========================================================
-  // PROGRESS SLIDER — filled track color
+  // PROGRESS SLIDER FILL
   // =========================================================
   function updateSliderFill(slider) {
     const val = slider.value;
@@ -217,25 +232,58 @@
     renderDistractions();
     renderJournal();
     renderSummary();
+    renderBacklog();
     updateAddButtonVisibility();
+  }
+
+  // Split goals into active (< 100%) and completed (= 100%)
+  function getActiveGoals() {
+    return state.goals.filter(g => (g.progress || 0) < 100);
+  }
+  function getCompletedGoals() {
+    return state.goals.filter(g => (g.progress || 0) >= 100);
   }
 
   function renderGoals() {
     goalsListEl.innerHTML = '';
-    state.goals.forEach((goal, i) => goalsListEl.appendChild(createGoalElement(goal, i)));
+    const active = getActiveGoals();
+    active.forEach((goal, i) => {
+      const realIndex = state.goals.indexOf(goal);
+      goalsListEl.appendChild(createGoalElement(goal, realIndex, i + 1));
+    });
+
+    // Completed section
+    const completed = getCompletedGoals();
+    if (completedSection) {
+      if (completed.length === 0) {
+        completedSection.classList.add('hidden');
+      } else {
+        completedSection.classList.remove('hidden');
+        completedListEl.innerHTML = '';
+        completed.forEach((goal, i) => {
+          const realIndex = state.goals.indexOf(goal);
+          completedListEl.appendChild(createCompletedGoalElement(goal, realIndex));
+        });
+      }
+    }
   }
 
-  function createGoalElement(goal, index) {
+  function createGoalElement(goal, index, displayNumber) {
     const item = document.createElement('div');
     item.className = 'task-item';
-    if ((goal.progress || 0) >= 100) item.classList.add('task-complete');
+    item.dataset.goalIndex = index;
 
     const topRow = document.createElement('div');
     topRow.className = 'task-top-row';
 
+    const dragHandle = document.createElement('span');
+    dragHandle.className = 'task-drag-handle';
+    dragHandle.textContent = '⋮⋮';
+    dragHandle.title = 'Drag to reorder';
+
     const number = document.createElement('span');
     number.className = 'task-number';
-    number.textContent = index + 1;
+    number.textContent = displayNumber;
 
     const name = document.createElement('span');
     name.className = 'task-name';
@@ -256,15 +304,14 @@
       badge.className = 'prev-hours-badge';
       badge.title = 'Hours invested in previous sessions';
       badge.textContent = `${goal.prevHours}h prev`;
-      topRow.append(number, name, badge, deleteBtn);
+      topRow.append(dragHandle, number, name, badge, deleteBtn);
     } else {
-      topRow.append(number, name, deleteBtn);
+      topRow.append(dragHandle, number, name, deleteBtn);
     }
 
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
 
-    // Hours
     const hg = document.createElement('div'); hg.className = 'log-group';
     const hl = document.createElement('label'); hl.textContent = 'Hours';
     const hi = document.createElement('input');
@@ -276,7 +323,6 @@
     });
     hg.append(hl, hi);
 
-    // Progress
     const pg = document.createElement('div'); pg.className = 'log-group';
     const pl = document.createElement('label'); pl.textContent = 'Progress';
     const ps = document.createElement('input');
@@ -289,28 +335,89 @@
       const val = parseInt(ps.value);
       pv.textContent = val + '%';
       state.goals[index].progress = val;
-      if (val >= 100) item.classList.add('task-complete'); else item.classList.remove('task-complete');
       updateSliderFill(ps);
-      saveState(); renderSummary();
+      saveState();
+      if (val >= 100) {
+        // Trigger completion animation then re-render
+        item.classList.add('task-completing');
+        setTimeout(() => render(), 350);
+      } else {
+        renderSummary();
+      }
     });
     pg.append(pl, ps, pv);
 
     logRow.append(hg, pg);
     item.append(topRow, logRow);
+
+    // Task-level drag & drop (pointer events)
+    setupTaskDrag(item, goalsListEl, 'goal');
+
+    return item;
+  }
+
+  function createCompletedGoalElement(goal, index) {
+    const item = document.createElement('div');
+    item.className = 'task-item task-complete completed-goal-item';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'task-top-row';
+
+    const check = document.createElement('span');
+    check.className = 'task-check-badge';
+    check.textContent = '✓';
+
+    const name = document.createElement('span');
+    name.className = 'task-name';
+    name.textContent = goal.name;
+
+    const hoursSpan = document.createElement('span');
+    hoursSpan.className = 'completed-hours';
+    hoursSpan.textContent = goal.hours > 0 ? `${goal.hours}h` : '';
+
+    const uncompleteBtn = document.createElement('button');
+    uncompleteBtn.className = 'btn-uncomplete';
+    uncompleteBtn.textContent = 'Reopen';
+    uncompleteBtn.title = 'Move back to active goals';
+    uncompleteBtn.addEventListener('click', () => {
+      state.goals[index].progress = 95;
+      saveState(); render();
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'task-delete';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', () => {
+      undoStack.push({ type: 'goal', item: state.goals[index], index });
+      state.goals.splice(index, 1); saveState(); render();
+    });
+
+    topRow.append(check, name, hoursSpan, uncompleteBtn, deleteBtn);
+    item.append(topRow);
     return item;
   }
 
   function renderDistractions() {
     distractionsListEl.innerHTML = '';
-    state.distractions.forEach((d, i) => distractionsListEl.appendChild(createDistractionElement(d, i)));
+    state.distractions.forEach((d, i) => {
+      const el = createDistractionElement(d, i);
+      distractionsListEl.appendChild(el);
+      setupTaskDrag(el, distractionsListEl, 'distraction');
+    });
   }
 
   function createDistractionElement(dist, index) {
     const item = document.createElement('div');
     item.className = 'task-item distraction';
+    item.dataset.distIndex = index;
 
     const topRow = document.createElement('div');
     topRow.className = 'task-top-row';
+
+    const dragHandle = document.createElement('span');
+    dragHandle.className = 'task-drag-handle';
+    dragHandle.textContent = '⋮⋮';
+    dragHandle.title = 'Drag to reorder';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -330,7 +437,7 @@
       state.distractions.splice(index, 1); saveState(); render();
     });
 
-    topRow.append(number, name, deleteBtn);
+    topRow.append(dragHandle, number, name, deleteBtn);
 
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
@@ -349,6 +456,69 @@
     item.append(topRow, logRow);
     return item;
   }
+
+  // =========================================================
+  // BACKLOG
+  // =========================================================
+  function renderBacklog() {
+    if (!backlogListEl) return;
+    backlogListEl.innerHTML = '';
+    backlog.forEach((item, i) => backlogListEl.appendChild(createBacklogElement(item, i)));
+    updateAddButtonVisibility();
+  }
+
+  function createBacklogElement(item, index) {
+    const row = document.createElement('div');
+    row.className = 'backlog-item';
+
+    const name = document.createElement('span');
+    name.className = 'backlog-name';
+    name.textContent = item.name;
+    makeEditable(name, newVal => { backlog[index].name = newVal; saveBacklog(); });
+
+    const actions = document.createElement('div');
+    actions.className = 'backlog-actions';
+
+    const activeCount = getActiveGoals().length;
+    if (activeCount < MAX_GOALS) {
+      const promoteBtn = document.createElement('button');
+      promoteBtn.className = 'btn-promote';
+      promoteBtn.textContent = '↑ Promote';
+      promoteBtn.title = 'Move to active goals';
+      promoteBtn.addEventListener('click', () => {
+        if (getActiveGoals().length >= MAX_GOALS) return;
+        state.goals.push({ name: item.name, hours: 0, progress: 0 });
+        backlog.splice(index, 1);
+        saveState(); saveBacklog(); render();
+        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
+      });
+      actions.appendChild(promoteBtn);
+    }
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'task-delete';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', () => {
+      undoStack.push({ type: 'backlog', item: backlog[index], index });
+      backlog.splice(index, 1); saveBacklog(); renderBacklog();
+    });
+
+    actions.appendChild(deleteBtn);
+    row.append(name, actions);
+    return row;
+  }
+
+  function addBacklogItem() {
+    if (!backlogInputEl) return;
+    const n = backlogInputEl.value.trim();
+    if (!n) return;
+    backlog.push({ name: n });
+    backlogInputEl.value = '';
+    saveBacklog(); renderBacklog();
+  }
+
+  if (addBacklogBtn) addBacklogBtn.addEventListener('click', addBacklogItem);
+  if (backlogInputEl) backlogInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addBacklogItem(); });
 
   // =========================================================
   // JOURNAL
@@ -400,11 +570,14 @@
   }
 
   function renderSummary() {
-    const gh = state.goals.reduce((s, g) => s + (g.hours || 0), 0);
+    const allGoals = state.goals;
+    const gh = allGoals.reduce((s, g) => s + (g.hours || 0), 0);
     totalHoursEl.textContent = gh > 0 ? gh.toFixed(1) + 'h' : '0h';
     const dh = state.distractions.reduce((s, d) => s + (d.hours || 0), 0);
     distractionHoursEl.textContent = dh > 0 ? dh.toFixed(1) + 'h' : '0h';
-    const ap = state.goals.length > 0 ? Math.round(state.goals.reduce((s, g) => s + (g.progress || 0), 0) / state.goals.length) : 0;
+    const ap = allGoals.length > 0
+      ? Math.round(allGoals.reduce((s, g) => s + (g.progress || 0), 0) / allGoals.length)
+      : 0;
     avgProgressEl.textContent = ap + '%';
 
     setRingProgress(ringProgress, ap / 100);
@@ -412,12 +585,14 @@
     setRingProgress(ringDistractionHours, Math.min(dh / 4, 1));
 
     summaryBreakdownEl.innerHTML = '';
-    state.goals.forEach(g => {
+    allGoals.forEach(g => {
       const row = document.createElement('div'); row.className = 'breakdown-item';
       const n = document.createElement('span'); n.className = 'breakdown-name'; n.textContent = g.name;
+      if ((g.progress || 0) >= 100) n.classList.add('breakdown-name-done');
       const h = document.createElement('span'); h.className = 'breakdown-hours'; h.textContent = (g.hours || 0) + 'h';
       const bc = document.createElement('div'); bc.className = 'breakdown-bar-container';
       const b = document.createElement('div'); b.className = 'breakdown-bar'; b.style.width = (g.progress || 0) + '%';
+      if ((g.progress || 0) >= 100) b.classList.add('breakdown-bar-done');
       bc.appendChild(b);
       row.append(n, h, bc);
       summaryBreakdownEl.appendChild(row);
@@ -429,6 +604,17 @@
   function updateEncouragement(ap, gh, dh) {
     const el = document.getElementById('encouragement-text');
     if (!el) return;
+
+    const completed = getCompletedGoals();
+    if (completed.length > 0 && completed.length === state.goals.length) {
+      el.textContent = `All ${completed.length} goals done. You didn't just plan a good day — you lived one. That's rare.`;
+      return;
+    }
+
+    if (completed.length > 0) {
+      el.textContent = `${completed.length} goal${completed.length > 1 ? 's' : ''} completed. The momentum is real. Carry it forward.`;
+      return;
+    }
 
     if (dh > 0 && state.distractions.length > 0 && state.goals.length > 0) {
       const td = state.distractions.reduce((m, d) => (d.hours || 0) > (m.hours || 0) ? d : m, state.distractions[0]);
@@ -448,7 +634,8 @@
   }
 
   function updateAddButtonVisibility() {
-    addGoalRow.classList.toggle('hidden', state.goals.length >= MAX_GOALS);
+    const activeGoalCount = getActiveGoals().length;
+    addGoalRow.classList.toggle('hidden', activeGoalCount >= MAX_GOALS);
     addDistractionRow.classList.toggle('hidden', state.distractions.length >= MAX_DISTRACTIONS);
   }
 
@@ -456,7 +643,8 @@
   // ADDING TASKS
   // =========================================================
   function addGoal() {
-    const n = goalInputEl.value.trim(); if (!n || state.goals.length >= MAX_GOALS) return;
+    const n = goalInputEl.value.trim();
+    if (!n || getActiveGoals().length >= MAX_GOALS) return;
     state.goals.push({ name: n, hours: 0, progress: 0 }); goalInputEl.value = '';
     saveState(); render();
     if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
@@ -479,63 +667,240 @@
   });
 
   // =========================================================
-  // DRAG & DROP — reorder cards across/within columns
+  // SMOOTH DRAG & DROP — Pointer Events (cards)
   // =========================================================
-  let draggedCard = null;
+  let activeDrag = null; // { ghost, source, list, type, startX, startY, origRect }
 
-  document.querySelectorAll('.draggable-card').forEach(card => {
+  function setupCardDrag(card) {
     const handle = card.querySelector('.card-drag-handle');
     if (!handle) return;
 
-    handle.addEventListener('mousedown', () => { card.setAttribute('draggable', 'true'); });
-    card.addEventListener('dragend', () => { card.setAttribute('draggable', 'false'); });
-
-    card.addEventListener('dragstart', e => {
-      draggedCard = card;
-      card.classList.add('card-dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', card.dataset.cardId);
-    });
-
-    card.addEventListener('dragend', () => {
-      if (draggedCard) draggedCard.classList.remove('card-dragging');
-      draggedCard = null;
-      document.querySelectorAll('.card-drag-over').forEach(el => el.classList.remove('card-drag-over'));
-      saveCardLayout();
-    });
-
-    card.addEventListener('dragover', e => {
+    handle.addEventListener('pointerdown', e => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (card !== draggedCard) card.classList.add('card-drag-over');
+      startCardDrag(e, card);
     });
+  }
 
-    card.addEventListener('dragleave', () => { card.classList.remove('card-drag-over'); });
+  function startCardDrag(e, card) {
+    const rect = card.getBoundingClientRect();
 
-    card.addEventListener('drop', e => {
-      e.preventDefault();
-      card.classList.remove('card-drag-over');
-      if (!draggedCard || draggedCard === card) return;
-      const targetCol = card.parentElement;
-      const rect = card.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      if (e.clientY < midY) {
-        targetCol.insertBefore(draggedCard, card);
-      } else {
-        targetCol.insertBefore(draggedCard, card.nextSibling);
+    const ghost = card.cloneNode(true);
+    ghost.style.cssText = `
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      height: ${rect.height}px;
+      opacity: 0.85;
+      pointer-events: none;
+      z-index: 9999;
+      transform: scale(1.02) rotate(1deg);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+      transition: transform 0.1s ease;
+      border-radius: 16px;
+    `;
+    document.body.appendChild(ghost);
+
+    card.classList.add('card-dragging');
+
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    activeDrag = { ghost, card, offsetX, offsetY, type: 'card' };
+
+    document.addEventListener('pointermove', onCardDragMove);
+    document.addEventListener('pointerup', onCardDragEnd, { once: true });
+  }
+
+  function onCardDragMove(e) {
+    if (!activeDrag || activeDrag.type !== 'card') return;
+    const { ghost, card, offsetX, offsetY } = activeDrag;
+
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    ghost.style.left = x + 'px';
+    ghost.style.top = y + 'px';
+
+    // Find the column and insertion point under cursor
+    const midX = e.clientX;
+    const midY = e.clientY;
+
+    document.querySelectorAll('.card-drop-indicator').forEach(el => el.remove());
+
+    const cols = Array.from(document.querySelectorAll('.col'));
+    for (const col of cols) {
+      const colRect = col.getBoundingClientRect();
+      if (midX < colRect.left || midX > colRect.right) continue;
+
+      const siblings = Array.from(col.querySelectorAll('.draggable-card:not(.card-dragging)'));
+      let insertBefore = null;
+
+      for (const sib of siblings) {
+        const sibRect = sib.getBoundingClientRect();
+        if (midY < sibRect.top + sibRect.height / 2) {
+          insertBefore = sib;
+          break;
+        }
       }
-    });
-  });
 
-  // Also allow dropping on empty space in columns
-  document.querySelectorAll('.col').forEach(col => {
-    col.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-    col.addEventListener('drop', e => {
+      // Show indicator
+      const indicator = document.createElement('div');
+      indicator.className = 'card-drop-indicator';
+      if (insertBefore) {
+        col.insertBefore(indicator, insertBefore);
+      } else {
+        col.appendChild(indicator);
+      }
+      activeDrag.targetCol = col;
+      activeDrag.insertBefore = insertBefore;
+      break;
+    }
+  }
+
+  function onCardDragEnd(e) {
+    document.removeEventListener('pointermove', onCardDragMove);
+    if (!activeDrag || activeDrag.type !== 'card') { activeDrag = null; return; }
+
+    const { ghost, card, targetCol, insertBefore } = activeDrag;
+    ghost.remove();
+    document.querySelectorAll('.card-drop-indicator').forEach(el => el.remove());
+    card.classList.remove('card-dragging');
+
+    if (targetCol) {
+      if (insertBefore) {
+        targetCol.insertBefore(card, insertBefore);
+      } else {
+        targetCol.appendChild(card);
+      }
+    }
+
+    saveCardLayout();
+    activeDrag = null;
+  }
+
+  // =========================================================
+  // SMOOTH DRAG & DROP — Task rows within lists
+  // =========================================================
+  function setupTaskDrag(item, list, type) {
+    const handle = item.querySelector('.task-drag-handle');
+    if (!handle) return;
+
+    handle.addEventListener('pointerdown', e => {
+      // Don't drag if clicking inside an input
+      if (e.target.tagName === 'INPUT') return;
       e.preventDefault();
-      if (draggedCard && !col.contains(draggedCard)) col.appendChild(draggedCard);
+      startTaskDrag(e, item, list, type);
     });
-  });
+  }
 
+  function startTaskDrag(e, item, list, type) {
+    const rect = item.getBoundingClientRect();
+
+    const ghost = item.cloneNode(true);
+    ghost.style.cssText = `
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      opacity: 0.88;
+      pointer-events: none;
+      z-index: 9998;
+      transform: scale(1.02);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.14);
+      border-radius: 12px;
+      background: white;
+    `;
+    document.body.appendChild(ghost);
+
+    item.classList.add('task-dragging');
+
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    activeDrag = { ghost, item, list, type, offsetX, offsetY, dragType: 'task' };
+
+    document.addEventListener('pointermove', onTaskDragMove);
+    document.addEventListener('pointerup', onTaskDragEnd, { once: true });
+  }
+
+  function onTaskDragMove(e) {
+    if (!activeDrag || activeDrag.dragType !== 'task') return;
+    const { ghost, item, list, offsetX, offsetY } = activeDrag;
+
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    ghost.style.left = x + 'px';
+    ghost.style.top = y + 'px';
+
+    // Find insertion point
+    document.querySelectorAll('.task-drop-indicator').forEach(el => el.remove());
+
+    const siblings = Array.from(list.querySelectorAll('.task-item:not(.task-dragging)'));
+    let insertBefore = null;
+
+    for (const sib of siblings) {
+      const sibRect = sib.getBoundingClientRect();
+      if (e.clientY < sibRect.top + sibRect.height / 2) {
+        insertBefore = sib;
+        break;
+      }
+    }
+
+    const indicator = document.createElement('div');
+    indicator.className = 'task-drop-indicator';
+    if (insertBefore) {
+      list.insertBefore(indicator, insertBefore);
+    } else {
+      list.appendChild(indicator);
+    }
+
+    activeDrag.insertBefore = insertBefore;
+  }
+
+  function onTaskDragEnd() {
+    document.removeEventListener('pointermove', onTaskDragMove);
+    if (!activeDrag || activeDrag.dragType !== 'task') { activeDrag = null; return; }
+
+    const { ghost, item, list, type, insertBefore } = activeDrag;
+    ghost.remove();
+    document.querySelectorAll('.task-drop-indicator').forEach(el => el.remove());
+    item.classList.remove('task-dragging');
+
+    // Reorder state array based on visual DOM position
+    const siblings = Array.from(list.querySelectorAll('.task-item:not(.task-dragging)'));
+    const draggingIndex = parseInt(item.dataset.goalIndex ?? item.dataset.distIndex ?? -1);
+    if (draggingIndex === -1) { activeDrag = null; return; }
+
+    let newIndex;
+    if (insertBefore) {
+      const targetIndex = parseInt(insertBefore.dataset.goalIndex ?? insertBefore.dataset.distIndex ?? 0);
+      newIndex = draggingIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    } else {
+      // Drop at end — after splice the array is 1 shorter, so length - 1 is the last slot
+      newIndex = (type === 'goal' ? state.goals : state.distractions).length - 1;
+    }
+
+    if (type === 'goal') {
+      const arr = state.goals;
+      const [moved] = arr.splice(draggingIndex, 1);
+      const clampedIndex = Math.min(Math.max(0, newIndex), arr.length);
+      arr.splice(clampedIndex, 0, moved);
+      saveState();
+    } else if (type === 'distraction') {
+      const arr = state.distractions;
+      const [moved] = arr.splice(draggingIndex, 1);
+      const clampedIndex = Math.min(Math.max(0, newIndex), arr.length);
+      arr.splice(clampedIndex, 0, moved);
+      saveState();
+    }
+
+    activeDrag = null;
+    render();
+  }
+
+  // =========================================================
+  // CARD LAYOUT
+  // =========================================================
   function saveCardLayout() {
     const layout = {};
     document.querySelectorAll('.col').forEach(col => {
@@ -561,8 +926,12 @@
     } catch (e) {}
   }
 
+  function initCardDragHandles() {
+    document.querySelectorAll('.draggable-card').forEach(card => setupCardDrag(card));
+  }
+
   // =========================================================
-  // UNDO — Cmd+Z / Ctrl+Z restores last deleted item
+  // UNDO — Cmd+Z / Ctrl+Z
   // =========================================================
   document.addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
@@ -578,12 +947,15 @@
       } else if (type === 'successes' || type === 'failures') {
         state[type].splice(Math.min(index, state[type].length), 0, item);
         saveState(); renderJournal();
+      } else if (type === 'backlog') {
+        backlog.splice(Math.min(index, backlog.length), 0, item);
+        saveBacklog(); renderBacklog();
       }
     }
   });
 
   // =========================================================
-  // AUTO NEW-DAY DETECTION — checks on every clock tick
+  // AUTO NEW-DAY DETECTION
   // =========================================================
   function checkForNewDay() {
     const today = getTodayString();
@@ -600,13 +972,9 @@
       updateClock();
     }
   }
-  // Syncs to the same minute boundary as the clock, then checks every 60s
   (function scheduleNewDayCheck() {
     const msLeft = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
-    setTimeout(() => {
-      checkForNewDay();
-      setInterval(checkForNewDay, 60000);
-    }, msLeft);
+    setTimeout(() => { checkForNewDay(); setInterval(checkForNewDay, 60000); }, msLeft);
   })();
 
   // =========================================================
@@ -625,5 +993,6 @@
   restoreCardLayout();
   render();
   showCarryoverIfNeeded();
+  initCardDragHandles();
 
 })();

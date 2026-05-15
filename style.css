@@ -16,6 +16,12 @@
   --secondary-light: #fff5e6;
   --secondary-glow: rgba(255, 159, 28, 0.1);
   --accent-light: #eaf7f0;
+
+  /* Semantic ring colors */
+  --ring-distraction: #F4A0A0;
+  --ring-distraction-light: #fef2f2;
+  --ring-quick: #FF9F1C;
+  --ring-quick-light: #fff5e6;
   --border: rgba(45, 106, 79, 0.1);
   --border-subtle: rgba(0, 0, 0, 0.04);
 
@@ -143,7 +149,7 @@ body {
 }
 
 .card-summary {
-  background: linear-gradient(135deg, var(--surface) 0%, var(--primary-light) 100%);
+  background: linear-gradient(160deg, #e8e8e8 0%, #ffffff 60%);
 }
 
 .card-encouragement {
@@ -184,7 +190,7 @@ body {
 }
 
 .distraction-icon {
-  background: var(--secondary-light);
+  background: var(--ring-distraction-light);
 }
 
 .summary-icon {
@@ -229,11 +235,11 @@ body {
 }
 
 .task-item.distraction {
-  background: var(--secondary-light);
+  background: var(--ring-distraction-light);
 }
 
 .task-item.distraction:hover {
-  border-color: rgba(255, 159, 28, 0.2);
+  border-color: rgba(244, 160, 160, 0.35);
 }
 
 /* === Task Top Row === */
@@ -258,7 +264,7 @@ body {
 }
 
 .distraction .task-number {
-  background: var(--secondary);
+  background: var(--ring-distraction);
   color: white;
 }
 
@@ -357,8 +363,8 @@ body {
 }
 
 .distraction .hours-input:focus {
-  border-color: var(--secondary);
-  box-shadow: 0 0 0 3px var(--secondary-glow);
+  border-color: var(--ring-distraction);
+  box-shadow: 0 0 0 3px rgba(244, 160, 160, 0.2);
 }
 
 .progress-slider {
@@ -475,6 +481,16 @@ body {
   box-shadow: 0 4px 12px rgba(255, 159, 28, 0.25);
 }
 
+.btn-distraction {
+  background: var(--ring-distraction);
+  color: white;
+}
+
+.btn-distraction:hover {
+  background: #e08080;
+  box-shadow: 0 4px 12px rgba(244, 160, 160, 0.35);
+}
+
 .btn-ghost {
   background: transparent;
   color: var(--text-muted);
@@ -531,7 +547,11 @@ body {
 }
 
 .ring-fill-distraction {
-  stroke: var(--secondary);
+  stroke: var(--ring-distraction);
+}
+
+.ring-fill-quick {
+  stroke: var(--ring-quick);
 }
 
 .ring-label {
@@ -915,40 +935,185 @@ footer {
   animation: goalComplete 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-/* === Completed Goals Card === */
-.card-completed {
-  background: linear-gradient(135deg, var(--accent-light) 0%, #d4edda 100%);
-  border: 1.5px solid rgba(64, 145, 108, 0.2);
+/* === Done Today Card === */
+.card-done {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
 }
 
-.completed-icon {
-  background: #d4edda;
+.done-icon {
+  background: #f0f0f0;
 }
 
-.completed-goal-item {
-  background: rgba(255, 255, 255, 0.7) !important;
+.done-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 14px;
 }
 
-.task-check-badge {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: white;
-  font-size: 0.75rem;
-  font-weight: 700;
+/* Groups */
+.done-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.done-group-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.done-group-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.done-group-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: var(--border);
+  color: var(--text-muted);
+  border-radius: 20px;
+  padding: 1px 7px;
+  line-height: 1.6;
+}
+
+.done-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Entrance animation */
+.done-item-entering {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+
+.done-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  transition: opacity 0.28s ease, transform 0.28s ease, border-color var(--transition);
+}
+
+.done-item:hover {
+  border-color: var(--border);
+}
+
+.done-item-goal {
+  background: rgba(64, 145, 108, 0.07);
+}
+
+.done-item-quick {
+  background: rgba(255, 159, 28, 0.06);
+}
+
+.done-item-name {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background var(--transition);
+}
+
+.done-item-goal .done-item-name {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.done-item-name:hover {
+  background: rgba(45, 106, 79, 0.06);
+}
+
+/* Hours pill shared shape — goal items get green, quick items get orange */
+.done-item-meta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border-radius: 20px;
+  padding: 2px 9px;
+  flex-shrink: 0;
+  /* goal rows: green */
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+/* Hours badge on quick items — clickable to edit, orange/yellow palette */
+.done-hours-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #c97a00;
+  background: var(--ring-quick-light);
+  border-radius: 20px;
+  padding: 2px 9px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
   flex-shrink: 0;
 }
 
-.completed-hours {
-  font-size: 0.78rem;
-  color: var(--accent);
+.done-hours-badge--empty {
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  font-weight: 500;
+}
+
+.done-hours-badge:hover {
+  background: rgba(255, 159, 28, 0.2);
+  color: #a06400;
+}
+
+.done-hours-input {
+  width: 48px;
+  font-size: 0.8rem;
+  font-family: var(--font);
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  outline: none;
+  text-align: center;
+}
+
+/* Expand / collapse toggle */
+.done-expand-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.72rem;
   font-weight: 600;
-  margin-left: auto;
-  margin-right: 8px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  padding: 3px 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.done-expand-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.done-expand-btn--open {
+  color: var(--text-muted);
 }
 
 .btn-uncomplete {
@@ -1028,8 +1193,8 @@ footer {
 .btn-promote {
   font-size: 0.72rem;
   font-weight: 600;
-  color: var(--primary);
-  background: var(--primary-light);
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.05);
   border: none;
   border-radius: 6px;
   padding: 4px 9px;
@@ -1040,8 +1205,34 @@ footer {
 }
 
 .btn-promote:hover {
-  background: var(--primary);
-  color: white;
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--text);
+  transform: scale(1.03);
+}
+
+.btn-demote {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.05);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: var(--font);
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.task-item:hover .btn-demote {
+  opacity: 1;
+}
+
+.btn-demote:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--text);
   transform: scale(1.03);
 }
 

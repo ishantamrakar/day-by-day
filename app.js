@@ -40,8 +40,6 @@
   const timeEl = document.getElementById('time');
   const dateEl = document.getElementById('date');
   const goalsListEl = document.getElementById('goals-list');
-  const completedListEl = document.getElementById('completed-list');
-  const completedSection = document.getElementById('completed-section');
   const distractionsListEl = document.getElementById('distractions-list');
   const goalInputEl = document.getElementById('goal-input');
   const addGoalBtn = document.getElementById('add-goal-btn');
@@ -57,6 +55,8 @@
   const ringProgress = document.getElementById('ring-progress');
   const ringHours = document.getElementById('ring-hours');
   const ringDistractionHours = document.getElementById('ring-distraction-hours');
+  const ringQuickHours = document.getElementById('ring-quick-hours');
+  const quickHoursEl = document.getElementById('quick-hours');
   const successesListEl = document.getElementById('successes-list');
   const failuresListEl = document.getElementById('failures-list');
   const successInputEl = document.getElementById('success-input');
@@ -71,6 +71,10 @@
   const backlogListEl = document.getElementById('backlog-list');
   const backlogInputEl = document.getElementById('backlog-input');
   const addBacklogBtn = document.getElementById('add-backlog-btn');
+  const doneListEl = document.getElementById('done-list');
+  const doneSubtitle = document.getElementById('done-subtitle');
+  const quickInputEl = document.getElementById('quick-input');
+  const addQuickBtn = document.getElementById('add-quick-btn');
 
   // =========================================================
   // CLOCK
@@ -96,7 +100,7 @@
   }
 
   function getDefaultState() {
-    return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [] };
+    return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [], quickDone: [] };
   }
 
   function loadState() {
@@ -106,6 +110,7 @@
         const p = JSON.parse(raw);
         p.successes = p.successes || [];
         p.failures = p.failures || [];
+        p.quickDone = p.quickDone || [];
         if (p.date === getTodayString()) return p;
         archiveDay(p);
         const ns = getDefaultState();
@@ -233,6 +238,7 @@
     renderJournal();
     renderSummary();
     renderBacklog();
+    renderDone();
     updateAddButtonVisibility();
   }
 
@@ -251,21 +257,6 @@
       const realIndex = state.goals.indexOf(goal);
       goalsListEl.appendChild(createGoalElement(goal, realIndex, i + 1));
     });
-
-    // Completed section
-    const completed = getCompletedGoals();
-    if (completedSection) {
-      if (completed.length === 0) {
-        completedSection.classList.add('hidden');
-      } else {
-        completedSection.classList.remove('hidden');
-        completedListEl.innerHTML = '';
-        completed.forEach((goal, i) => {
-          const realIndex = state.goals.indexOf(goal);
-          completedListEl.appendChild(createCompletedGoalElement(goal, realIndex));
-        });
-      }
-    }
   }
 
   function createGoalElement(goal, index, displayNumber) {
@@ -298,15 +289,28 @@
       state.goals.splice(index, 1); saveState(); render();
     });
 
+    const trailing = [];
     if (goal.prevHours > 0) {
       const badge = document.createElement('span');
       badge.className = 'prev-hours-badge';
       badge.title = 'Hours invested in previous sessions';
       badge.textContent = `${goal.prevHours}h prev`;
-      topRow.append(dragHandle, number, name, badge, deleteBtn);
-    } else {
-      topRow.append(dragHandle, number, name, deleteBtn);
+      trailing.push(badge);
     }
+    if (goal.fromBacklog) {
+      const demoteBtn = document.createElement('button');
+      demoteBtn.className = 'btn-demote';
+      demoteBtn.textContent = '↓ Backlog';
+      demoteBtn.title = 'Move back to backlog';
+      demoteBtn.addEventListener('click', () => {
+        backlog.push({ name: state.goals[index].name });
+        state.goals.splice(index, 1);
+        saveState(); saveBacklog(); render();
+      });
+      trailing.push(demoteBtn);
+    }
+    trailing.push(deleteBtn);
+    topRow.append(dragHandle, number, name, ...trailing);
 
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
@@ -337,7 +341,6 @@
       updateSliderFill(ps);
       saveState();
       if (val >= 100) {
-        // Trigger completion animation then re-render
         item.classList.add('task-completing');
         setTimeout(() => render(), 350);
       } else {
@@ -355,46 +358,215 @@
     return item;
   }
 
-  function createCompletedGoalElement(goal, index) {
-    const item = document.createElement('div');
-    item.className = 'task-item task-complete completed-goal-item';
+  // =========================================================
+  // DONE TODAY
+  // =========================================================
+  const DONE_VISIBLE = 3; // items shown before collapse
+  const doneExpanded = { goals: false, quick: false };
 
-    const topRow = document.createElement('div');
-    topRow.className = 'task-top-row';
+  function renderDone() {
+    if (!doneListEl) return;
+    doneListEl.innerHTML = '';
 
-    const check = document.createElement('span');
-    check.className = 'task-check-badge';
-    check.textContent = '✓';
+    const completedGoals = getCompletedGoals();
+    const quickItems = state.quickDone || [];
+    const total = completedGoals.length + quickItems.length;
+
+    if (doneSubtitle) {
+      doneSubtitle.textContent = total === 0
+        ? 'Nothing yet — go get one'
+        : `${total} thing${total !== 1 ? 's' : ''} done`;
+    }
+
+    if (total === 0) return;
+
+    // --- From Top 5 group ---
+    if (completedGoals.length > 0) {
+      doneListEl.appendChild(createDoneGroup({
+        label: 'From Top 5',
+        items: completedGoals,
+        expandKey: 'goals',
+        createItem: (goal, i) => {
+          const realIndex = state.goals.indexOf(goal);
+          return createDoneGoalItem(goal, realIndex, i === completedGoals.length - 1);
+        }
+      }));
+    }
+
+    // --- Quick wins group ---
+    if (quickItems.length > 0) {
+      doneListEl.appendChild(createDoneGroup({
+        label: 'Quick wins',
+        items: quickItems,
+        expandKey: 'quick',
+        createItem: (item, i) => createDoneQuickItem(item, i, i === quickItems.length - 1)
+      }));
+    }
+  }
+
+  function createDoneGroup({ label, items, expandKey, createItem }) {
+    const group = document.createElement('div');
+    group.className = 'done-group';
+
+    const header = document.createElement('div');
+    header.className = 'done-group-header';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'done-group-label';
+    labelEl.textContent = label;
+
+    const countEl = document.createElement('span');
+    countEl.className = 'done-group-count';
+    countEl.textContent = items.length;
+
+    header.append(labelEl, countEl);
+    group.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'done-group-list';
+
+    const isExpanded = doneExpanded[expandKey];
+    const showCount = isExpanded ? items.length : Math.min(DONE_VISIBLE, items.length);
+    const hiddenCount = items.length - DONE_VISIBLE;
+
+    items.slice(0, showCount).forEach((item, i) => {
+      list.appendChild(createItem(item, i));
+    });
+
+    group.appendChild(list);
+
+    // Expand/collapse toggle
+    if (hiddenCount > 0) {
+      const toggle = document.createElement('button');
+      toggle.className = 'done-expand-btn';
+
+      if (!isExpanded) {
+        toggle.textContent = `+ ${hiddenCount} more`;
+        toggle.addEventListener('click', () => {
+          doneExpanded[expandKey] = true;
+          renderDone();
+        });
+      } else {
+        toggle.textContent = 'Show less';
+        toggle.classList.add('done-expand-btn--open');
+        toggle.addEventListener('click', () => {
+          doneExpanded[expandKey] = false;
+          renderDone();
+        });
+      }
+
+      group.appendChild(toggle);
+    }
+
+    return group;
+  }
+
+  function createDoneGoalItem(goal, index, isLatest) {
+    const row = document.createElement('div');
+    row.className = 'done-item done-item-goal' + (isLatest ? ' done-item-entering' : '');
+    if (isLatest) requestAnimationFrame(() => row.classList.remove('done-item-entering'));
 
     const name = document.createElement('span');
-    name.className = 'task-name';
+    name.className = 'done-item-name';
     name.textContent = goal.name;
 
-    const hoursSpan = document.createElement('span');
-    hoursSpan.className = 'completed-hours';
-    hoursSpan.textContent = goal.hours > 0 ? `${goal.hours}h` : '';
+    const meta = document.createElement('span');
+    meta.className = 'done-item-meta';
+    meta.textContent = goal.hours > 0 ? `${goal.hours}h` : '';
 
-    const uncompleteBtn = document.createElement('button');
-    uncompleteBtn.className = 'btn-uncomplete';
-    uncompleteBtn.textContent = 'Reopen';
-    uncompleteBtn.title = 'Move back to active goals';
-    uncompleteBtn.addEventListener('click', () => {
+    const reopenBtn = document.createElement('button');
+    reopenBtn.className = 'btn-uncomplete';
+    reopenBtn.textContent = 'Reopen';
+    reopenBtn.addEventListener('click', () => {
       state.goals[index].progress = 95;
       saveState(); render();
     });
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'task-delete';
-    deleteBtn.textContent = '×';
-    deleteBtn.addEventListener('click', () => {
+    const del = document.createElement('button');
+    del.className = 'task-delete';
+    del.textContent = '×';
+    del.addEventListener('click', () => {
       undoStack.push({ type: 'goal', item: state.goals[index], index });
       state.goals.splice(index, 1); saveState(); render();
     });
 
-    topRow.append(check, name, hoursSpan, uncompleteBtn, deleteBtn);
-    item.append(topRow);
-    return item;
+    row.append(name, meta, reopenBtn, del);
+    return row;
   }
+
+  function createDoneQuickItem(item, index, isLatest) {
+    const row = document.createElement('div');
+    row.className = 'done-item done-item-quick' + (isLatest ? ' done-item-entering' : '');
+    if (isLatest) requestAnimationFrame(() => row.classList.remove('done-item-entering'));
+
+    const name = document.createElement('span');
+    name.className = 'done-item-name';
+    name.textContent = item.name;
+    makeEditable(name, newVal => { state.quickDone[index].name = newVal; saveState(); });
+
+    // Hours: show badge if set, otherwise show inline input
+    const hoursBadge = document.createElement('span');
+    hoursBadge.className = 'done-item-meta done-hours-badge';
+    hoursBadge.title = 'Click to edit hours';
+
+    function renderHoursBadge() {
+      hoursBadge.textContent = (item.hours > 0) ? `${item.hours}h` : '+ hrs';
+      hoursBadge.classList.toggle('done-hours-badge--empty', !(item.hours > 0));
+    }
+    renderHoursBadge();
+
+    hoursBadge.addEventListener('click', () => {
+      if (hoursBadge.querySelector('input')) return;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'done-hours-input';
+      input.min = '0'; input.max = '24'; input.step = '0.25';
+      input.value = item.hours || '';
+      input.placeholder = '0';
+      hoursBadge.textContent = '';
+      hoursBadge.appendChild(input);
+      input.focus(); input.select();
+
+      function commit() {
+        const v = Math.max(0, Math.min(24, parseFloat(input.value) || 0));
+        state.quickDone[index].hours = v;
+        item.hours = v;
+        saveState();
+        renderSummary();
+        renderHoursBadge();
+      }
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { hoursBadge.textContent = ''; renderHoursBadge(); }
+      });
+    });
+
+    const del = document.createElement('button');
+    del.className = 'task-delete';
+    del.textContent = '×';
+    del.addEventListener('click', () => {
+      undoStack.push({ type: 'quickDone', item: state.quickDone[index], index });
+      state.quickDone.splice(index, 1); saveState(); renderDone();
+    });
+
+    row.append(name, hoursBadge, del);
+    return row;
+  }
+
+  function addQuickDone() {
+    if (!quickInputEl) return;
+    const n = quickInputEl.value.trim();
+    if (!n) return;
+    state.quickDone.push({ name: n, hours: 0 });
+    quickInputEl.value = '';
+    // Auto-expand quick wins group when adding so the new item is visible
+    doneExpanded.quick = false;
+    saveState(); renderDone();
+  }
+
+  if (addQuickBtn) addQuickBtn.addEventListener('click', addQuickDone);
+  if (quickInputEl) quickInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addQuickDone(); });
 
   function renderDistractions() {
     distractionsListEl.innerHTML = '';
@@ -485,7 +657,7 @@
       promoteBtn.title = 'Move to active goals';
       promoteBtn.addEventListener('click', () => {
         if (getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: item.name, hours: 0, progress: 0 });
+        state.goals.push({ name: item.name, hours: 0, progress: 0, fromBacklog: true });
         backlog.splice(index, 1);
         saveState(); saveBacklog(); render();
         if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
@@ -578,9 +750,13 @@
       : 0;
     avgProgressEl.textContent = ap + '%';
 
+    const qh = (state.quickDone || []).reduce((s, q) => s + (q.hours || 0), 0);
+    if (quickHoursEl) quickHoursEl.textContent = qh > 0 ? qh.toFixed(1) + 'h' : '0h';
+
     setRingProgress(ringProgress, ap / 100);
     setRingProgress(ringHours, Math.min(gh / 8, 1));
     setRingProgress(ringDistractionHours, Math.min(dh / 4, 1));
+    setRingProgress(ringQuickHours, Math.min(qh / 4, 1));
 
     summaryBreakdownEl.innerHTML = '';
     allGoals.forEach(g => {
@@ -955,6 +1131,9 @@
       } else if (type === 'backlog') {
         backlog.splice(Math.min(index, backlog.length), 0, item);
         saveBacklog(); renderBacklog();
+      } else if (type === 'quickDone') {
+        state.quickDone.splice(Math.min(index, state.quickDone.length), 0, item);
+        saveState(); renderDone();
       }
     }
   });

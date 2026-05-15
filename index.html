@@ -75,16 +75,20 @@
           </div>
         </section>
 
-        <section id="completed-section" class="card card-completed draggable-card hidden" data-card-id="completed">
+        <section id="done-section" class="card card-done draggable-card" data-card-id="done">
           <div class="card-drag-handle" title="Drag to reorder">&#x2630;</div>
           <div class="card-header">
-            <div class="card-icon completed-icon">&#x2705;</div>
+            <div class="card-icon done-icon">&#x2728;</div>
             <div>
-              <h2>Completed Today</h2>
-              <p class="card-subtitle">Every finish line crossed matters</p>
+              <h2>Done Today</h2>
+              <p class="card-subtitle" id="done-subtitle">Nothing yet — go get one</p>
             </div>
           </div>
-          <div id="completed-list" class="task-list"></div>
+          <div id="done-list" class="done-list"></div>
+          <div class="add-task-row" id="add-quick-row">
+            <input type="text" id="quick-input" placeholder="Log a quick win…" maxlength="100">
+            <button id="add-quick-btn" class="btn btn-primary">Add</button>
+          </div>
         </section>
 
         <section id="summary-section" class="card card-summary draggable-card" data-card-id="summary">
@@ -128,6 +132,16 @@
                   <span class="ring-caption">Distraction Hrs</span>
                 </div>
               </div>
+              <div class="ring-stat">
+                <svg class="progress-ring" viewBox="0 0 80 80">
+                  <circle class="ring-bg" cx="40" cy="40" r="34"></circle>
+                  <circle class="ring-fill ring-fill-quick" id="ring-quick-hours" cx="40" cy="40" r="34"></circle>
+                </svg>
+                <div class="ring-label">
+                  <span class="ring-value" id="quick-hours">0h</span>
+                  <span class="ring-caption">Quick Wins Hrs</span>
+                </div>
+              </div>
             </div>
             <div id="summary-breakdown"></div>
             <div class="summary-actions">
@@ -153,7 +167,7 @@
           <div id="distractions-list" class="task-list"></div>
           <div class="add-task-row" id="add-distraction-row">
             <input type="text" id="distraction-input" placeholder="What should you avoid?" maxlength="100">
-            <button id="add-distraction-btn" class="btn btn-secondary-orange">Add</button>
+            <button id="add-distraction-btn" class="btn btn-distraction">Add</button>
           </div>
         </section>
 

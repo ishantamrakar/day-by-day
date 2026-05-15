@@ -810,18 +810,22 @@ footer {
   cursor: grab;
 }
 
-.task-dragging {
-  opacity: 0.15;
-  pointer-events: none;
+/* Lifted item — floats above the list, no transition so it tracks cursor instantly */
+.task-lifted {
+  position: relative;
+  z-index: 10;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  border-color: var(--border) !important;
+  background: var(--surface) !important;
+  cursor: grabbing;
+  transition: none !important;
+  will-change: transform;
 }
 
-/* Animated drop indicator between tasks */
-.task-drop-indicator {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--primary);
-  margin: 2px 0;
-  animation: indicatorPop 0.12s ease;
+/* Siblings slide out of the way */
+.task-shifting {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  will-change: transform;
 }
 
 /* === Journal text editable hover === */

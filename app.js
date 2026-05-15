@@ -380,26 +380,31 @@
 
     if (total === 0) return;
 
-    // --- From Top 5 group ---
+    // --- From Top 5 group (newest first) ---
     if (completedGoals.length > 0) {
+      const reversed = [...completedGoals].reverse();
       doneListEl.appendChild(createDoneGroup({
         label: 'From Top 5',
-        items: completedGoals,
+        items: reversed,
         expandKey: 'goals',
         createItem: (goal, i) => {
           const realIndex = state.goals.indexOf(goal);
-          return createDoneGoalItem(goal, realIndex, i === completedGoals.length - 1);
+          return createDoneGoalItem(goal, realIndex, i === 0);
         }
       }));
     }
 
-    // --- Quick wins group ---
+    // --- Quick wins group (newest first) ---
     if (quickItems.length > 0) {
+      const reversed = [...quickItems].reverse();
       doneListEl.appendChild(createDoneGroup({
         label: 'Quick wins',
-        items: quickItems,
+        items: reversed,
         expandKey: 'quick',
-        createItem: (item, i) => createDoneQuickItem(item, i, i === quickItems.length - 1)
+        createItem: (item, i) => {
+          const realIndex = quickItems.indexOf(item);
+          return createDoneQuickItem(item, realIndex, i === 0);
+        }
       }));
     }
   }
@@ -961,117 +966,100 @@
   }
 
   // =========================================================
-  // SMOOTH DRAG & DROP — Task rows within lists
+  // TASK REORDER — lift-in-place with sibling shifting
   // =========================================================
   function setupTaskDrag(item, list, type) {
     const handle = item.querySelector('.task-drag-handle');
     if (!handle) return;
 
     handle.addEventListener('pointerdown', e => {
-      // Don't drag if clicking inside an input
       if (e.target.tagName === 'INPUT') return;
       e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
       startTaskDrag(e, item, list, type);
     });
   }
 
   function startTaskDrag(e, item, list, type) {
-    const rect = item.getBoundingClientRect();
+    const rect  = item.getBoundingClientRect();
+    const itemH = rect.height;
+    const gap   = parseFloat(getComputedStyle(list).gap) || 10;
+    const step  = itemH + gap;
 
-    const ghost = item.cloneNode(true);
-    ghost.style.cssText = `
-      position: fixed;
-      top: ${rect.top}px;
-      left: ${rect.left}px;
-      width: ${rect.width}px;
-      opacity: 0.88;
-      pointer-events: none;
-      z-index: 9998;
-      transform: scale(1.02);
-      box-shadow: 0 12px 40px rgba(0,0,0,0.14);
-      border-radius: 12px;
-      background: white;
-    `;
-    document.body.appendChild(ghost);
+    const siblings = Array.from(list.querySelectorAll('.task-item'))
+      .filter(el => el !== item);
 
-    item.classList.add('task-dragging');
+    const draggingIndex = parseInt(item.dataset.goalIndex ?? item.dataset.distIndex ?? -1);
 
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
+    item.classList.add('task-lifted');
+    siblings.forEach(s => s.classList.add('task-shifting'));
 
-    activeDrag = { ghost, item, list, type, offsetX, offsetY, dragType: 'task' };
+    // How far the pointer is from the item's natural top edge
+    const pointerOffsetY = e.clientY - rect.top;
+    // The item's natural top relative to the list container
+    const listRect   = list.getBoundingClientRect();
+    const naturalTop = rect.top - listRect.top;
+
+    const minTop = 0;
+    const maxTop = listRect.height - itemH;
+
+    activeDrag = { item, list, type, siblings, step, draggingIndex, currentSlot: draggingIndex,
+                   pointerOffsetY, naturalTop, listTop: listRect.top, minTop, maxTop, dragType: 'task' };
 
     document.addEventListener('pointermove', onTaskDragMove);
-    document.addEventListener('pointerup', onTaskDragEnd, { once: true });
+    document.addEventListener('pointerup',   onTaskDragEnd, { once: true });
   }
 
   function onTaskDragMove(e) {
     if (!activeDrag || activeDrag.dragType !== 'task') return;
-    const { ghost, item, list, offsetX, offsetY } = activeDrag;
+    const { item, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop } = activeDrag;
 
-    const x = e.clientX - offsetX;
-    const y = e.clientY - offsetY;
-    ghost.style.left = x + 'px';
-    ghost.style.top = y + 'px';
+    // Where the pointer wants the item's top to be, relative to its natural position — clamped to list bounds
+    const rawTop = (e.clientY - pointerOffsetY) - (activeDrag.listTop + naturalTop);
+    const desiredTop = Math.max(minTop - naturalTop, Math.min(maxTop - naturalTop, rawTop));
+    item.style.transform = `translateY(${desiredTop}px)`;
 
-    // Find insertion point
-    document.querySelectorAll('.task-drop-indicator').forEach(el => el.remove());
+    // How many slots has it moved?
+    const slotsMoved = Math.round(desiredTop / step);
+    const newSlot = Math.max(0, Math.min(draggingIndex + slotsMoved, siblings.length));
 
-    const siblings = Array.from(list.querySelectorAll('.task-item:not(.task-dragging)'));
-    let insertBefore = null;
+    if (newSlot !== activeDrag.currentSlot) {
+      activeDrag.currentSlot = newSlot;
 
-    for (const sib of siblings) {
-      const sibRect = sib.getBoundingClientRect();
-      if (e.clientY < sibRect.top + sibRect.height / 2) {
-        insertBefore = sib;
-        break;
-      }
+      // Shift siblings: those that need to move up or down by one slot
+      siblings.forEach((sib, i) => {
+        // originalIndex in full list (0-based among siblings = items excluding dragged)
+        // siblings[i] was originally at index i < draggingIndex ? i : i+1
+        const origFull = i < draggingIndex ? i : i + 1;
+        if (origFull >= newSlot && origFull < draggingIndex) {
+          // Item dragged up past this sibling — shift it down
+          sib.style.transform = `translateY(${step}px)`;
+        } else if (origFull > draggingIndex && origFull <= newSlot) {
+          // Item dragged down past this sibling — shift it up
+          sib.style.transform = `translateY(-${step}px)`;
+        } else {
+          sib.style.transform = '';
+        }
+      });
     }
-
-    const indicator = document.createElement('div');
-    indicator.className = 'task-drop-indicator';
-    if (insertBefore) {
-      list.insertBefore(indicator, insertBefore);
-    } else {
-      list.appendChild(indicator);
-    }
-
-    activeDrag.insertBefore = insertBefore;
   }
 
   function onTaskDragEnd() {
     document.removeEventListener('pointermove', onTaskDragMove);
     if (!activeDrag || activeDrag.dragType !== 'task') { activeDrag = null; return; }
 
-    const { ghost, item, list, type, insertBefore } = activeDrag;
-    ghost.remove();
-    document.querySelectorAll('.task-drop-indicator').forEach(el => el.remove());
-    item.classList.remove('task-dragging');
+    const { item, list, type, siblings, draggingIndex, currentSlot } = activeDrag;
 
-    // Reorder state array based on visual DOM position
-    const draggingIndex = parseInt(item.dataset.goalIndex ?? item.dataset.distIndex ?? -1);
-    if (draggingIndex === -1) { activeDrag = null; return; }
+    // Reset all transforms before re-render
+    item.classList.remove('task-lifted');
+    item.style.transform = '';
+    siblings.forEach(s => { s.classList.remove('task-shifting'); s.style.transform = ''; });
 
-    let newIndex;
-    if (insertBefore) {
-      const targetIndex = parseInt(insertBefore.dataset.goalIndex ?? insertBefore.dataset.distIndex ?? 0);
-      newIndex = draggingIndex < targetIndex ? targetIndex - 1 : targetIndex;
-    } else {
-      // Drop at end — after splice the array is 1 shorter, so length - 1 is the last slot
-      newIndex = (type === 'goal' ? state.goals : state.distractions).length - 1;
-    }
-
-    if (type === 'goal') {
-      const arr = state.goals;
+    // Commit to state
+    if (currentSlot !== draggingIndex) {
+      const arr = type === 'goal' ? state.goals : state.distractions;
       const [moved] = arr.splice(draggingIndex, 1);
-      const clampedIndex = Math.min(Math.max(0, newIndex), arr.length);
-      arr.splice(clampedIndex, 0, moved);
-      saveState();
-    } else if (type === 'distraction') {
-      const arr = state.distractions;
-      const [moved] = arr.splice(draggingIndex, 1);
-      const clampedIndex = Math.min(Math.max(0, newIndex), arr.length);
-      arr.splice(clampedIndex, 0, moved);
+      arr.splice(Math.min(currentSlot, arr.length), 0, moved);
       saveState();
     }
 

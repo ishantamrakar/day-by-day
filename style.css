@@ -757,11 +757,12 @@ footer {
   border-radius: 2px;
   background: var(--primary);
   margin: 4px 0;
-  animation: indicatorPop 0.15s ease;
+  transform-origin: center center;
+  animation: indicatorGrow 0.45s cubic-bezier(0.2, 0, 0.2, 1) forwards;
 }
 
-@keyframes indicatorPop {
-  from { opacity: 0; transform: scaleX(0.6); }
+@keyframes indicatorGrow {
+  from { opacity: 0; transform: scaleX(0); }
   to   { opacity: 1; transform: scaleX(1); }
 }
 

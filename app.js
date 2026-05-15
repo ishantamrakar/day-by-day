@@ -279,7 +279,6 @@
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
     dragHandle.textContent = '⋮⋮';
-    dragHandle.title = 'Drag to reorder';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -417,7 +416,6 @@
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
     dragHandle.textContent = '⋮⋮';
-    dragHandle.title = 'Drag to reorder';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -721,11 +719,12 @@
     ghost.style.left = x + 'px';
     ghost.style.top = y + 'px';
 
-    // Find the column and insertion point under cursor
     const midX = e.clientX;
     const midY = e.clientY;
 
-    document.querySelectorAll('.card-drop-indicator').forEach(el => el.remove());
+    // Find which col + insertBefore the cursor is over
+    let newCol = null;
+    let newInsertBefore = null;
 
     const cols = Array.from(document.querySelectorAll('.col'));
     for (const col of cols) {
@@ -733,27 +732,34 @@
       if (midX < colRect.left || midX > colRect.right) continue;
 
       const siblings = Array.from(col.querySelectorAll('.draggable-card:not(.card-dragging)'));
-      let insertBefore = null;
-
       for (const sib of siblings) {
         const sibRect = sib.getBoundingClientRect();
         if (midY < sibRect.top + sibRect.height / 2) {
-          insertBefore = sib;
+          newInsertBefore = sib;
           break;
         }
       }
-
-      // Show indicator
-      const indicator = document.createElement('div');
-      indicator.className = 'card-drop-indicator';
-      if (insertBefore) {
-        col.insertBefore(indicator, insertBefore);
-      } else {
-        col.appendChild(indicator);
-      }
-      activeDrag.targetCol = col;
-      activeDrag.insertBefore = insertBefore;
+      newCol = col;
       break;
+    }
+
+    // Only move/recreate the indicator when the slot actually changes
+    const slotChanged = newCol !== activeDrag.targetCol || newInsertBefore !== activeDrag.insertBefore;
+    if (slotChanged) {
+      document.querySelectorAll('.card-drop-indicator').forEach(el => el.remove());
+
+      if (newCol) {
+        const indicator = document.createElement('div');
+        indicator.className = 'card-drop-indicator';
+        if (newInsertBefore) {
+          newCol.insertBefore(indicator, newInsertBefore);
+        } else {
+          newCol.appendChild(indicator);
+        }
+      }
+
+      activeDrag.targetCol = newCol;
+      activeDrag.insertBefore = newInsertBefore;
     }
   }
 
@@ -867,7 +873,6 @@
     item.classList.remove('task-dragging');
 
     // Reorder state array based on visual DOM position
-    const siblings = Array.from(list.querySelectorAll('.task-item:not(.task-dragging)'));
     const draggingIndex = parseInt(item.dataset.goalIndex ?? item.dataset.distIndex ?? -1);
     if (draggingIndex === -1) { activeDrag = null; return; }
 

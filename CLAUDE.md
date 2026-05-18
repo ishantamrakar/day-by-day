@@ -106,8 +106,9 @@ Strictly adhere to the "Daily Spark" design system. Do not use Claude's default 
 ### 1. Color Palette (The "Growth & Energy" Scheme)
 - **Primary (Action/Growth):** #2D6A4F (Deep Forest Green)
 - **Secondary (Tiger Orange):** #FF9F1C — used only for quick wins UI elements
-- **Background (Focus):** #F8F9FA (Soft Paper White)
-- **Surface (Card/Task):** #FFFFFF (Pure White)
+- **Background (Focus):** #EEF2EE (Soft green-tinted base — chosen to give frosted glass contrast)
+- **Surface (Card):** `rgba(255,255,255,0.72)` — frosted glass surface with `backdrop-filter: blur(20px) saturate(1.6)`
+- **Surface (Solid fallback):** `#FFFFFF` — used for inputs, inline edit fields where transparency looks wrong
 - **Accent (Celebration):** #40916C (Mint Leaf Green)
 - **Text (Main/Headlines):** #1B4332 (Dark Evergreen)
 - **Text (Subtle/Muted):** #6C757D (Slate Gray)
@@ -117,7 +118,7 @@ These are defined as CSS custom properties and must be used consistently — the
 
 | Token | Value | Used for |
 |-------|-------|---------|
-| `--ring-distraction` | `#F4A0A0` | "5 to Avoid" rows, number badges, add button, distraction hours ring |
+| `--ring-distraction` | `#F4A0A0` | "5 to Avoid" rows, number badges, distraction hours ring |
 | `--ring-distraction-light` | `#fef2f2` | "5 to Avoid" row backgrounds, distraction icon background |
 | `--ring-quick` | `#FF9F1C` | Quick wins hours ring, quick wins hours badge |
 | `--ring-quick-light` | `#fff5e6` | Quick wins hours badge background |
@@ -127,26 +128,92 @@ Goal hours ring → `--accent` `#40916C`
 Distraction hours ring → `--ring-distraction` `#F4A0A0` (rose/pink)
 Quick wins hours ring → `--ring-quick` `#FF9F1C` (orange)
 
-### 3. Card Background Conventions
-- **Most cards:** `--surface` plain white
-- **Done Today:** `--surface` plain white (neutral — hosts both green and orange row tints)
-- **Today's Progress:** `linear-gradient(160deg, #e8e8e8 0%, #ffffff 60%)` — neutral gray gradient, compatible with all four ring colors
-- **Encouragement:** `linear-gradient(135deg, #2D6A4F, #40916C)` white text
-- **Backlog:** `--surface` plain white
+### 3. Spatial / 3D Depth System
 
-### 4. Design Guardrails
+The app uses a layered depth system inspired by Apple's visionOS / iOS 26 liquid glass aesthetic.
+
+#### Background
+- Body background: `#EEF2EE` base with three `radial-gradient` blobs (green x2, orange x1) rendered via `body::before`, `body::after`, and `#blob3` div
+- Blobs are animated independently on 22s/28s/34s cycles via `blobDrift1/2/3` keyframes — slow, organic drift with slight scale breathing
+- `background-attachment: fixed` is NOT used — blobs are `position: fixed` elements with `filter: blur(60px)` for smooth performance
+
+#### Cards (`.card`)
+- `background: rgba(255,255,255,0.72)` + `backdrop-filter: blur(20px) saturate(1.6)`
+- Asymmetric border: `rgba(255,255,255,0.65)` top/left, `rgba(0,0,0,0.06)` bottom, `rgba(0,0,0,0.04)` right — simulates top-left light source
+- Three-layer shadow: tight contact + mid diffuse + distant colored glow + `inset 0 1px 0` top highlight
+- Hover: `translateY(-2px)` with shadow deepening
+
+#### Task rows / backlog items / journal entries
+- `background: rgba(255,255,255,0.82)` — more opaque than card so they read as floating inside it
+- Same asymmetric border + inner highlight treatment at smaller scale
+- Hover: `translateY(-1px)`
+
+#### Card icon badges (`.card-icon`)
+- 44×44px with same border + shadow treatment — look like small raised chips
+
+### 4. Button System (Liquid Glass)
+
+All buttons use the same core technique: **muted solid color base + glass sheen gradient overlay**.
+
+```css
+background:
+  linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.1) 100%),
+  <base-color>;
+```
+
+The gradient fades from a white highlight at top → slight darken at bottom, simulating light hitting a curved glass surface. `backdrop-filter: blur(12px)` applies on the base `.btn` class.
+
+| Variant | Base color | Used for |
+|---------|-----------|---------|
+| `.btn-primary` | `#4a8c6e` (muted forest green) | Add goal, add quick win, carryover accept, enable notifications |
+| `.btn-secondary-orange` | `#c87d20` (muted amber) | Quick wins secondary actions |
+| `.btn-distraction` | `#a85058` (muted rose) | Add distraction |
+| `.btn-ghost` | `rgba(140,148,156,0.25)` + white gradient | Neutral/secondary: Start Fresh, Archive, Maybe Later |
+
+- **Add buttons** are icon-only (no text), 42×42px square
+- **Hover:** lifts `translateY(-1px)`, shadow deepens, base color brightens ~10%
+- **Active:** presses `translateY(1px)`, shadow compresses
+
+#### Small pill buttons
+`.done-expand-btn`, `.btn-uncomplete`, `.btn-promote`, `.btn-demote` share a pill style:
+- `background: rgba(150,155,160,0.18)` + `backdrop-filter: blur(8px)`
+- Gray border, inner highlight, 20px border-radius
+- Hover tint: green for promote/reopen/expand, orange for demote
+
+#### Delete buttons (`.task-delete`)
+- Icon-only (`×` SVG), glass pill, opacity 0 → fades in on parent row hover
+- Hover: red tint `rgba(217,83,79,0.12)`
+
+### 5. Icons
+- **Drag handles** (cards + task rows): Phosphor `DotsSixVertical` inline SVG — 6-dot grid, 16px cards / 14px tasks
+- **Card header icons**: Phosphor inline SVGs — unique per card (Target, CheckCircle, ChartBar, ProhibitInset, NotePencil, ListBullets)
+- **No emojis anywhere** — all icons are inline SVGs
+- **Icon-only buttons** use inline SVG from Phosphor (plus sign for add, X for delete, arrows for promote/demote)
+
+> **Pending:** Replace Phosphor card icons with 3dicons.co "Dynamic Color" 3D PNG renders (CC0 license). Download manually: search `target`, `check`, `chart`, `prohibit`, `notebook`, `list` at 3dicons.co, save as `icons/goal.png`, `icons/done.png`, `icons/progress.png`, `icons/distraction.png`, `icons/journal.png`, `icons/backlog.png`.
+
+### 6. Card Background Conventions
+- **Most cards:** `rgba(255,255,255,0.72)` frosted glass
+- **Done Today:** same frosted glass (neutral — hosts both green and orange row tints)
+- **Today's Progress:** `linear-gradient(160deg, rgba(232,232,232,0.75) 0%, rgba(255,255,255,0.65) 60%)` — frosted neutral gradient
+- **Encouragement:** `linear-gradient(135deg, #2D6A4F, #40916C)` white text — solid, no glass
+- **Backlog:** frosted glass
+
+### 7. Design Guardrails
 - **Typography:** Plus Jakarta Sans. Fallback: system-ui, -apple-system, sans-serif.
-- **Border Radii:** 16px cards, 12px inner elements/buttons, 8px small items.
-- **Shadows:** Soft diffused only. Three levels: `--shadow-sm`, `--shadow`, `--shadow-hover`.
-- **Micro-interactions:** Buttons scale on hover (1.02) and active (0.98). Delete/demote buttons fade in on task hover. Drag handles appear on row/card hover.
+- **Border Radii:** 16px cards, 12px inner elements/buttons, 8px small items, 20px pills.
+- **Shadows:** Always layered (2–3 layers). Never single flat shadow. Always include `inset 0 1px 0 rgba(255,255,255,x)` top highlight on raised elements.
+- **Micro-interactions:** Buttons lift on hover (`translateY(-1px)`), press on active (`translateY(1px)`). Delete/demote buttons fade in on task hover. Drag handles appear on row/card hover.
 - **Layout:** Two-column CSS Grid (1fr 1fr). Progress Rings (SVG). Generous spacing (24-28px gaps).
+- **No Apple SDK:** Apple has no official web Liquid Glass SDK. Our implementation is pure CSS (`backdrop-filter` + layered shadows + gradient sheen). Community libs exist (`liquid-glass-js`, `liquid-glass-component-kit`) but are not used — our approach is lighter and fits the no-dependency constraint.
 
-### 5. Implementation Rules
+### 8. Implementation Rules
 - When generating CSS, use the exact hex codes or CSS custom properties above.
 - Do NOT use `indigo-600`, `purple-500`, or any color outside this palette.
-- Card gradients: only the two approved gradients above. No green gradients on cards that contain orange/rose elements.
+- New buttons must follow the liquid glass pattern: solid muted base + `linear-gradient` sheen overlay + asymmetric border + layered shadow.
 - All new semantic colors must be defined as CSS custom properties in `:root` before use.
 - Derived colors (light backgrounds, glows, borders) use `rgba()` of the base hex.
+- Task rows, backlog items, journal entries inside cards must use solid/near-solid backgrounds (`rgba(255,255,255,0.82)`) — never fully transparent, or they double-blur and look muddy.
 
 ## Known Constraints
 
@@ -155,7 +222,7 @@ Quick wins hours ring → `--ring-quick` `#FF9F1C` (orange)
 - **Browser notifications:** May not work in all browsers/contexts. In-app nudges are the reliable fallback.
 - **No backend:** All data is local to the browser. No sync, no accounts, no server.
 
-## Current State (v0.6)
+## Current State (v0.8)
 
 All features implemented:
 - Live clock (synced to system, no seconds)
@@ -178,6 +245,8 @@ All features implemented:
 - Carried-over goals show "Xh prev" badge
 - Responsive layout (two-col desktop, single-col mobile at 800px)
 - Tab favicon
+- Ranked priority ordering — explicit rank badges on goals (#1–#5)
+- Journal mood tracking — sentiment tracking on wins/lessons with visual mood assessment
 
 ## Known Bugs (Confirmed)
 
@@ -185,15 +254,10 @@ All features implemented:
 
 ## Backlog (Prioritized)
 
-### Quick Wins
-- **Ranked priority ordering** — explicit priority rank for goals (not just drag order)
-
 ### Medium Complexity
-- **Journal mood tracking** — track sentiment of wins/lessons over time; show visual mood assessment tied to overall work progress
 - **Common pitfalls from history** — surface patterns from previous days' journal entries ("last time you worked on X, you noted Y")
 
 ### Higher Complexity
-- **Distraction anomaly intervention** — detect unusual distraction spike and prompt a reflection, check-in, or short meditation session
 - **Task snowball visualization** — visually growing representation of compounding progress (tasks feeding a growing fire/sun metaphor)
 
 ### Big Swings (Separate Projects)

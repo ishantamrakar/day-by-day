@@ -269,7 +269,7 @@
 
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
-    dragHandle.textContent = '⋮⋮';
+    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M104,60a12,12,0,1,1,12,12A12,12,0,0,1,104,60Zm36,116a12,12,0,1,0,12,12A12,12,0,0,0,140,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,140,108ZM116,176a12,12,0,1,0,12,12A12,12,0,0,0,116,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,116,108Zm24-48a12,12,0,1,0-12-12A12,12,0,0,0,140,60Z"/></svg>';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -282,7 +282,7 @@
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'task-delete';
-    deleteBtn.textContent = '×';
+    deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
     deleteBtn.title = 'Remove';
     deleteBtn.addEventListener('click', () => {
       undoStack.push({ type: 'goal', item: state.goals[index], index });
@@ -300,7 +300,7 @@
     if (goal.fromBacklog) {
       const demoteBtn = document.createElement('button');
       demoteBtn.className = 'btn-demote';
-      demoteBtn.textContent = '↓ Backlog';
+      demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
       demoteBtn.title = 'Move back to backlog';
       demoteBtn.addEventListener('click', () => {
         backlog.push({ name: state.goals[index].name });
@@ -481,7 +481,7 @@
 
     const reopenBtn = document.createElement('button');
     reopenBtn.className = 'btn-uncomplete';
-    reopenBtn.textContent = 'Reopen';
+    reopenBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h31.39L181.19,69.8a80,80,0,1,0,1.67,114.1,8,8,0,0,1,11.16,11.46A96,96,0,1,1,207.07,73.93L224,90.51V48a8,8,0,0,1,16,0Z"/></svg> Reopen';
     reopenBtn.addEventListener('click', () => {
       state.goals[index].progress = 95;
       saveState(); render();
@@ -489,7 +489,7 @@
 
     const del = document.createElement('button');
     del.className = 'task-delete';
-    del.textContent = '×';
+    del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
     del.addEventListener('click', () => {
       undoStack.push({ type: 'goal', item: state.goals[index], index });
       state.goals.splice(index, 1); saveState(); render();
@@ -549,7 +549,7 @@
 
     const del = document.createElement('button');
     del.className = 'task-delete';
-    del.textContent = '×';
+    del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
     del.addEventListener('click', () => {
       undoStack.push({ type: 'quickDone', item: state.quickDone[index], index });
       state.quickDone.splice(index, 1); saveState(); renderDone();
@@ -592,7 +592,7 @@
 
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
-    dragHandle.textContent = '⋮⋮';
+    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M104,60a12,12,0,1,1,12,12A12,12,0,0,1,104,60Zm36,116a12,12,0,1,0,12,12A12,12,0,0,0,140,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,140,108ZM116,176a12,12,0,1,0,12,12A12,12,0,0,0,116,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,116,108Zm24-48a12,12,0,1,0-12-12A12,12,0,0,0,140,60Z"/></svg>';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -605,7 +605,7 @@
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'task-delete';
-    deleteBtn.textContent = '×';
+    deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
     deleteBtn.title = 'Remove';
     deleteBtn.addEventListener('click', () => {
       undoStack.push({ type: 'distraction', item: state.distractions[index], index });
@@ -658,7 +658,7 @@
     if (activeCount < MAX_GOALS) {
       const promoteBtn = document.createElement('button');
       promoteBtn.className = 'btn-promote';
-      promoteBtn.textContent = '↑ Promote';
+      promoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,106.34l-96-96a8,8,0,0,0-11.32,0l-96,96a8,8,0,0,0,11.32,11.32L120,29.31V216a8,8,0,0,0,16,0V29.31l82.34,88.35a8,8,0,0,0,11.32-11.32Z"/></svg> Promote';
       promoteBtn.title = 'Move to active goals';
       promoteBtn.addEventListener('click', () => {
         if (getActiveGoals().length >= MAX_GOALS) return;
@@ -715,7 +715,7 @@
     makeEditable(span, newVal => { state[type][index] = newVal; saveState(); });
     const del = document.createElement('button');
     del.className = 'task-delete';
-    del.textContent = '×';
+    del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
     del.addEventListener('click', () => {
       undoStack.push({ type, item: state[type][index], index });
       state[type].splice(index, 1); saveState(); renderJournal();

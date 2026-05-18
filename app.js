@@ -269,7 +269,7 @@
 
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
-    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M104,60a12,12,0,1,1,12,12A12,12,0,0,1,104,60Zm36,116a12,12,0,1,0,12,12A12,12,0,0,0,140,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,140,108ZM116,176a12,12,0,1,0,12,12A12,12,0,0,0,116,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,116,108Zm24-48a12,12,0,1,0-12-12A12,12,0,0,0,140,60Z"/></svg>';
+    dragHandle.textContent = '☰';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -592,7 +592,7 @@
 
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
-    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M104,60a12,12,0,1,1,12,12A12,12,0,0,1,104,60Zm36,116a12,12,0,1,0,12,12A12,12,0,0,0,140,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,140,108ZM116,176a12,12,0,1,0,12,12A12,12,0,0,0,116,176Zm0-68a12,12,0,1,0,12,12A12,12,0,0,0,116,108Zm24-48a12,12,0,1,0-12-12A12,12,0,0,0,140,60Z"/></svg>';
+    dragHandle.textContent = '☰';
 
     const number = document.createElement('span');
     number.className = 'task-number';

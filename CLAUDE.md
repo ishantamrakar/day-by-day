@@ -1,6 +1,11 @@
 # Day by Day
 
-A browser-based daily focus app that helps you track your top 5 goals and 5 distractions to avoid. Inspired by Oliver Burkeman's "4,000 Weeks" — embrace finitude, act imperfectly, focus on what matters.
+A daily focus app being built for personal use first, with the goal of eventually becoming a full product. The current web app is a self-testing ground — the builder is the primary user, using it daily to validate what works before scaling it to others.
+
+**Current form:** Vanilla JS browser app (no framework, no backend).
+**End goal:** A polished cross-platform product — likely a native iOS/macOS app or PWA — built on these same philosophical foundations, with a design language refined through real daily use.
+
+Inspired by Oliver Burkeman's "4,000 Weeks" — embrace finitude, act imperfectly, focus on what matters.
 
 ## Philosophy & Tone
 
@@ -199,7 +204,25 @@ The gradient fades from a white highlight at top → slight darken at bottom, si
 - **Encouragement:** `linear-gradient(135deg, #2D6A4F, #40916C)` white text — solid, no glass
 - **Backlog:** frosted glass
 
-### 7. Design Guardrails
+### 7. Glass Text Technique
+
+Used on the app title and clock. Makes bold text feel translucent and spatial — letterforms are solid weight but light passes through them.
+
+```css
+background: linear-gradient(160deg, rgba(27,67,50,0.9) 0%, rgba(45,106,79,0.65) 50%, rgba(64,145,108,0.5) 100%);
+-webkit-background-clip: text;
+background-clip: text;
+-webkit-text-fill-color: transparent;
+filter: drop-shadow(0 1px 0 rgba(255,255,255,0.7)) drop-shadow(0 2px 6px rgba(45,106,79,0.18));
+```
+
+- Use font-weight 800 — the effect only reads at heavy weights, thin text disappears
+- The white `drop-shadow` above simulates a light-hit highlight on the top edge of the letters
+- The colored `drop-shadow` below gives depth/lift
+- Do NOT combine with `text-shadow` — incompatible with `background-clip: text`
+- Use for headings and display text only — never body copy
+
+### 8. Design Guardrails
 - **Typography:** Plus Jakarta Sans. Fallback: system-ui, -apple-system, sans-serif.
 - **Border Radii:** 16px cards, 12px inner elements/buttons, 8px small items, 20px pills.
 - **Shadows:** Always layered (2–3 layers). Never single flat shadow. Always include `inset 0 1px 0 rgba(255,255,255,x)` top highlight on raised elements.
@@ -271,3 +294,27 @@ All features implemented:
 - Goal categories or tags
 - Streak tracking
 - Dark mode
+
+## Product Vision (Forward Thinking)
+
+This is a personal tool being built toward a real product. Keep this context in mind when making architectural or design decisions.
+
+### What this app is really about
+Not task management — there are a thousand of those. This is about **finitude-aware focus**: the idea that you have limited time and attention, and the app should help you feel that weight gently, not anxiously. Every design and feature decision should reinforce this.
+
+### Path to product
+1. **Phase 1 (now):** Vanilla web app, self-use, rapid iteration. No infra, no accounts, no sync. Optimize for feel and philosophy.
+2. **Phase 2:** PWA with offline support, home screen install, push notifications that actually work. Still no backend — localStorage + service worker.
+3. **Phase 3:** Native iOS/macOS app (Swift/SwiftUI). The liquid glass design language we've built will translate directly — we're building in the right aesthetic direction now. Data sync via iCloud.
+4. **Phase 4:** Multi-platform, potential monetization. Subscription for cross-device sync and AI-powered nudges.
+
+### Design decisions to make now that will matter later
+- **Keep state shape clean** — the `{ date, goals, distractions, successes, failures, quickDone }` shape should remain portable to any storage backend (iCloud, Supabase, etc.)
+- **No DOM-coupled logic** — all business logic lives in functions, not tied to specific element IDs. This makes porting to React/SwiftUI easier.
+- **The notification system** is a placeholder for something much smarter — the agentic nudge framework (ART/GRPO) is the real end-game here.
+- **Design language is already production-grade** — the spatial/glass system we've built maps well to visionOS and iOS 26 native components. Don't regress it.
+
+### Open questions to resolve before scaling
+- Should goals be ordered by drag only, or is there a smarter priority signal (time-of-day, streak, estimated effort)?
+- What's the right monetization model — one-time purchase (aligns with finitude philosophy) vs subscription (recurring nudges/sync)?
+- How much of the journal/history data can feed an on-device model for personalized nudges without a backend?

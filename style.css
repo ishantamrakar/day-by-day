@@ -154,16 +154,31 @@ body::after {
 }
 
 .app-title {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--primary);
-  letter-spacing: -0.3px;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 2.6rem;
+  font-weight: 900;
+  letter-spacing: -1.5px;
+  line-height: 1;
+  /* Solid dark base so shadows have something to push against */
+  color: #1B4332;
+  text-shadow:
+    /* Sharp white highlight on the very top edge — the "lit" face */
+    0 1px 0 rgba(255,255,255,0.95),
+    /* Second softer highlight — fills the top curve */
+    0 2px 2px rgba(255,255,255,0.5),
+    /* Mid lift — color-tinted haze, gives the floating feeling */
+    0 4px 12px rgba(45,106,79,0.35),
+    /* Long tail — the cast shadow on the surface below */
+    0 12px 32px rgba(45,106,79,0.22),
+    0 24px 48px rgba(45,106,79,0.10);
 }
 
 .tagline {
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
-  font-weight: 400;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  opacity: 0.8;
 }
 
 .header-right {
@@ -174,21 +189,35 @@ body::after {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
+  gap: 3px;
 }
 
 #time {
-  font-size: 2rem;
-  font-weight: 300;
-  letter-spacing: 1px;
-  color: var(--text);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 2.6rem;
+  font-weight: 900;
+  letter-spacing: -1.5px;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #2D6A4F;
+  text-shadow:
+    0 1px 0 rgba(255,255,255,0.95),
+    0 2px 2px rgba(255,255,255,0.5),
+    0 4px 12px rgba(45,106,79,0.35),
+    0 12px 32px rgba(45,106,79,0.22),
+    0 24px 48px rgba(45,106,79,0.10);
 }
 
 #date {
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  font-weight: 400;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6C757D;
+  text-shadow:
+    0 1px 0 rgba(255,255,255,0.9),
+    0 2px 8px rgba(0,0,0,0.08);
 }
 
 /* === Two-Column Layout === */
@@ -202,7 +231,8 @@ body::after {
 .col {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 36px;
+  padding-top: 24px;
 }
 
 /* === Cards === */
@@ -238,6 +268,7 @@ body::after {
   color: white;
   text-align: center;
   padding: 32px 28px;
+  padding-top: 32px; /* no chip, override the draggable-card padding-top */
 }
 
 .encouragement-body {
@@ -247,43 +278,55 @@ body::after {
   opacity: 0.95;
 }
 
+/* === Floating chip — sits centered on top card border === */
+.card-chip {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  line-height: 1;
+  /* Glass pill */
+  background: rgba(255,255,255,0.75);
+  backdrop-filter: blur(16px) saturate(1.6);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,0.8);
+  border-bottom-color: rgba(0,0,0,0.07);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08),
+              0 6px 16px rgba(0,0,0,0.08),
+              0 12px 28px rgba(0,0,0,0.05),
+              inset 0 1px 0 rgba(255,255,255,1);
+  z-index: 2;
+  /* Subtle bounce in */
+  animation: chipPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes chipPop {
+  from { transform: translateX(-50%) scale(0.7); opacity: 0; }
+  to   { transform: translateX(-50%) scale(1);   opacity: 1; }
+}
+
+/* Cards with chips need overflow visible + top padding for the chip */
+.draggable-card {
+  position: relative;
+  overflow: visible;
+  padding-top: 38px;
+}
+
 /* === Card Header === */
 .card-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 24px;
-}
-
-.card-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-xs);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border: 1px solid rgba(255,255,255,0.7);
-  border-bottom-color: rgba(0,0,0,0.06);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08),
-              0 2px 6px rgba(0,0,0,0.04),
-              inset 0 1px 0 rgba(255,255,255,0.9);
-}
-
-.card-icon svg {
-  display: block;
-}
-
-.goal-icon {
-  background: var(--primary-light);
-}
-
-.distraction-icon {
-  background: var(--ring-distraction-light);
-}
-
-.summary-icon {
-  background: var(--accent-light);
+  gap: 0;
+  flex-direction: column;
+  text-align: center;
+  margin-bottom: 20px;
 }
 
 .card-header h2 {
@@ -296,7 +339,7 @@ body::after {
 .card-subtitle {
   font-size: 0.82rem;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
   font-weight: 400;
 }
 
@@ -637,27 +680,27 @@ body::after {
               inset 0 1px 0 rgba(255,255,255,0.32);
 }
 
-/* Rose — distraction add */
+/* Rose — distraction add (based on --ring-distraction #F4A0A0, two levels darker) */
 .btn-distraction {
   background:
     linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.1) 100%),
-    #a85058;
+    #D96060;
   color: white;
-  border-color: rgba(255,255,255,0.26);
-  border-bottom-color: rgba(0,0,0,0.18);
-  text-shadow: 0 1px 2px rgba(0,0,0,0.18);
+  border-color: rgba(255,255,255,0.28);
+  border-bottom-color: rgba(0,0,0,0.16);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.15);
   box-shadow: 0 1px 2px rgba(0,0,0,0.12),
-              0 4px 14px rgba(160,60,70,0.25),
-              inset 0 1px 0 rgba(255,255,255,0.28);
+              0 4px 14px rgba(217,96,96,0.28),
+              inset 0 1px 0 rgba(255,255,255,0.32);
 }
 
 .btn-distraction:hover {
   background:
     linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 50%, rgba(0,0,0,0.08) 100%),
-    #b85e66;
+    #E06E6E;
   box-shadow: 0 2px 4px rgba(0,0,0,0.12),
-              0 8px 22px rgba(160,60,70,0.3),
-              inset 0 1px 0 rgba(255,255,255,0.32);
+              0 8px 22px rgba(217,96,96,0.35),
+              inset 0 1px 0 rgba(255,255,255,0.35);
 }
 
 /* Ghost — neutral actions */
@@ -919,22 +962,33 @@ footer {
 /* === Card Drag & Drop (pointer-events based) === */
 .card-drag-handle {
   position: absolute;
-  top: 12px;
-  right: 14px;
+  top: 10px;
+  right: 12px;
+  font-size: 0.9rem;
   color: var(--text-muted);
   cursor: grab;
   opacity: 0;
-  transition: opacity var(--transition);
+  transition: opacity var(--transition), box-shadow var(--transition), transform var(--transition);
   user-select: none;
-  padding: 4px;
   touch-action: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Glass pill */
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.7);
+  border-bottom-color: rgba(0,0,0,0.07);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08),
+              0 2px 6px rgba(0,0,0,0.05),
+              inset 0 1px 0 rgba(255,255,255,0.9);
+  line-height: 1;
 }
 
 .card-drag-handle-light {
-  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.8);
 }
 
 .draggable-card {
@@ -942,11 +996,15 @@ footer {
 }
 
 .draggable-card:hover .card-drag-handle {
-  opacity: 0.5;
+  opacity: 1;
 }
 
 .card-drag-handle:hover {
   opacity: 1 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1),
+              0 4px 12px rgba(0,0,0,0.07),
+              inset 0 1px 0 rgba(255,255,255,1);
 }
 
 .card-dragging {
@@ -972,24 +1030,33 @@ footer {
 
 /* === Task Drag & Drop === */
 .task-drag-handle {
+  font-size: 0.8rem;
   color: var(--text-muted);
   cursor: grab;
   opacity: 0;
-  transition: opacity var(--transition);
+  transition: opacity var(--transition), box-shadow var(--transition), transform var(--transition);
   user-select: none;
-  padding: 4px 2px;
-  flex-shrink: 0;
   touch-action: none;
-  display: flex;
-  align-items: center;
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.65);
+  border-bottom-color: rgba(0,0,0,0.06);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06),
+              inset 0 1px 0 rgba(255,255,255,0.85);
+  line-height: 1;
 }
 
 .task-item:hover .task-drag-handle {
-  opacity: 0.4;
+  opacity: 1;
 }
 
 .task-drag-handle:hover {
-  opacity: 0.8 !important;
+  opacity: 1 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.09),
+              inset 0 1px 0 rgba(255,255,255,1);
   cursor: grab;
 }
 
@@ -1508,7 +1575,13 @@ footer {
   }
 
   #time {
-    font-size: 1.6rem;
+    font-size: 2rem;
+    letter-spacing: -0.5px;
+  }
+
+  .app-title {
+    font-size: 2rem;
+    letter-spacing: -0.5px;
   }
 
   .card {

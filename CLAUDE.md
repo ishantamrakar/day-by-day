@@ -28,9 +28,9 @@ Key insights baked in from 4,000 Weeks:
 Vanilla JS, no frameworks, no build step. Three files + one CSS file:
 
 ```
-index.html    — Structure and layout
-style.css     — All styling (Daily Spark design system)
-app.js        — Core logic, state management, rendering
+index.html       — Structure and layout
+style.css        — All styling (Daily Spark design system)
+app.js           — Core logic, state management, rendering
 notifications.js — Nudge system, browser notifications, wisdom messages
 ```
 
@@ -43,15 +43,31 @@ Serves from any static file server. Recommended: `python3 -m http.server 8000` (
 - **Font:** Plus Jakarta Sans from Google Fonts
 - **No dependencies.** No npm, no CDN libraries, no build tools.
 
+## localStorage Keys
+
+| Key | Contents |
+|-----|----------|
+| `daybyday_data` | Today's state object (date, goals, distractions, journal, quickDone) |
+| `daybyday_history` | Array of up to 30 archived day objects |
+| `daybyday_layout` | Card column order saved as JSON |
+| `daybyday_backlog` | Persistent backlog array (survives day rollover) |
+| `daybyday_categories` | Categories array with all-time totalHours per category |
+| `daybyday_sidebar` | `'collapsed'` or `'open'` — sidebar toggle state |
+| `daybyday_prefs` | Notification permission dismissed flag |
+
 ## File Details
 
 ### index.html
-- Two-column CSS Grid layout (`col-left`, `col-right`)
+- Top-level layout: `#app` contains `<aside id="life-sidebar">` + `<div id="main-content">`
+- The sidebar is `position: fixed` left overlay — it does NOT live inside the two-col grid
+- `#main-content` has `padding-left: calc(52px + 40px)` normally; gains class `sidebar-open` when expanded, which transitions padding-left to `calc(320px + 40px)` to push content right
+- Two-column CSS Grid inside `#main-content` (`col-left`, `col-right`)
 - Cards: goals, done (always visible), summary (SVG progress rings), distractions, journal (wins + lessons), backlog, encouragement
 - Each card has `data-card-id` attribute and `draggable-card` class for drag-and-drop reordering
 - Inline SVG favicon (green circle with white "D")
 - Script load order matters: `app.js` first, then `notifications.js`
-- Sections: storage warning, header+clock, carryover banner, nudge banner, main two-col, notification prompt, footer
+- Sections: storage warning, header+clock, carryover banner (legacy, mostly hidden now), nudge banner, main two-col, notification prompt, footer
+- The `carryover-banner` element still exists in HTML but is superseded by the Day Transition Modal on new-day detection
 
 ### style.css
 - All colors defined as CSS custom properties in `:root` — see Color Palette section
@@ -66,30 +82,114 @@ Serves from any static file server. Recommended: `python3 -m http.server 8000` (
 - Backlog card: `.card-backlog`, `.backlog-item`, `.backlog-name`, `.btn-promote` (gray), `.btn-demote` (gray, fades in on hover)
 - Encouragement card: `background: linear-gradient(135deg, #2D6A4F, #40916C)` with white text
 - Summary card: `background: linear-gradient(160deg, #e8e8e8 0%, #ffffff 60%)` — neutral gradient compatible with all four ring colors
+- Sidebar: `.life-sidebar` is `position: fixed; left: 0; height: 100vh; z-index: 100`. Collapsed = 52px, expanded = 320px with box-shadow overlay. `#main-content.sidebar-open` uses `transition: padding-left` to push content right
+- Day Transition Modal: `.day-modal-overlay` / `.day-modal` — full-screen blur overlay, max-width 520px centered card
 
 ### app.js
 - IIFE with `'use strict'`
-- **Constants:** `STORAGE_KEY = 'daybyday_data'`, `HISTORY_KEY = 'daybyday_history'`, `LAYOUT_KEY = 'daybyday_layout'`, `BACKLOG_KEY = 'daybyday_backlog'`, `RING_CIRCUMFERENCE = 2 * Math.PI * 34`
+- **Constants:** `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`, `BACKLOG_KEY`, `CATEGORIES_KEY`, `SIDEBAR_KEY`, `RING_CIRCUMFERENCE = 2 * Math.PI * 34`
 - **Storage:** `storageGet(key)` / `storageSet(key, value)` — wraps localStorage with try/catch
-- **State shape:** `{ date, goals: [{name, hours, progress, prevHours?, fromBacklog?}], distractions: [{name, hours}], successes: [string], failures: [string], quickDone: [{name, hours}] }`
-- **Backlog shape:** `[{name}]` — stored separately under `BACKLOG_KEY`, survives day rollovers
-- **Clock:** Syncs to exact system minute boundary using `msUntilNextMinute`, ticks every 60s. No seconds displayed.
-- **Date:** `getTodayString()` uses local date (getFullYear/getMonth/getDate), NOT UTC
-- **Day carryover:** On new day, archives previous day to history (max 30 entries), carries forward incomplete goals (progress < 100%) as `_carryover` array. User can accept or dismiss via banner.
-- **Active vs completed goals:** `getActiveGoals()` returns goals with progress < 100; `getCompletedGoals()` returns goals with progress = 100. Completed goals feed into the Done Today card, not a separate completed card.
-- **Goal completion flow:** When slider hits 100, a `.task-completing` animation plays (350ms), then `render()` — goal moves to Done Today automatically.
-- **Done Today card:** `renderDone()` — always visible. Two groups: "From Top 5" (completed goals) and "Quick wins" (manually added `state.quickDone` items). Each group shows top 3, collapses the rest behind a `+ N more` toggle. Expand state lives in `doneExpanded` (in-memory, resets on reload). Only the newest item animates in (`.done-item-entering`). Quick win hours are a clickable badge — click to edit inline, Enter/blur commits and badge snaps back.
-- **Promote/demote:** Promote adds `fromBacklog: true` flag to the goal. Goals with this flag show a `↓ Backlog` demote button (fades in on hover) that moves the goal back to backlog.
-- **Inline editing:** `makeEditable(spanEl, onSave)` — click any task name, backlog item, or journal entry to edit. Enter saves, Escape cancels.
-- **Progress slider fill:** `updateSliderFill(slider)` — dynamic gradient background
-- **Progress rings:** SVG circles, `stroke-dasharray: 213.63`. Four rings: avg progress (green), goal hours (mint, max 8h), distraction hours (rose, max 4h), quick wins hours (orange, max 4h). All goals including completed count toward rings.
-- **Summary breakdown:** Per-goal bar chart. Completed goals show strikethrough name and distinct bar color.
-- **Dynamic encouragement:** `updateEncouragement(ap, gh, dh)` — priority: all goals done > some done > distraction-heavy > standard states.
-- **Drag & drop (pointer events):**
-  - `setupCardDrag(card)` — ghost clone on pointerdown, `.card-drop-indicator` shown only when slot changes (prevents animation stutter). Saves layout to localStorage.
-  - `setupTaskDrag(item, list, type)` — ghost clone, `.task-drop-indicator` between rows. Splices state array on drop, clamps index, calls `render()`.
-  - `activeDrag` holds all drag state; `dragType: 'card' | 'task'` distinguishes them.
-- **Backlog:** `renderBacklog()` / `createBacklogElement()`. Promote button shown when active goals < MAX_GOALS. Demote button shown on goals with `fromBacklog: true`.
+
+#### State shapes
+
+**Daily state** (`STORAGE_KEY`):
+```js
+{
+  date: 'YYYY-MM-DD',
+  goals: [{
+    name, hours, progress,      // core fields
+    prevHours?,                 // hours from previous day (carried over)
+    fromBacklog?,               // true if promoted from backlog
+    category?,                  // category id string, null = 'general'
+    repeatable?                 // bool — carries forward to next day if not done
+  }],
+  distractions: [{ name, hours, category? }],
+  successes: [string],
+  failures: [string],
+  quickDone: [{ name, hours }],
+  _carryover?: [goal-like objects]  // temp: set on new day, consumed by Day Transition Modal
+}
+```
+
+**Backlog** (`BACKLOG_KEY`) — persists across day rollovers:
+```js
+[{ name, category?, repeatable? }]
+```
+
+**Categories** (`CATEGORIES_KEY`) — persists indefinitely, accumulates all-time hours:
+```js
+[{
+  id,           // stable string key (e.g. 'career', 'custom_1234567890')
+  name,         // display name (editable)
+  emoji,        // single emoji (editable)
+  color,        // hex color string
+  totalHours,   // all-time accumulated hours (never reset, only += delta)
+  vision?       // optional long-form user text about this life area
+}]
+```
+
+**Default categories:** fitness, career, relationships, chores, general. `general` is the fallback for any goal without a category.
+
+#### Categories system
+
+- `loadCategories()` — merges saved data with `DEFAULT_CATEGORIES` at boot. Custom categories (id starts with `custom_`) are appended after defaults. Spread order: `{ ...def, ...saved }` so saved `totalHours`/`emoji`/`name` always win.
+- `saveCategories()` — persists full categories array to `CATEGORIES_KEY`.
+- `getCategoryById(id)` — returns category or falls back to `general`. Never returns undefined.
+- `accumulateCategoryHours(catId, delta)` — called on every hours-input change event. Adds `delta` (can be negative) to `cat.totalHours`, clamps to 0, saves, re-renders sidebar. This is the **only** place totalHours is mutated. It is NOT recalculated from state on load — it's a running total. This means: if hours are edited down, the total decreases correctly; but history-archived days do not contribute to the total retroactively.
+- `createCategoryPill(catId, onCategorySelect, getRepeatable, setRepeatable)` — returns a button showing the category emoji. Tracks `currentCatId` as a `let` inside the closure so re-opening the picker always shows the correct current selection (not stale creation-time value). When `getRepeatable`/`setRepeatable` are provided (goals only), opens `openTaskContextPicker` with both category + repeatable controls. Otherwise opens `openCategoryPicker` (category only).
+- **Category pill is on the bottom log row** of each goal item, next to the hours/progress inputs. The `↻` repeat icon (`.task-repeat-badge`) is also in the log row, shown/hidden via `.hidden` class.
+
+#### Sidebar
+
+- `initSidebar()` — sets initial collapsed state, wires hamburger toggle button. **The hamburger button (`#sidebar-expand-btn`) is the single toggle — it both opens AND closes.** No separate close button is shown.
+- `sidebarCollapsed` (bool) + `expandedCatId` (string|null) are the two sidebar state variables. Only `sidebarCollapsed` is persisted to localStorage.
+- `renderSidebar()` — fully rebuilds the sidebar categories list on every call. Counts `todayActive`, `todayCompleted`, `todayBacklog` per category from current `state.goals` and `backlog`. Shows `N active · N done · N backlog` beneath each card.
+- **Sidebar layout (two zones):**
+  - **Rail** (always visible, 52px): hamburger button + one emoji button per category. Emoji buttons open `openQuickAddModal(cat)` — a floating modal to add a task directly to that category's Top 5 or Backlog.
+  - **Panel** (visible when expanded, 268px): category cards + "New area" button.
+- **Sidebar category card** shows: emoji, name, all-time hours, optional ✓N done badge, progress bar (scaled to `max(maxTotalHours, 40h)`), task counts.
+- **Pencil edit button** fades in on card hover (`opacity: 0` → `1`). Clicking it (with `stopPropagation`) calls `openCatInlineEdit(cat, card, top, editBtn)` which replaces the top row with an inline edit form: emoji picker button + name input + Save + ✕. Emoji button opens `.sidebar-emoji-picker-pop` (20-emoji grid, `position: fixed`). Enter saves, Escape cancels.
+- **Click anywhere else on card** toggles `expandedCatId`. When expanded, the card shows a detail panel with three sections: Active (green tint), Done Today (mint strikethrough), Backlog (gray). Empty state shows "No tasks here yet."
+- **Sidebar/content interaction:** When sidebar opens, `#main-content` gains `.sidebar-open` class → `padding-left` transitions from `calc(52px + 40px)` to `calc(320px + 40px)`. Main content shrinks and slides right — sidebar overlays nothing.
+
+#### Day transition & new-day detection
+
+- `getTodayString()` — local date as `YYYY-MM-DD`, never UTC.
+- `loadState()` — on boot, if saved date ≠ today: calls `archiveDay()`, sets `_prevDayForModal` module-level variable, builds fresh state with `_carryover` (incomplete goals), returns it.
+- `checkForNewDay()` — runs every 60s synced to the minute boundary. Same logic: detects date change mid-session, archives, resets state, calls `showDayTransitionModal(prev)`.
+- `archiveDay(ds)` — pushes day snapshot `{ date, goals, distractions, successes, failures }` to history array (max 30 entries, oldest shifted off). Does NOT include `_carryover`. Does NOT modify `categories.totalHours` — hours accumulate in real-time via `accumulateCategoryHours`, not at archive time.
+- Boot sequence: `render()` → if `_prevDayForModal` show Day Transition Modal, else fall back to legacy `showCarryoverIfNeeded()`.
+
+#### Day Transition Modal (`showDayTransitionModal(prev)`)
+
+Replaces the old carryover banner. Shown on first load after a new day, or at midnight mid-session.
+
+**Sections:**
+
+1. **Yesterday's summary** — stat pills (tasks done, hours focused, hours distracted). Distraction pill turns red if ≥ 2h. Completed goal list with category emoji + hours. Distraction warning message if ≥ 2h threshold.
+
+2. **Category insights** — only shown when 2+ categories have all-time data. Identifies lagging categories (totalHours < 50% of average) and thriving ones (> 150%). Generates a one-line nudge suggesting balance.
+
+3. **Focus area picker** — grid of all categories. Pre-selects up to 3 with the least all-time hours that have backlog or repeatable tasks. Selecting a 4th auto-deselects the first. Selection stored in a local `Set<id>`.
+
+4. **Repeatable task checklist** — hidden if no matches. Pulls repeatable items from `state._carryover` (carried-forward incomplete repeatable goals) + `backlog` (items with `repeatable: true`), filtered to selected focus categories. All pre-checked. User can uncheck any.
+
+5. **Actions:**
+   - **"Start my day →"** — adds checked repeatable tasks to `state.goals` (removes them from backlog if backlog-sourced), carries over non-repeatable carryover goals whose category is in the selected focus set (up to MAX_GOALS), deletes `_carryover`, saves, renders, closes.
+   - **"Skip, start fresh"** — deletes `_carryover`, closes. No tasks added.
+
+**Critical invariant:** The modal reads from `state._carryover` which was set during `loadState()`/`checkForNewDay()`. It writes directly to `state.goals` and `backlog` before calling `saveState()`/`saveBacklog()`. After the modal closes, `_carryover` is gone from state.
+
+#### Other key functions
+
+- **Clock:** Syncs to exact system minute boundary using `msUntilNextMinute`, ticks every 60s. No seconds.
+- **Active vs completed goals:** `getActiveGoals()` → progress < 100; `getCompletedGoals()` → progress = 100. Completed goals appear in Done Today, not a separate card.
+- **Goal completion flow:** Slider hits 100 → `.task-completing` animation (350ms) → `render()`. Goal moves to Done Today automatically.
+- **Done Today card:** `renderDone()` — two groups (From Top 5 / Quick wins), top 3 visible, `+ N more` toggle. `doneExpanded` is in-memory only (resets on reload). Newest item gets `.done-item-entering` animation. Quick win hours badge is clickable inline editor.
+- **Promote/demote:** Promote adds `fromBacklog: true`. Demote button fades in on hover, moves goal back to backlog.
+- **Inline editing:** `makeEditable(spanEl, onSave)` — Enter saves, Escape cancels.
+- **Progress rings:** SVG circles, `stroke-dasharray: 213.63`. Four rings: avg progress (green), goal hours (mint, max 8h), distraction hours (rose, max 4h), quick wins hours (orange, max 4h).
+- **Drag & drop (pointer events):** `setupCardDrag` (card reorder, saves to `LAYOUT_KEY`) + `setupTaskDrag` (task row reorder within list). `activeDrag` holds all state; `dragType: 'card' | 'task'` distinguishes them.
 - **Undo:** `undoStack`. Cmd+Z/Ctrl+Z. Supports: `'goal'`, `'distraction'`, `'successes'`, `'failures'`, `'backlog'`, `'quickDone'`.
 - **Public API:** `window.DayByDayApp = { getState, getGoals, getDistractions, storageGet, storageSet }`
 
@@ -245,7 +345,7 @@ filter: drop-shadow(0 1px 0 rgba(255,255,255,0.7)) drop-shadow(0 2px 6px rgba(45
 - **Browser notifications:** May not work in all browsers/contexts. In-app nudges are the reliable fallback.
 - **No backend:** All data is local to the browser. No sync, no accounts, no server.
 
-## Current State (v0.8)
+## Current State (v0.9)
 
 All features implemented:
 - Live clock (synced to system, no seconds)
@@ -270,12 +370,23 @@ All features implemented:
 - Tab favicon
 - Ranked priority ordering — explicit rank badges on goals (#1–#5)
 - Journal mood tracking — sentiment tracking on wins/lessons with visual mood assessment
+- **Life Areas (Categories)** — 5 default + unlimited custom; each goal/backlog item tagged with a category; all-time hours tracked per category
+- **Repeatable tasks** — goals/backlog items can be flagged repeatable; ↻ emoji shown in log row; carries forward through Day Transition Modal
+- **Fixed left sidebar** — rail (52px) always visible; expands to 320px, pushing main content right via `padding-left` transition; hamburger button is the single open/close toggle
+- **Sidebar category cards** — show all-time hours bar, today's active/done/backlog counts; click to expand task detail; hover reveals pencil edit (emoji + name); rail emoji buttons open quick-add modal
+- **Day Transition Modal** — replaces carryover banner; shows yesterday's summary stats, distraction warning, category balance insights, focus area picker (max 3), repeatable task checklist, "Start my day" commit action
 
 ## Known Bugs (Confirmed)
 
 - **Browser notifications not working** — permission flow runs but notifications don't appear in some browsers. In-app nudge banner is the reliable fallback.
+- **`totalHours` is not retroactive** — hours accumulated before the categories feature existed are not backfilled. The all-time total only reflects hours logged after categories were introduced.
+- **Category hours on history archive** — `archiveDay()` snapshots goals as-is but does not recalculate `totalHours` at archive time. Hours are accumulated in real-time via `accumulateCategoryHours`; editing hours on a goal from a previous day's carryover would double-count if re-logged.
 
 ## Backlog (Prioritized)
+
+### Near-term
+- **Day Transition Modal — category hours imbalance** needs real data before it's useful. Will become more valuable as `totalHours` accumulates over weeks of use.
+- **Repeatable tasks from categories with no backlog** — currently the modal only suggests repeatable items found in `_carryover` or `backlog`. Standalone repeatable templates (not tied to a specific in-progress task) are not yet supported.
 
 ### Medium Complexity
 - **Common pitfalls from history** — surface patterns from previous days' journal entries ("last time you worked on X, you noted Y")
@@ -291,9 +402,9 @@ All features implemented:
 - Weekly/monthly progress views from archived history
 - Export data as JSON or CSV
 - Custom notification frequency settings
-- Goal categories or tags
-- Streak tracking
+- Streak tracking per life area
 - Dark mode
+- Standalone repeatable task templates (not tied to a one-off goal)
 
 ## Product Vision (Forward Thinking)
 
@@ -309,10 +420,12 @@ Not task management — there are a thousand of those. This is about **finitude-
 4. **Phase 4:** Multi-platform, potential monetization. Subscription for cross-device sync and AI-powered nudges.
 
 ### Design decisions to make now that will matter later
-- **Keep state shape clean** — the `{ date, goals, distractions, successes, failures, quickDone }` shape should remain portable to any storage backend (iCloud, Supabase, etc.)
+- **Keep state shape clean** — the `{ date, goals, distractions, successes, failures, quickDone }` shape is portable. Categories live in a separate key. Both should remain clean for any future storage backend (iCloud, Supabase, etc.).
+- **`totalHours` is a running accumulator, not a derived value** — this is intentional for performance. When porting to a backend, it should be stored as a field, not recomputed from history on every load.
 - **No DOM-coupled logic** — all business logic lives in functions, not tied to specific element IDs. This makes porting to React/SwiftUI easier.
 - **The notification system** is a placeholder for something much smarter — the agentic nudge framework (ART/GRPO) is the real end-game here.
 - **Design language is already production-grade** — the spatial/glass system we've built maps well to visionOS and iOS 26 native components. Don't regress it.
+- **The Day Transition Modal** is the first step toward daily planning intelligence. The focus area picker + repeatable checklist will become more powerful as history accumulates — eventually it should suggest tasks based on momentum, not just hours imbalance.
 
 ### Open questions to resolve before scaling
 - Should goals be ordered by drag only, or is there a smarter priority signal (time-of-day, streak, estimated effort)?

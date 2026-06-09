@@ -22,6 +22,142 @@
     { id: 'general',       name: 'General',       emoji: '⚡', color: '#8d99ae', totalHours: 0 },
   ];
 
+  // --- Emoji → color mapping ---
+  const EMOJI_COLORS = {
+    // Default category emojis
+    '💪': '#3a86ff', '💼': '#2D6A4F', '❤️': '#e63946', '🧹': '#f4a261', '⚡': '#8d99ae',
+    // Picker emojis
+    '🎯': '#e63946', '📚': '#3a86ff', '🎨': '#f72585', '💡': '#f9c74f', '🏃': '#43aa8b',
+    '🧘': '#9b5de5', '💰': '#f4a261', '🌱': '#40916c', '🔧': '#6c757d', '🎵': '#7b2d8b',
+    '✈️': '#00bbf9', '🍎': '#e63946', '🧠': '#9b5de5', '🤝': '#f4a261', '🏠': '#457b9d',
+    // Common extras
+    '🏋️': '#3a86ff', '🚴': '#43aa8b', '🧗': '#f4a261', '⚽': '#2D6A4F', '🎾': '#f9c74f',
+    '🎸': '#7b2d8b', '🎹': '#9b5de5', '🎤': '#f72585', '🎬': '#e63946', '📷': '#6c757d',
+    '💻': '#457b9d', '📝': '#3a86ff', '🔬': '#00bbf9', '🌍': '#40916c', '🌊': '#00bbf9',
+    '🔥': '#fb5607', '⭐': '#f9c74f', '🌟': '#f9c74f', '🏆': '#f4a261', '🎓': '#3a86ff',
+    '👨‍👩‍👧': '#f72585', '👫': '#f72585', '🐾': '#f4a261', '🌺': '#f72585', '🍃': '#40916c',
+  };
+
+  // Curated swatches shown in both category modals — ordered for visual appeal
+  const COLOR_SWATCHES = [
+    '#e63946','#f72585','#7b2d8b','#9b5de5','#3a86ff','#00bbf9','#00f5d4',
+    '#40916c','#2D6A4F','#43aa8b','#f9c74f','#f4a261','#fb5607','#457b9d','#6c757d',
+  ];
+
+  // Appends a rainbow "custom color" button to a container.
+  // Clicking opens a small positioned popover with a visible <input type="color">,
+  // a live preview swatch, and Cancel / OK buttons.
+  // onPick(hex) is called only when OK is confirmed.
+  function appendColorPickerSwatch(container, currentColor, onPick, extraClass) {
+    const btn = document.createElement('button');
+    btn.className = 'cat-modal-swatch swatch-rainbow' + (extraClass ? ' ' + extraClass : '');
+    btn.title = 'Custom color';
+    btn.type = 'button';
+
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      // Remove any existing custom picker popover
+      document.querySelectorAll('.custom-color-pop').forEach(p => p.remove());
+
+      let pendingColor = currentColor || '#40916c';
+
+      const pop = document.createElement('div');
+      pop.className = 'custom-color-pop';
+
+      const title = document.createElement('div');
+      title.className = 'custom-color-pop-title';
+      title.textContent = 'Custom color';
+
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = pendingColor;
+      colorInput.className = 'custom-color-input';
+
+      const preview = document.createElement('div');
+      preview.className = 'custom-color-preview';
+      const previewSwatch = document.createElement('span');
+      previewSwatch.className = 'custom-color-preview-swatch';
+      previewSwatch.style.background = pendingColor;
+      const previewHex = document.createElement('span');
+      previewHex.className = 'custom-color-preview-hex';
+      previewHex.textContent = pendingColor;
+      preview.append(previewSwatch, previewHex);
+
+      colorInput.addEventListener('input', () => {
+        pendingColor = colorInput.value;
+        previewSwatch.style.background = pendingColor;
+        previewHex.textContent = pendingColor;
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'custom-color-actions';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-ghost';
+      cancelBtn.style.fontSize = '0.75rem';
+      cancelBtn.style.padding = '5px 10px';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.type = 'button';
+      cancelBtn.addEventListener('click', e => { e.stopPropagation(); pop.remove(); });
+
+      const okBtn = document.createElement('button');
+      okBtn.className = 'btn btn-primary';
+      okBtn.style.fontSize = '0.75rem';
+      okBtn.style.padding = '5px 10px';
+      okBtn.textContent = 'OK';
+      okBtn.type = 'button';
+      okBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        onPick(pendingColor);
+        pop.remove();
+      });
+
+      actions.append(cancelBtn, okBtn);
+      pop.append(title, colorInput, preview, actions);
+      document.body.appendChild(pop);
+
+      // Position near the trigger button
+      const r = btn.getBoundingClientRect();
+      const popW = 180;
+      let left = r.left;
+      if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+      pop.style.left = left + 'px';
+      pop.style.top = (r.bottom + 6) + 'px';
+
+      // Close on outside click
+      setTimeout(() => {
+        const close = ev => {
+          if (!pop.contains(ev.target) && ev.target !== btn) {
+            pop.remove();
+            document.removeEventListener('pointerdown', close, true);
+          }
+        };
+        document.addEventListener('pointerdown', close, true);
+      }, 50);
+    });
+
+    container.appendChild(btn);
+  }
+
+  function emojiToColor(emoji) {
+    if (!emoji) return COLOR_SWATCHES[0];
+    const direct = EMOJI_COLORS[emoji.trim()];
+    if (direct) return direct;
+    // Hash fallback — derive hue from codepoints, use fixed s/l for pleasing output
+    let hash = 0;
+    for (const cp of emoji) hash = (hash * 31 + (cp.codePointAt(0) || 0)) & 0xfffffff;
+    const hue = hash % 360;
+    // Convert HSL → hex
+    const h = hue / 360, s = 0.6, l = 0.48;
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const toHex = t => {
+      const c = Math.round(255 * (t < 1/6 ? p + (q-p)*6*t : t < 1/2 ? q : t < 2/3 ? p + (q-p)*(2/3-t)*6 : p));
+      return c.toString(16).padStart(2, '0');
+    };
+    return `#${toHex(h+1/3)}${toHex(h)}${toHex(h-1/3 < 0 ? h-1/3+1 : h-1/3)}`;
+  }
+
   // --- Storage ---
   let storageAvailable = false;
   try {
@@ -199,8 +335,15 @@
     const MAX_SCALE_HOURS = 40;
     const maxHours = Math.max(...categories.map(c => c.totalHours || 0), MAX_SCALE_HOURS);
 
+    // Split into today's focus vs the rest (rest sorted by totalHours asc)
+    const focusIds = new Set(state.focusCategoryIds || []);
+    const focusCats = categories.filter(c => focusIds.has(c.id));
+    const restCats = categories
+      .filter(c => !focusIds.has(c.id))
+      .sort((a, b) => (a.totalHours || 0) - (b.totalHours || 0));
+
+    // Rail emoji buttons — keep original order
     categories.forEach(cat => {
-      // Rail emoji button — clicking opens quick-add modal for this category
       if (sidebarCatDots) {
         const emojiBtn = document.createElement('button');
         emojiBtn.className = 'sidebar-emoji-btn';
@@ -210,10 +353,11 @@
         emojiBtn.addEventListener('click', () => openQuickAddModal(cat));
         sidebarCatDots.appendChild(emojiBtn);
       }
+    });
 
-      // Sidebar card
+    function buildCard(cat, isFocused) {
       const card = document.createElement('div');
-      card.className = 'sidebar-cat-card';
+      card.className = 'sidebar-cat-card' + (isFocused ? ' sidebar-cat-focused' : '');
 
       const top = document.createElement('div');
       top.className = 'sidebar-cat-top';
@@ -230,7 +374,6 @@
       hoursEl.className = 'sidebar-cat-hours';
       hoursEl.textContent = cat.totalHours > 0 ? `${cat.totalHours.toFixed(1)}h` : '—';
 
-      // Pencil edit button — fades in on hover
       const editBtn = document.createElement('button');
       editBtn.className = 'sidebar-cat-edit-btn';
       editBtn.title = 'Edit';
@@ -242,7 +385,6 @@
 
       top.append(emojiEl, nameEl, hoursEl);
 
-      // Completed count badge
       const completed = todayCompleted[cat.id] || 0;
       if (completed > 0) {
         const compBadge = document.createElement('span');
@@ -250,7 +392,6 @@
         compBadge.textContent = `✓${completed}`;
         top.appendChild(compBadge);
       }
-
       top.appendChild(editBtn);
 
       const barContainer = document.createElement('div');
@@ -258,32 +399,29 @@
       const bar = document.createElement('div');
       bar.className = 'sidebar-cat-bar';
       bar.style.background = `linear-gradient(90deg, ${cat.color}cc, ${cat.color}88)`;
-      const pct = Math.min(100, ((cat.totalHours || 0) / maxHours) * 100);
-      bar.style.width = pct + '%';
+      bar.style.width = Math.min(100, ((cat.totalHours || 0) / maxHours) * 100) + '%';
       barContainer.appendChild(bar);
 
       const active = todayActive[cat.id] || 0;
       const backlogged = todayBacklog[cat.id] || 0;
-      const countEl = document.createElement('div');
-      countEl.className = 'sidebar-cat-task-count';
       const parts = [];
       if (active > 0) parts.push(`${active} active`);
       if (completed > 0) parts.push(`${completed} done`);
       if (backlogged > 0) parts.push(`${backlogged} backlog`);
+      const countEl = document.createElement('div');
+      countEl.className = 'sidebar-cat-task-count';
       countEl.textContent = parts.join(' · ');
 
       card.append(top, barContainer, countEl);
 
-      // Expand panel — shows all tasks for this category
       const isExpanded = expandedCatId === cat.id;
-      if (isExpanded) card.classList.add('sidebar-cat-expanded');
-
       if (isExpanded) {
+        card.classList.add('sidebar-cat-expanded');
         const detail = document.createElement('div');
         detail.className = 'sidebar-cat-detail';
 
         const activeGoals = state.goals.filter(g => (g.category || 'general') === cat.id && (g.progress || 0) < 100);
-        const doneGoals = state.goals.filter(g => (g.category || 'general') === cat.id && (g.progress || 0) >= 100);
+        const doneGoals   = state.goals.filter(g => (g.category || 'general') === cat.id && (g.progress || 0) >= 100);
         const backlogItems = backlog.filter(b => (b.category || 'general') === cat.id);
 
         function addSection(label, items, itemClass, draggable) {
@@ -334,8 +472,37 @@
         renderSidebar();
       });
 
-      sidebarCategoriesEl.appendChild(card);
-    });
+      return card;
+    }
+
+    // ── Today's focus section ──
+    if (focusCats.length > 0) {
+      const focusHeader = document.createElement('div');
+      focusHeader.className = 'sidebar-section-header';
+      focusHeader.textContent = "Today's focus";
+      sidebarCategoriesEl.appendChild(focusHeader);
+
+      focusCats.forEach(cat => sidebarCategoriesEl.appendChild(buildCard(cat, true)));
+
+      const divider = document.createElement('div');
+      divider.className = 'sidebar-section-divider';
+      const dividerText = document.createElement('p');
+      dividerText.className = 'sidebar-section-divider-text';
+      dividerText.textContent = 'You chose to go deep on these areas today. The rest are standing by — progress compounds when you focus.';
+      divider.appendChild(dividerText);
+      sidebarCategoriesEl.appendChild(divider);
+
+      const restHeader = document.createElement('div');
+      restHeader.className = 'sidebar-section-header sidebar-section-header--muted';
+      restHeader.textContent = 'Other areas';
+      sidebarCategoriesEl.appendChild(restHeader);
+
+      restCats.forEach(cat => sidebarCategoriesEl.appendChild(buildCard(cat, false)));
+    } else {
+      // No focus set — show all sorted by totalHours asc
+      [...categories].sort((a, b) => (a.totalHours || 0) - (b.totalHours || 0))
+        .forEach(cat => sidebarCategoriesEl.appendChild(buildCard(cat, false)));
+    }
   }
 
   // =========================================================
@@ -394,18 +561,85 @@
     cancelBtn.className = 'btn btn-ghost sidebar-cat-edit-cancel';
     cancelBtn.textContent = '✕';
 
-    editRow.append(emojiBtn, nameInput, saveBtn, cancelBtn);
+    // Color dot — shows current color, click to open popover
+    let editColor = cat.color || emojiToColor(cat.emoji);
+    const colorDot = document.createElement('button');
+    colorDot.className = 'sidebar-color-dot';
+    colorDot.style.background = editColor;
+    colorDot.title = 'Change color';
+
+    editRow.append(emojiBtn, nameInput, colorDot, saveBtn, cancelBtn);
+
+    // Popover — shown when colorDot is clicked
+    let colorPop = null;
+    function openColorPop() {
+      if (colorPop) { colorPop.remove(); colorPop = null; return; }
+      colorPop = document.createElement('div');
+      colorPop.className = 'sidebar-color-pop';
+      const usedByOthers = new Set(categories.filter(c => c.id !== cat.id).map(c => c.color).filter(Boolean));
+      COLOR_SWATCHES.forEach(color => {
+        const taken = usedByOthers.has(color);
+        const sw = document.createElement('button');
+        sw.className = 'cat-modal-swatch sidebar-swatch-sm' + (color === editColor ? ' selected' : '') + (taken ? ' swatch-taken' : '');
+        sw.style.background = color;
+        sw.title = taken ? 'Already used by another life area' : '';
+        sw.disabled = taken;
+        sw.addEventListener('click', e => {
+          e.stopPropagation();
+          if (taken) return;
+          editColor = color;
+          colorDot.style.background = color;
+          colorPop.remove(); colorPop = null;
+          // Also sync if emoji just changed
+          const suggested = emojiToColor(emojiBtn.textContent.trim());
+          if (color !== suggested) colorDot.title = 'Change color'; // user override
+        });
+        colorPop.appendChild(sw);
+      });
+      // Custom color picker
+      appendColorPickerSwatch(colorPop, editColor, hex => {
+        editColor = hex;
+        colorDot.style.background = hex;
+        // Close the palette popover after OK — color is committed
+        if (colorPop) { colorPop.remove(); colorPop = null; }
+      }, 'sidebar-swatch-sm');
+
+      colorDot.insertAdjacentElement('afterend', colorPop);
+      setTimeout(() => {
+        const close = ev => {
+          if (colorPop && !colorPop.contains(ev.target) && ev.target !== colorDot) {
+            colorPop.remove(); colorPop = null;
+            document.removeEventListener('pointerdown', close, true);
+          }
+        };
+        document.addEventListener('pointerdown', close, true);
+      }, 50);
+    }
+    colorDot.addEventListener('click', e => { e.stopPropagation(); openColorPop(); });
+
+    // Auto-update color dot when emoji changes in the picker
+    const emojiObserver = new MutationObserver(() => {
+      const suggested = emojiToColor(emojiBtn.textContent.trim());
+      editColor = suggested;
+      colorDot.style.background = suggested;
+      if (colorPop) { colorPop.remove(); colorPop = null; }
+    });
+    emojiObserver.observe(emojiBtn, { childList: true, characterData: true, subtree: true });
 
     function confirmEdit() {
       const newName = nameInput.value.trim();
       if (!newName) { nameInput.focus(); return; }
+      emojiObserver.disconnect();
       cat.emoji = emojiBtn.textContent;
       cat.name = newName;
+      cat.color = editColor;
       saveCategories();
       renderSidebar();
     }
 
     function cancelEdit() {
+      emojiObserver.disconnect();
+      if (colorPop) { colorPop.remove(); colorPop = null; }
       editRow.replaceWith(top);
       editBtn.style.display = '';
     }
@@ -643,7 +877,6 @@
   function openNewCategoryModal(onSelect) {
     closeModal();
 
-    const PALETTE = ['#9b5de5','#00bbf9','#f15bb5','#00f5d4','#fb5607','#3a0ca3','#e63946','#2ec4b6','#ff9f1c'];
     const DEFAULT_EMOJI = '🌟';
 
     const overlay = document.createElement('div');
@@ -706,14 +939,15 @@
     });
 
     emojiInput.addEventListener('input', () => {
-      // Extract the last emoji character (handles multi-codepoint emoji like flags)
       const raw = emojiInput.value;
-      const chars = [...raw]; // proper unicode segmentation
+      const chars = [...raw];
       if (chars.length > 0) {
-        // Take last 2 code points (handles emoji + variation selector)
         const emoji = chars.slice(-2).join('');
         emojiDisplay.textContent = emoji;
         emojiInput.value = '';
+        // Auto-update color to match new emoji
+        selectedColor = emojiToColor(emoji);
+        buildNewCatSwatches();
       }
     });
 
@@ -740,19 +974,50 @@
     colorLabel.textContent = 'Pick a color';
     const swatchRow = document.createElement('div');
     swatchRow.className = 'cat-modal-swatches';
-    let selectedColor = PALETTE[categories.filter(c => c.id.startsWith('custom_')).length % PALETTE.length];
+    let selectedColor = emojiToColor(DEFAULT_EMOJI);
 
-    PALETTE.forEach(color => {
-      const swatch = document.createElement('button');
-      swatch.className = 'cat-modal-swatch' + (color === selectedColor ? ' selected' : '');
-      swatch.style.background = color;
-      swatch.addEventListener('click', () => {
-        selectedColor = color;
-        swatchRow.querySelectorAll('.cat-modal-swatch').forEach(s => s.classList.remove('selected'));
-        swatch.classList.add('selected');
+    const usedColors = new Set(categories.map(c => c.color).filter(Boolean));
+
+    function buildNewCatSwatches() {
+      swatchRow.innerHTML = '';
+      COLOR_SWATCHES.forEach(color => {
+        const taken = usedColors.has(color);
+        const swatch = document.createElement('button');
+        swatch.className = 'cat-modal-swatch' + (color === selectedColor ? ' selected' : '') + (taken ? ' swatch-taken' : '');
+        swatch.style.background = color;
+        swatch.title = taken ? 'Already used by another life area' : '';
+        swatch.disabled = taken && color !== selectedColor;
+        swatch.addEventListener('click', () => {
+          if (taken) return;
+          selectedColor = color;
+          swatchRow.querySelectorAll('.cat-modal-swatch').forEach(s => s.classList.remove('selected'));
+          swatch.classList.add('selected');
+        });
+        swatchRow.appendChild(swatch);
       });
-      swatchRow.appendChild(swatch);
-    });
+      // Custom color picker — on OK, inject/update a swatch and select it
+      appendColorPickerSwatch(swatchRow, selectedColor, hex => {
+        selectedColor = hex;
+        swatchRow.querySelectorAll('.cat-modal-swatch:not(.swatch-rainbow):not(.swatch-custom)').forEach(s => s.classList.remove('selected'));
+        let customSw = swatchRow.querySelector('.swatch-custom');
+        if (!customSw) {
+          customSw = document.createElement('button');
+          customSw.className = 'cat-modal-swatch swatch-custom';
+          customSw.title = 'Your custom color';
+          customSw.addEventListener('click', () => {
+            selectedColor = customSw.style.background; // always read current value
+            swatchRow.querySelectorAll('.cat-modal-swatch').forEach(s => s.classList.remove('selected'));
+            customSw.classList.add('selected');
+          });
+          swatchRow.querySelector('.swatch-rainbow').insertAdjacentElement('beforebegin', customSw);
+        }
+        customSw.style.background = hex;
+        swatchRow.querySelectorAll('.cat-modal-swatch').forEach(s => s.classList.remove('selected'));
+        customSw.classList.add('selected');
+      });
+    }
+    buildNewCatSwatches();
+
     colorSection.append(colorLabel, swatchRow);
 
     // Vision note
@@ -859,20 +1124,39 @@
   // Shows category list + repeatable toggle in one floating panel
   function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm) {
     closePicker();
+    closeModal();
 
-    const picker = document.createElement('div');
-    picker.className = 'cat-picker task-context-picker';
-    activePicker = picker;
+    let selectedCatId = currentCatId || 'general';
 
-    // Section label: category
+    const overlay = document.createElement('div');
+    overlay.className = 'task-context-modal-overlay';
+    activeModal = overlay;
+
+    const modal = document.createElement('div');
+    modal.className = 'task-context-modal';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'task-context-modal-header';
+    const title = document.createElement('h3');
+    title.className = 'task-context-modal-title';
+    title.textContent = 'Task Settings';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'cat-modal-close';
+    closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+    closeBtn.addEventListener('click', closeModal);
+    header.append(title, closeBtn);
+    modal.appendChild(header);
+
+    // Life Area section label
     const catLabel = document.createElement('div');
-    catLabel.className = 'context-picker-label';
+    catLabel.className = 'task-context-section-label';
     catLabel.textContent = 'Life Area';
-    picker.appendChild(catLabel);
+    modal.appendChild(catLabel);
 
+    // Category list
     const list = document.createElement('div');
-    list.className = 'cat-picker-list';
-    let selectedCatId = currentCatId;
+    list.className = 'cat-picker-list task-context-cat-list';
 
     categories.forEach(cat => {
       const opt = document.createElement('button');
@@ -896,22 +1180,16 @@
     const newCatBtn = document.createElement('button');
     newCatBtn.className = 'cat-picker-new';
     newCatBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></svg> New area…';
-    newCatBtn.addEventListener('click', () => { closePicker(); openNewCategoryModal(newId => { selectedCatId = newId; }); });
+    newCatBtn.addEventListener('click', () => { closeModal(); openNewCategoryModal(newId => { selectedCatId = newId; }); });
     list.appendChild(newCatBtn);
-    picker.appendChild(list);
-
-    // Scroll the pre-selected item into view once picker is in the DOM
-    setTimeout(() => {
-      const sel = list.querySelector('.cat-picker-option.selected');
-      if (sel) sel.scrollIntoView({ block: 'nearest' });
-    }, 0);
+    modal.appendChild(list);
 
     // Divider
-    const div = document.createElement('div');
-    div.className = 'cat-picker-divider';
-    picker.appendChild(div);
+    const divider = document.createElement('div');
+    divider.className = 'task-context-divider';
+    modal.appendChild(divider);
 
-    // Repeatable toggle row inside popover
+    // Repeatable toggle row
     const repeatRow = document.createElement('div');
     repeatRow.className = 'context-picker-repeat-row';
     const repeatLabel = document.createElement('label');
@@ -929,33 +1207,32 @@
     toggleTrack.className = 'toggle-track';
     toggleSwitch.append(toggleInput, toggleTrack);
     repeatRow.append(repeatLabel, toggleSwitch);
-    picker.appendChild(repeatRow);
+    modal.appendChild(repeatRow);
 
     // Done button
-    const doneDiv = document.createElement('div');
-    doneDiv.style.cssText = 'padding:6px 4px 2px; display:flex; justify-content:flex-end;';
+    const footer = document.createElement('div');
+    footer.className = 'task-context-modal-footer';
     const doneBtn = document.createElement('button');
     doneBtn.className = 'cat-picker-done-btn';
     doneBtn.textContent = 'Done';
     doneBtn.addEventListener('click', () => {
-      closePicker();
+      closeModal();
       onConfirm(selectedCatId, toggleInput.checked);
     });
-    doneDiv.appendChild(doneBtn);
-    picker.appendChild(doneDiv);
+    footer.appendChild(doneBtn);
+    modal.appendChild(footer);
 
-    document.body.appendChild(picker);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
 
-    const rect = anchorEl.getBoundingClientRect();
-    const pickerW = 220;
-    let left = rect.left;
-    let top = rect.bottom + 8;
-    if (left + pickerW > window.innerWidth - 12) left = window.innerWidth - pickerW - 12;
-    if (top + 400 > window.innerHeight) top = rect.top - 8 - 380;
-    picker.style.left = left + 'px';
-    picker.style.top = top + 'px';
+    // Close on backdrop click
+    overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeModal(); });
 
-    setTimeout(() => document.addEventListener('pointerdown', onPickerOutsideClick, true), 50);
+    // Scroll selected into view
+    setTimeout(() => {
+      const sel = list.querySelector('.cat-picker-option.selected');
+      if (sel) sel.scrollIntoView({ block: 'nearest' });
+    }, 50);
   }
 
   // =========================================================
@@ -2759,6 +3036,9 @@
           }
         }
       });
+
+      // Persist today's focus categories so the sidebar can show them all day
+      state.focusCategoryIds = Array.from(selectedCats);
 
       delete state._carryover;
       saveBacklog();

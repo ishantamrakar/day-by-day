@@ -1967,7 +1967,100 @@ footer {
 .sidebar-detail-backlog {
   background: rgba(140,148,156,0.1);
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: grab;
+  user-select: none;
+  padding: 5px 8px;
+  transition: background 0.15s, transform 0.1s;
 }
+.sidebar-detail-backlog:hover {
+  background: rgba(255,255,255,0.7);
+  color: var(--text);
+}
+.sidebar-detail-backlog:active { cursor: grabbing; transform: scale(0.97); }
+
+.sidebar-backlog-drag-handle {
+  opacity: 0.3;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  transition: opacity 0.15s;
+}
+.sidebar-detail-backlog:hover .sidebar-backlog-drag-handle { opacity: 0.6; }
+
+.sidebar-backlog-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dragging ghost — card style */
+.sidebar-drag-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.94);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,0.85);
+  border-bottom-color: rgba(0,0,0,0.08);
+  border-radius: 14px;
+  padding: 12px 18px;
+  min-width: 160px;
+  max-width: 260px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.16), 0 3px 10px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,1);
+}
+.sidebar-drag-ghost-emoji {
+  font-size: 1.15rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.sidebar-drag-ghost-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: var(--font);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Goals card highlighted as a valid drop zone — subtle opacity shift, no outline */
+.goals-drop-target {
+  opacity: 0.82;
+  background: rgba(45,106,79,0.06) !important;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+/* Placeholder slot shown inside the Top 5 list while dragging from sidebar */
+.sidebar-placeholder {
+  opacity: 0.45;
+  border: 2px dashed rgba(45,106,79,0.45) !important;
+  background: rgba(45,106,79,0.06) !important;
+  color: var(--primary);
+  font-size: 0.82rem;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 10px 14px;
+}
+
+/* Shake when Top 5 is full */
+@keyframes dropShake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-5px); }
+  40%       { transform: translateX(5px); }
+  60%       { transform: translateX(-4px); }
+  80%       { transform: translateX(4px); }
+}
+.goals-drop-full { animation: dropShake 0.5s ease both; }
 
 .sidebar-detail-empty {
   font-size: 0.68rem;

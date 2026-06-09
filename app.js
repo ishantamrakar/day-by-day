@@ -286,7 +286,7 @@
         const doneGoals = state.goals.filter(g => (g.category || 'general') === cat.id && (g.progress || 0) >= 100);
         const backlogItems = backlog.filter(b => (b.category || 'general') === cat.id);
 
-        function addSection(label, items, itemClass) {
+        function addSection(label, items, itemClass, draggable) {
           if (!items.length) return;
           const sec = document.createElement('div');
           sec.className = 'sidebar-detail-section';
@@ -297,15 +297,26 @@
           items.forEach(item => {
             const row = document.createElement('div');
             row.className = 'sidebar-detail-item ' + itemClass;
-            row.textContent = item.name;
+            if (draggable) {
+              const handle = document.createElement('span');
+              handle.className = 'sidebar-backlog-drag-handle';
+              handle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 256 256" fill="currentColor"><path d="M104,60A12,12,0,1,1,92,48,12,12,0,0,1,104,60Zm60,0a12,12,0,1,1-12-12A12,12,0,0,1,164,60ZM104,128a12,12,0,1,1-12-12A12,12,0,0,1,104,128Zm60,0a12,12,0,1,1-12-12A12,12,0,0,1,164,128ZM104,196a12,12,0,1,1-12-12A12,12,0,0,1,104,196Zm60,0a12,12,0,1,1-12-12A12,12,0,0,1,164,196Z"/></svg>';
+              const nameSpan = document.createElement('span');
+              nameSpan.className = 'sidebar-backlog-item-name';
+              nameSpan.textContent = item.name;
+              row.append(handle, nameSpan);
+              setupSidebarBacklogDrag(row, item);
+            } else {
+              row.textContent = item.name;
+            }
             sec.appendChild(row);
           });
           detail.appendChild(sec);
         }
 
-        addSection('Active', activeGoals, 'sidebar-detail-active');
-        addSection('Done Today', doneGoals, 'sidebar-detail-done');
-        addSection('Backlog', backlogItems, 'sidebar-detail-backlog');
+        addSection('Active', activeGoals, 'sidebar-detail-active', false);
+        addSection('Done Today', doneGoals, 'sidebar-detail-done', false);
+        addSection('Backlog', backlogItems, 'sidebar-detail-backlog', true);
 
         if (!activeGoals.length && !doneGoals.length && !backlogItems.length) {
           const empty = document.createElement('div');
@@ -1296,7 +1307,8 @@
       demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
       demoteBtn.title = 'Move back to backlog';
       demoteBtn.addEventListener('click', () => {
-        backlog.push({ name: state.goals[index].name });
+        const g = state.goals[index];
+        backlog.push({ name: g.name, category: g.category || null, repeatable: g.repeatable || false });
         state.goals.splice(index, 1);
         saveState(); saveBacklog(); render();
       });
@@ -2256,6 +2268,136 @@
 
     activeDrag = null;
     render();
+  }
+
+  // =========================================================
+  // SIDEBAR BACKLOG → TOP 5 DRAG
+  // =========================================================
+  function setupSidebarBacklogDrag(dragEl, backlogItem) {
+    dragEl.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragEl.setPointerCapture(e.pointerId);
+
+      const goalsCard = document.getElementById('goals-section');
+      if (!goalsCard) return;
+
+      // Ghost card follows the cursor
+      const cat = getCategoryById(backlogItem.category || 'general');
+      const ghost = document.createElement('div');
+      ghost.className = 'sidebar-drag-ghost';
+      ghost.innerHTML = `<span class="sidebar-drag-ghost-emoji">${cat.emoji}</span><span class="sidebar-drag-ghost-name">${backlogItem.name}</span>`;
+      document.body.appendChild(ghost);
+
+      // Placeholder slot state — only active while inside the goals card
+      let placeholder = null;   // the fake task-item row inserted into goalsListEl
+      let currentSlot = -1;     // which index slot the placeholder is sitting at (-1 = not in list)
+
+      function getStep() {
+        const items = Array.from(goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+        if (!items.length) return 52; // fallback height
+        const r = items[0].getBoundingClientRect();
+        const gap = parseFloat(getComputedStyle(goalsListEl).gap) || 10;
+        return r.height + gap;
+      }
+
+      function insertPlaceholder(slot) {
+        if (!placeholder) {
+          placeholder = document.createElement('div');
+          placeholder.className = 'task-item sidebar-placeholder';
+          placeholder.textContent = backlogItem.name;
+        }
+        const items = Array.from(goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+        const clampedSlot = Math.max(0, Math.min(slot, items.length));
+        if (clampedSlot !== currentSlot) {
+          currentSlot = clampedSlot;
+          if (clampedSlot >= items.length) {
+            goalsListEl.appendChild(placeholder);
+          } else {
+            goalsListEl.insertBefore(placeholder, items[clampedSlot]);
+          }
+        }
+      }
+
+      function removePlaceholder() {
+        if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+        placeholder = null;
+        currentSlot = -1;
+      }
+
+      const move = ev => {
+        ghost.style.left = (ev.clientX - ghost.offsetWidth / 2) + 'px';
+        ghost.style.top = (ev.clientY - ghost.offsetHeight / 2) + 'px';
+
+        const gr = goalsCard.getBoundingClientRect();
+        const inside = ev.clientX >= gr.left && ev.clientX <= gr.right &&
+                       ev.clientY >= gr.top  && ev.clientY <= gr.bottom;
+
+        if (inside) {
+          if (getActiveGoals().length >= MAX_GOALS) {
+            // Full — just highlight with outline, no placeholder
+            goalsCard.classList.add('goals-drop-target');
+            removePlaceholder();
+          } else {
+            goalsCard.classList.add('goals-drop-target');
+            // Compute slot from pointer Y relative to the list
+            const listRect = goalsListEl.getBoundingClientRect();
+            const step = getStep();
+            const relY = ev.clientY - listRect.top;
+            const slot = Math.max(0, Math.round(relY / step));
+            insertPlaceholder(slot);
+          }
+        } else {
+          goalsCard.classList.remove('goals-drop-target');
+          removePlaceholder();
+        }
+      };
+
+      const up = ev => {
+        document.removeEventListener('pointermove', move);
+        ghost.remove();
+        goalsCard.classList.remove('goals-drop-target');
+
+        const gr = goalsCard.getBoundingClientRect();
+        const dropped = ev.clientX >= gr.left && ev.clientX <= gr.right &&
+                        ev.clientY >= gr.top  && ev.clientY <= gr.bottom;
+
+        const insertAt = currentSlot; // capture before removePlaceholder resets it
+        removePlaceholder();
+
+        if (dropped) {
+          if (getActiveGoals().length >= MAX_GOALS) {
+            goalsCard.classList.add('goals-drop-full');
+            setTimeout(() => goalsCard.classList.remove('goals-drop-full'), 600);
+          } else {
+            const bi = backlog.findIndex(b => b.name === backlogItem.name && (b.category || 'general') === (backlogItem.category || 'general'));
+            if (bi !== -1) backlog.splice(bi, 1);
+            // Insert at the slot position within active goals
+            const activeGoals = getActiveGoals();
+            const clampedSlot = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
+            // Find the real state.goals index to insert before
+            const newGoal = { name: backlogItem.name, hours: 0, progress: 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
+            if (clampedSlot >= activeGoals.length) {
+              // Append after last active goal — find the real index of the last active goal
+              const lastActive = activeGoals[activeGoals.length - 1];
+              const insertIdx = lastActive ? state.goals.indexOf(lastActive) + 1 : state.goals.length;
+              state.goals.splice(insertIdx, 0, newGoal);
+            } else {
+              const targetGoal = activeGoals[clampedSlot];
+              const insertIdx = state.goals.indexOf(targetGoal);
+              state.goals.splice(insertIdx, 0, newGoal);
+            }
+            saveBacklog();
+            saveState();
+            render();
+            renderSidebar();
+          }
+        }
+      };
+
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up, { once: true });
+    });
   }
 
   // =========================================================

@@ -1100,10 +1100,16 @@
         _prevDayForModal = p;
         const ns = getDefaultState();
         ns._carryover = p.goals
-          ? p.goals.filter(g => (g.progress || 0) < 100).map(g => ({
-              name: g.name, hours: 0, progress: g.progress || 0, prevHours: g.hours || 0,
-              category: g.category || null, repeatable: g.repeatable || false
-            }))
+          ? p.goals.map(g => {
+              const done = (g.progress || 0) >= 100;
+              if (done && !g.repeatable) return null; // completed non-repeatable: gone
+              return {
+                name: g.name, hours: 0,
+                progress: done ? 0 : (g.progress || 0), // reset repeatables to fresh
+                prevHours: g.hours || 0,
+                category: g.category || null, repeatable: g.repeatable || false
+              };
+            }).filter(Boolean)
           : [];
         return ns;
       }
@@ -1523,6 +1529,17 @@
     row.className = 'done-item done-item-quick' + (isLatest ? ' done-item-entering' : '');
     if (isLatest) requestAnimationFrame(() => row.classList.remove('done-item-entering'));
 
+    // Category emoji badge (only if a non-general category is set)
+    if (item.category && item.category !== 'general') {
+      const cat = getCategoryById(item.category);
+      const catBadge = document.createElement('span');
+      catBadge.className = 'done-item-cat-badge';
+      catBadge.textContent = cat.emoji;
+      catBadge.title = cat.name;
+      catBadge.style.setProperty('--badge-color', cat.color);
+      row.appendChild(catBadge);
+    }
+
     const name = document.createElement('span');
     name.className = 'done-item-name';
     name.textContent = item.name;
@@ -1578,18 +1595,121 @@
     return row;
   }
 
-  function addQuickDone() {
-    if (!quickInputEl) return;
-    const n = quickInputEl.value.trim();
+  function addQuickDone(name, hours, catId) {
+    const n = name !== undefined ? name : (quickInputEl ? quickInputEl.value.trim() : '');
     if (!n) return;
-    state.quickDone.push({ name: n, hours: 0 });
-    quickInputEl.value = '';
-    // Auto-expand quick wins group when adding so the new item is visible
+    state.quickDone.push({ name: n, hours: hours || 0, category: catId || null });
+    if (quickInputEl && name === undefined) quickInputEl.value = '';
     doneExpanded.quick = false;
     saveState(); renderDone();
   }
 
-  if (addQuickBtn) addQuickBtn.addEventListener('click', addQuickDone);
+  function openLogDoneModal() {
+    closeQuickAdd();
+    closeModal();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'quick-add-modal-overlay';
+    activeQuickAdd = overlay;
+
+    const modal = document.createElement('div');
+    modal.className = 'quick-add-modal';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'quick-add-header';
+    const badge = document.createElement('div');
+    badge.className = 'quick-add-cat-badge';
+    badge.textContent = '✅';
+    badge.style.background = 'rgba(64,145,108,0.15)';
+    badge.style.border = '1.5px solid rgba(64,145,108,0.35)';
+    const titleBlock = document.createElement('div');
+    titleBlock.innerHTML = '<div class="quick-add-title">Log completed task</div><div class="quick-add-subtitle">Something you already finished today</div>';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'cat-modal-close';
+    closeBtn.style.marginLeft = 'auto';
+    closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+    closeBtn.addEventListener('click', closeQuickAdd);
+    header.append(badge, titleBlock, closeBtn);
+
+    // Task name input
+    const inputRow = document.createElement('div');
+    inputRow.className = 'quick-add-input-row';
+    const taskInput = document.createElement('input');
+    taskInput.type = 'text';
+    taskInput.className = 'quick-add-input';
+    taskInput.placeholder = 'What did you get done?';
+    taskInput.maxLength = 100;
+    // Pre-fill from the text input if something was typed there
+    if (quickInputEl && quickInputEl.value.trim()) {
+      taskInput.value = quickInputEl.value.trim();
+      quickInputEl.value = '';
+    }
+    inputRow.appendChild(taskInput);
+
+    // Category chips (same pill style as dest chips in quick-add modal)
+    let selectedCatId = 'general';
+    const catRow = document.createElement('div');
+    catRow.className = 'quick-add-dest-row';
+
+    categories.forEach(cat => {
+      const chip = document.createElement('button');
+      chip.className = 'quick-add-dest-chip' + (cat.id === selectedCatId ? ' active' : '');
+      chip.innerHTML = `${cat.emoji} ${cat.name}`;
+      chip.addEventListener('click', () => {
+        selectedCatId = cat.id;
+        catRow.querySelectorAll('.quick-add-dest-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+      });
+      catRow.appendChild(chip);
+    });
+
+    // Hours row — label + number input side by side
+    const hoursRow = document.createElement('div');
+    hoursRow.className = 'quick-add-repeat-row';
+    hoursRow.style.marginBottom = '18px';
+    const hoursLabel = document.createElement('label');
+    hoursLabel.className = 'quick-add-repeat-label';
+    hoursLabel.textContent = 'Hours invested';
+    const hoursInput = document.createElement('input');
+    hoursInput.type = 'number';
+    hoursInput.className = 'quick-add-hours-input';
+    hoursInput.min = '0'; hoursInput.max = '24'; hoursInput.step = '0.5';
+    hoursInput.placeholder = '0';
+    hoursRow.append(hoursLabel, hoursInput);
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'quick-add-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', closeQuickAdd);
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-primary';
+    addBtn.textContent = 'Mark as done';
+
+    function confirmLog() {
+      const name = taskInput.value.trim();
+      if (!name) { taskInput.focus(); return; }
+      const hours = Math.max(0, parseFloat(hoursInput.value) || 0);
+      addQuickDone(name, hours, selectedCatId !== 'general' ? selectedCatId : null);
+      accumulateCategoryHours(selectedCatId, hours);
+      closeQuickAdd();
+    }
+
+    addBtn.addEventListener('click', confirmLog);
+    taskInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirmLog(); } if (e.key === 'Escape') closeQuickAdd(); });
+    actions.append(cancelBtn, addBtn);
+
+    modal.append(header, inputRow, catRow, hoursRow, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeQuickAdd(); });
+    setTimeout(() => taskInput.focus(), 60);
+  }
+
+  if (addQuickBtn) addQuickBtn.addEventListener('click', () => openLogDoneModal());
   if (quickInputEl) quickInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addQuickDone(); });
 
   function renderDistractions() {
@@ -2246,9 +2366,15 @@
     header.className = 'day-modal-header';
     const prevDate = new Date(prev.date + 'T12:00:00');
     const dateLabel = prevDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const today = new Date(getTodayString() + 'T12:00:00');
+    const dayGap = Math.round((today - prevDate) / (1000 * 60 * 60 * 24));
+    const greeting = dayGap === 1 ? 'Good morning.' : `Welcome back.`;
+    const subline = dayGap === 1
+      ? `Here's how ${dateLabel} went`
+      : `Last session: ${dateLabel}`;
     header.innerHTML = `
-      <div class="day-modal-greeting">Good morning.</div>
-      <div class="day-modal-date">Here's how ${dateLabel} went</div>
+      <div class="day-modal-greeting">${greeting}</div>
+      <div class="day-modal-date">${subline}</div>
     `;
 
     // ── Yesterday's summary ──
@@ -2392,6 +2518,22 @@
 
     const checkedTasks = new Set();
 
+    // Capacity warning element — shown when >MAX_GOALS tasks are checked
+    const capacityWarning = document.createElement('div');
+    capacityWarning.className = 'day-modal-capacity-warning hidden';
+    repeatSection.appendChild(capacityWarning);
+
+    function updateCapacityWarning() {
+      const checkedCount = checkedTasks.size;
+      if (checkedCount > MAX_GOALS) {
+        const overflow = checkedCount - MAX_GOALS;
+        capacityWarning.textContent = `Top 5 is full — ${overflow} task${overflow > 1 ? 's' : ''} will go to backlog instead. Uncheck some to choose which ones stay in Top 5.`;
+        capacityWarning.classList.remove('hidden');
+      } else {
+        capacityWarning.classList.add('hidden');
+      }
+    }
+
     function updateRepeatableChecklist() {
       repeatList.innerHTML = '';
       const tasks = getRepeatableTasks();
@@ -2410,9 +2552,10 @@
         cb.addEventListener('change', () => {
           if (cb.checked) checkedTasks.add(task.name);
           else checkedTasks.delete(task.name);
+          updateCapacityWarning();
         });
         // Default-check all
-        if (!checkedTasks.has(task.name) && tasks.length > 0) {
+        if (!checkedTasks.has(task.name)) {
           cb.checked = true; checkedTasks.add(task.name);
         }
         const cat = getCategoryById(task.category);
@@ -2421,6 +2564,7 @@
         row.insertAdjacentHTML('beforeend', `<span class="day-repeat-emoji">${cat.emoji}</span><span class="day-repeat-name">${task.name}</span>${task.progress > 0 ? `<span class="day-repeat-prog">${task.progress}%</span>` : ''}`);
         repeatList.appendChild(row);
       });
+      updateCapacityWarning();
     }
 
     updateRepeatableChecklist();
@@ -2442,19 +2586,30 @@
     startBtn.className = 'btn btn-primary';
     startBtn.textContent = 'Start my day →';
     startBtn.addEventListener('click', () => {
-      // Add checked repeatable tasks to today's goals
       const tasks = getRepeatableTasks();
+
+      // Remove all checked repeatable tasks from backlog first (we'll re-add overflows below)
       tasks.forEach(task => {
-        if (checkedTasks.has(task.name) && state.goals.length < MAX_GOALS) {
-          // Remove from backlog if that's where it came from
+        if (checkedTasks.has(task.name) && task.source === 'backlog') {
           const bi = backlog.findIndex(b => b.name === task.name && b.repeatable);
           if (bi !== -1) backlog.splice(bi, 1);
-          state.goals.push({ name: task.name, hours: 0, progress: task.progress || 0, category: task.category, repeatable: true });
         }
       });
 
-      // Also carry over non-repeatable unfinished goals from _carryover if they're in selected cats
-      // (standard carryover accept behaviour but filtered to focus cats)
+      // Fill Top 5 first; overflow checked tasks go to backlog
+      tasks.forEach(task => {
+        if (!checkedTasks.has(task.name)) return;
+        if (state.goals.length < MAX_GOALS) {
+          state.goals.push({ name: task.name, hours: 0, progress: task.progress || 0, category: task.category, repeatable: true });
+        } else {
+          // Top 5 full — put overflow in backlog (avoid duplicates)
+          if (!backlog.find(b => b.name === task.name)) {
+            backlog.push({ name: task.name, category: task.category, repeatable: true });
+          }
+        }
+      });
+
+      // Carry over non-repeatable unfinished goals from _carryover if in selected cats
       (state._carryover || []).forEach(g => {
         if (!g.repeatable && selectedCats.has(g.category || 'general') && state.goals.length < MAX_GOALS) {
           if (!state.goals.find(eg => eg.name === g.name)) {
@@ -2487,10 +2642,16 @@
       archiveDay(prev);
       const ns = getDefaultState();
       ns._carryover = prev.goals
-        ? prev.goals.filter(g => (g.progress || 0) < 100).map(g => ({
-            name: g.name, hours: 0, progress: g.progress || 0, prevHours: g.hours || 0,
-            category: g.category || null, repeatable: g.repeatable || false
-          }))
+        ? prev.goals.map(g => {
+            const done = (g.progress || 0) >= 100;
+            if (done && !g.repeatable) return null;
+            return {
+              name: g.name, hours: 0,
+              progress: done ? 0 : (g.progress || 0),
+              prevHours: g.hours || 0,
+              category: g.category || null, repeatable: g.repeatable || false
+            };
+          }).filter(Boolean)
         : [];
       state = ns;
       saveState();
@@ -2519,8 +2680,16 @@
   // =========================================================
   restoreCardLayout();
   render();
-  if (_prevDayForModal) showDayTransitionModal(_prevDayForModal);
-  else showCarryoverIfNeeded();
+  if (_prevDayForModal) {
+    const prevDate = new Date(_prevDayForModal.date + 'T12:00:00');
+    const todayDate = new Date(getTodayString() + 'T12:00:00');
+    const gap = Math.round((todayDate - prevDate) / (1000 * 60 * 60 * 24));
+    const hasData = (_prevDayForModal.goals && _prevDayForModal.goals.length > 0) ||
+                    (_prevDayForModal.quickDone && _prevDayForModal.quickDone.length > 0) ||
+                    (_prevDayForModal.successes && _prevDayForModal.successes.length > 0);
+    if (gap === 1 || hasData) showDayTransitionModal(_prevDayForModal);
+    else showCarryoverIfNeeded();
+  } else showCarryoverIfNeeded();
   initCardDragHandles();
   initSidebar();
 

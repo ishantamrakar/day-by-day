@@ -468,6 +468,35 @@ body::after {
   opacity: 1;
 }
 
+/* Backlog drag handle — same style as task-drag-handle but on backlog rows */
+.backlog-drag-handle {
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.backlog-item:hover .backlog-drag-handle {
+  opacity: 1;
+}
+
+/* Demote button shown on any goal (not just fromBacklog) — subtler when goal didn't come from backlog */
+.btn-demote-any {
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+}
+.task-item:hover .btn-demote-any {
+  opacity: 1;
+}
+
+/* Backlog drop placeholder */
+.backlog-placeholder {
+  border: 2px dashed rgba(45,106,79,0.35) !important;
+  background: rgba(45,106,79,0.04) !important;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .task-delete:hover {
   background: rgba(217,83,79,0.12);
   border-color: rgba(217,83,79,0.25);

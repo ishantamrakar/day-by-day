@@ -1550,7 +1550,8 @@
 
     const dragHandle = document.createElement('span');
     dragHandle.className = 'task-drag-handle';
-    dragHandle.textContent = '☰';
+    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M108,60A16,16,0,1,1,92,44,16,16,0,0,1,108,60Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,60ZM108,128a16,16,0,1,1-16-16A16,16,0,0,1,108,128Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,128ZM108,196a16,16,0,1,1-16-16A16,16,0,0,1,108,196Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,196Z"/></svg>';
+    dragHandle.title = 'Drag to reorder';
 
     const number = document.createElement('span');
     number.className = 'task-number';
@@ -1578,19 +1579,20 @@
       badge.textContent = `${goal.prevHours}h prev`;
       trailing.push(badge);
     }
-    if (goal.fromBacklog) {
-      const demoteBtn = document.createElement('button');
-      demoteBtn.className = 'btn-demote';
-      demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
-      demoteBtn.title = 'Move back to backlog';
-      demoteBtn.addEventListener('click', () => {
-        const g = state.goals[index];
-        backlog.push({ name: g.name, category: g.category || null, repeatable: g.repeatable || false });
-        state.goals.splice(index, 1);
-        saveState(); saveBacklog(); render();
-      });
-      trailing.push(demoteBtn);
-    }
+
+    // Demote button — shown on all goals (fade-in on hover), not just fromBacklog
+    const demoteBtn = document.createElement('button');
+    demoteBtn.className = 'btn-demote' + (goal.fromBacklog ? '' : ' btn-demote-any');
+    demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
+    demoteBtn.title = 'Move to backlog';
+    demoteBtn.addEventListener('click', () => {
+      const g = state.goals[index];
+      backlog.push({ name: g.name, category: g.category || null, repeatable: g.repeatable || false });
+      state.goals.splice(index, 1);
+      saveState(); saveBacklog(); render(); renderSidebar();
+    });
+    trailing.push(demoteBtn);
+
     trailing.push(deleteBtn);
     topRow.append(dragHandle, number, name, ...trailing);
 
@@ -1658,7 +1660,7 @@
     logRow.append(hg, pg, repeatIcon, catPill);
     item.append(topRow, logRow);
 
-    // Task-level drag & drop (pointer events)
+    // Task-level drag & drop — reorder within Top 5, or drag out to backlog
     setupTaskDrag(item, goalsListEl, 'goal');
 
     return item;
@@ -2088,6 +2090,11 @@
     const row = document.createElement('div');
     row.className = 'backlog-item';
 
+    const dragHandle = document.createElement('span');
+    dragHandle.className = 'task-drag-handle backlog-drag-handle';
+    dragHandle.title = 'Drag to Top 5';
+    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M108,60A16,16,0,1,1,92,44,16,16,0,0,1,108,60Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,60ZM108,128a16,16,0,1,1-16-16A16,16,0,0,1,108,128Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,128ZM108,196a16,16,0,1,1-16-16A16,16,0,0,1,108,196Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,196Z"/></svg>';
+
     const name = document.createElement('span');
     name.className = 'backlog-name';
     name.textContent = item.name;
@@ -2129,7 +2136,8 @@
     });
 
     actions.appendChild(deleteBtn);
-    row.append(name, actions);
+    row.append(dragHandle, name, actions);
+    setupBacklogItemDrag(row, item, index);
     return row;
   }
 
@@ -2474,48 +2482,111 @@
     item.classList.add('task-lifted');
     siblings.forEach(s => s.classList.add('task-shifting'));
 
-    // How far the pointer is from the item's natural top edge
     const pointerOffsetY = e.clientY - rect.top;
-    // The item's natural top relative to the list container
     const listRect   = list.getBoundingClientRect();
     const naturalTop = rect.top - listRect.top;
-
     const minTop = 0;
     const maxTop = listRect.height - itemH;
 
+    // The card that owns this list — used to detect when drag exits card bounds
+    const parentCard = list.closest('.card');
+
     activeDrag = { item, list, type, siblings, step, draggingIndex, currentSlot: draggingIndex,
-                   pointerOffsetY, naturalTop, listTop: listRect.top, minTop, maxTop, dragType: 'task' };
+                   pointerOffsetY, naturalTop, listTop: listRect.top, minTop, maxTop,
+                   dragType: 'task', parentCard };
 
     document.addEventListener('pointermove', onTaskDragMove);
     document.addEventListener('pointerup',   onTaskDragEnd, { once: true });
   }
 
   function onTaskDragMove(e) {
-    if (!activeDrag || activeDrag.dragType !== 'task') return;
-    const { item, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop } = activeDrag;
+    if (!activeDrag) return;
 
-    // Where the pointer wants the item's top to be, relative to its natural position — clamped to list bounds
+    // ── Cross-card ghost mode ──────────────────────────────────
+    if (activeDrag.dragType === 'cross') {
+      const { ghost, goalData, crossPlaceholder, crossList } = activeDrag;
+      ghost.style.left = (e.clientX - ghost.offsetWidth / 2) + 'px';
+      ghost.style.top  = (e.clientY - ghost.offsetHeight / 2) + 'px';
+
+      // Determine which cross-card target we're over
+      const backlogCard = document.getElementById('backlog-section');
+      const goalsCard   = document.getElementById('goals-section');
+
+      // Goals card (only relevant if dragging from backlog — skip for goal→backlog)
+      // Backlog card (goal → backlog)
+      if (activeDrag.crossTarget === 'backlog' && backlogCard) {
+        const br = backlogCard.getBoundingClientRect();
+        const inside = e.clientX >= br.left && e.clientX <= br.right && e.clientY >= br.top && e.clientY <= br.bottom;
+        if (inside) {
+          backlogCard.classList.add('goals-drop-target');
+          const step = crossDropStep(backlogListEl, '.backlog-item');
+          const listRect = backlogListEl.getBoundingClientRect();
+          const slot = Math.max(0, Math.round((e.clientY - listRect.top) / step));
+          insertCrossPlaceholder(slot, backlogListEl, '.backlog-item', 'backlog-item backlog-placeholder', goalData.name);
+        } else {
+          backlogCard.classList.remove('goals-drop-target');
+          removeCrossPlaceholder();
+        }
+      }
+      return;
+    }
+
+    // ── Normal within-list reorder mode ───────────────────────
+    if (activeDrag.dragType !== 'task') return;
+    const { item, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop, parentCard } = activeDrag;
+
+    // Check if pointer has left the parent card — if so, switch to cross-card mode
+    if (parentCard && activeDrag.type === 'goal') {
+      const cr = parentCard.getBoundingClientRect();
+      const outside = e.clientX < cr.left || e.clientX > cr.right || e.clientY < cr.top || e.clientY > cr.bottom;
+      if (outside) {
+        // Tear down task-lift state
+        item.classList.remove('task-lifted');
+        item.style.transform = '';
+        siblings.forEach(s => { s.classList.remove('task-shifting'); s.style.transform = ''; });
+
+        // Get data for the goal being dragged
+        const goalData = state.goals[activeDrag.draggingIndex];
+        if (!goalData) { activeDrag = null; return; }
+
+        // Build ghost
+        const cat = getCategoryById(goalData.category || 'general');
+        const ghost = document.createElement('div');
+        ghost.className = 'sidebar-drag-ghost';
+        ghost.innerHTML = `<span class="sidebar-drag-ghost-emoji">${cat.emoji}</span><span class="sidebar-drag-ghost-name">${goalData.name}</span>`;
+        ghost.style.left = (e.clientX - 80) + 'px';
+        ghost.style.top  = (e.clientY - 20) + 'px';
+        document.body.appendChild(ghost);
+
+        // Transition activeDrag to cross mode
+        activeDrag = {
+          dragType: 'cross',
+          crossTarget: 'backlog',
+          ghost,
+          goalData,
+          goalIndex: activeDrag.draggingIndex,
+          crossPlaceholderEl: null,
+          crossSlot: -1,
+        };
+        return;
+      }
+    }
+
     const rawTop = (e.clientY - pointerOffsetY) - (activeDrag.listTop + naturalTop);
     const desiredTop = Math.max(minTop - naturalTop, Math.min(maxTop - naturalTop, rawTop));
     item.style.transform = `translateY(${desiredTop}px)`;
 
-    // How many slots has it moved?
     const slotsMoved = Math.round(desiredTop / step);
     const newSlot = Math.max(0, Math.min(draggingIndex + slotsMoved, siblings.length));
 
     if (newSlot !== activeDrag.currentSlot) {
       activeDrag.currentSlot = newSlot;
 
-      // Shift siblings: those that need to move up or down by one slot
       siblings.forEach((sib, i) => {
-        // originalIndex in full list (0-based among siblings = items excluding dragged)
-        // siblings[i] was originally at index i < draggingIndex ? i : i+1
         const origFull = i < draggingIndex ? i : i + 1;
         if (origFull >= newSlot && origFull < draggingIndex) {
-          // Item dragged up past this sibling — shift it down
           sib.style.transform = `translateY(${step}px)`;
         } else if (origFull > draggingIndex && origFull <= newSlot) {
-          // Item dragged down past this sibling — shift it up
           sib.style.transform = `translateY(-${step}px)`;
         } else {
           sib.style.transform = '';
@@ -2524,18 +2595,79 @@
     }
   }
 
-  function onTaskDragEnd() {
+  function crossDropStep(listEl, selector) {
+    const rows = Array.from(listEl.querySelectorAll(selector + ':not(.backlog-placeholder):not(.sidebar-placeholder)'));
+    if (!rows.length) return 48;
+    return rows[0].getBoundingClientRect().height + (parseFloat(getComputedStyle(listEl).gap) || 8);
+  }
+
+  function insertCrossPlaceholder(slot, listEl, selector, className, label) {
+    if (!activeDrag) return;
+    if (!activeDrag.crossPlaceholderEl) {
+      activeDrag.crossPlaceholderEl = document.createElement('div');
+      activeDrag.crossPlaceholderEl.className = className;
+      activeDrag.crossPlaceholderEl.textContent = label;
+    }
+    const rows = Array.from(listEl.querySelectorAll(selector + ':not(.backlog-placeholder):not(.sidebar-placeholder)'));
+    const clamped = Math.max(0, Math.min(slot, rows.length));
+    if (clamped !== activeDrag.crossSlot) {
+      activeDrag.crossSlot = clamped;
+      clamped >= rows.length
+        ? listEl.appendChild(activeDrag.crossPlaceholderEl)
+        : listEl.insertBefore(activeDrag.crossPlaceholderEl, rows[clamped]);
+    }
+  }
+
+  function removeCrossPlaceholder() {
+    if (!activeDrag || !activeDrag.crossPlaceholderEl) return;
+    if (activeDrag.crossPlaceholderEl.parentNode) activeDrag.crossPlaceholderEl.parentNode.removeChild(activeDrag.crossPlaceholderEl);
+    activeDrag.crossPlaceholderEl = null;
+    activeDrag.crossSlot = -1;
+  }
+
+  function onTaskDragEnd(e) {
     document.removeEventListener('pointermove', onTaskDragMove);
-    if (!activeDrag || activeDrag.dragType !== 'task') { activeDrag = null; return; }
+
+    if (!activeDrag) return;
+
+    // ── Cross-card drop ────────────────────────────────────────
+    if (activeDrag.dragType === 'cross') {
+      const { ghost, goalData, goalIndex, crossSlot } = activeDrag;
+      ghost.remove();
+
+      const backlogCard = document.getElementById('backlog-section');
+      removeCrossPlaceholder();
+      if (backlogCard) backlogCard.classList.remove('goals-drop-target');
+
+      const br = backlogCard ? backlogCard.getBoundingClientRect() : null;
+      const dropped = br && e.clientX >= br.left && e.clientX <= br.right && e.clientY >= br.top && e.clientY <= br.bottom;
+
+      if (dropped && goalData) {
+        const g = state.goals[goalIndex];
+        if (g) {
+          const newItem = { name: g.name, category: g.category || null, repeatable: g.repeatable || false };
+          const clamped = Math.max(0, Math.min(crossSlot < 0 ? backlog.length : crossSlot, backlog.length));
+          backlog.splice(clamped, 0, newItem);
+          state.goals.splice(goalIndex, 1);
+          saveState(); saveBacklog(); render(); renderSidebar();
+        }
+      } else {
+        render(); // restore visual state if cancelled
+      }
+
+      activeDrag = null;
+      return;
+    }
+
+    // ── Normal within-list reorder ─────────────────────────────
+    if (activeDrag.dragType !== 'task') { activeDrag = null; return; }
 
     const { item, list, type, siblings, draggingIndex, currentSlot } = activeDrag;
 
-    // Reset all transforms before re-render
     item.classList.remove('task-lifted');
     item.style.transform = '';
     siblings.forEach(s => { s.classList.remove('task-shifting'); s.style.transform = ''; });
 
-    // Commit to state
     if (currentSlot !== draggingIndex) {
       const arr = type === 'goal' ? state.goals : state.distractions;
       const [moved] = arr.splice(draggingIndex, 1);
@@ -2668,6 +2800,109 @@
             saveState();
             render();
             renderSidebar();
+          }
+        }
+      };
+
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up, { once: true });
+    });
+  }
+
+  // =========================================================
+  // BACKLOG CARD → TOP 5 drag  (mirrors sidebar backlog drag)
+  // =========================================================
+  function setupBacklogItemDrag(dragEl, item, index) {
+    dragEl.addEventListener('pointerdown', e => {
+      // Only trigger on the drag handle, not the whole row
+      if (!e.target.closest('.backlog-drag-handle')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragEl.setPointerCapture(e.pointerId);
+
+      const goalsCard = document.getElementById('goals-section');
+      if (!goalsCard) return;
+
+      const cat = getCategoryById(item.category || 'general');
+      const ghost = document.createElement('div');
+      ghost.className = 'sidebar-drag-ghost';
+      ghost.innerHTML = `<span class="sidebar-drag-ghost-emoji">${cat.emoji}</span><span class="sidebar-drag-ghost-name">${item.name}</span>`;
+      document.body.appendChild(ghost);
+
+      let placeholder = null;
+      let currentSlot = -1;
+
+      function getStep() {
+        const items = Array.from(goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+        if (!items.length) return 52;
+        const r = items[0].getBoundingClientRect();
+        return r.height + (parseFloat(getComputedStyle(goalsListEl).gap) || 10);
+      }
+
+      function insertPlaceholder(slot) {
+        if (!placeholder) {
+          placeholder = document.createElement('div');
+          placeholder.className = 'task-item sidebar-placeholder';
+          placeholder.textContent = item.name;
+        }
+        const rows = Array.from(goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+        const clamped = Math.max(0, Math.min(slot, rows.length));
+        if (clamped !== currentSlot) {
+          currentSlot = clamped;
+          clamped >= rows.length ? goalsListEl.appendChild(placeholder) : goalsListEl.insertBefore(placeholder, rows[clamped]);
+        }
+      }
+
+      function removePlaceholder() {
+        if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+        placeholder = null; currentSlot = -1;
+      }
+
+      const move = ev => {
+        ghost.style.left = (ev.clientX - ghost.offsetWidth / 2) + 'px';
+        ghost.style.top  = (ev.clientY - ghost.offsetHeight / 2) + 'px';
+        const gr = goalsCard.getBoundingClientRect();
+        const inside = ev.clientX >= gr.left && ev.clientX <= gr.right && ev.clientY >= gr.top && ev.clientY <= gr.bottom;
+        if (inside) {
+          goalsCard.classList.add('goals-drop-target');
+          if (getActiveGoals().length < MAX_GOALS) {
+            const listRect = goalsListEl.getBoundingClientRect();
+            const slot = Math.max(0, Math.round((ev.clientY - listRect.top) / getStep()));
+            insertPlaceholder(slot);
+          } else {
+            removePlaceholder();
+          }
+        } else {
+          goalsCard.classList.remove('goals-drop-target');
+          removePlaceholder();
+        }
+      };
+
+      const up = ev => {
+        document.removeEventListener('pointermove', move);
+        ghost.remove();
+        goalsCard.classList.remove('goals-drop-target');
+        const gr = goalsCard.getBoundingClientRect();
+        const dropped = ev.clientX >= gr.left && ev.clientX <= gr.right && ev.clientY >= gr.top && ev.clientY <= gr.bottom;
+        const insertAt = currentSlot;
+        removePlaceholder();
+
+        if (dropped) {
+          if (getActiveGoals().length >= MAX_GOALS) {
+            goalsCard.classList.add('goals-drop-full');
+            setTimeout(() => goalsCard.classList.remove('goals-drop-full'), 600);
+          } else {
+            backlog.splice(index, 1);
+            const activeGoals = getActiveGoals();
+            const clamped = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
+            const newGoal = { name: item.name, hours: 0, progress: 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
+            if (clamped >= activeGoals.length) {
+              const last = activeGoals[activeGoals.length - 1];
+              state.goals.splice(last ? state.goals.indexOf(last) + 1 : state.goals.length, 0, newGoal);
+            } else {
+              state.goals.splice(state.goals.indexOf(activeGoals[clamped]), 0, newGoal);
+            }
+            saveBacklog(); saveState(); render(); renderSidebar();
           }
         }
       };

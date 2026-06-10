@@ -167,6 +167,158 @@
     localStorage.removeItem(k);
   } catch (e) {}
 
+  // =========================================================
+  // BLOB CONTROLLER — time-of-day drift + event pulses
+  // =========================================================
+  // Convert a hex color to rgba(r,g,b,a) string.
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // Pick 3 colors for the blobs: from today's focus categories if set,
+  // otherwise a stable daily-random shuffle of all categories.
+  function getBlobColors() {
+    const focus = state.focusCategoryIds || [];
+    let sources = [];
+
+    if (focus.length >= 3) {
+      sources = focus.slice(0, 3).map(id => getCategoryById(id));
+    } else if (focus.length > 0) {
+      // Pad with non-focus categories
+      const used = new Set(focus);
+      const rest = categories.filter(c => !used.has(c.id));
+      // Stable daily shuffle for the padding: seed with today's date string
+      const dateNum = parseInt(getTodayString().replace(/-/g, ''), 10);
+      const shuffled = rest.slice().sort((a, b) => {
+        const ha = Math.sin(dateNum + a.id.length) * 10000;
+        const hb = Math.sin(dateNum + b.id.length) * 10000;
+        return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
+      });
+      sources = [...focus.map(id => getCategoryById(id)), ...shuffled].slice(0, 3);
+    } else {
+      // No focus set — stable daily shuffle of all categories
+      // Prefer non-general categories for visual variety; 'general' (gray) blends into background
+      const dateNum = parseInt(getTodayString().replace(/-/g, ''), 10);
+      const pool = categories.filter(c => c.id !== 'general');
+      const sorted = (pool.length >= 3 ? pool : categories).slice().sort((a, b) => {
+        const ha = Math.sin(dateNum + a.id.length * 7) * 10000;
+        const hb = Math.sin(dateNum + b.id.length * 7) * 10000;
+        return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
+      });
+      sources = sorted.slice(0, 3);
+    }
+
+    // Fallback if categories aren't loaded yet
+    while (sources.length < 3) sources.push({ color: '#2D6A4F' });
+
+    // Compute a visibility-adjusted alpha: dark or desaturated colors need more
+    // opacity to show against the pale #EEF2EE background.
+    function blobAlpha(hex) {
+      const h = (hex || '#2D6A4F').replace('#', '');
+      const r = parseInt(h.substring(0, 2), 16) / 255;
+      const g = parseInt(h.substring(2, 4), 16) / 255;
+      const b = parseInt(h.substring(4, 6), 16) / 255;
+      // Perceived luminance (0 = black, 1 = white)
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      // Saturation proxy: max channel - min channel
+      const sat = Math.max(r, g, b) - Math.min(r, g, b);
+      // Low luminance or low saturation → bump alpha so the blob reads clearly
+      const base = 0.38;
+      const lumBoost  = lum < 0.35 ? 0.20 : lum < 0.55 ? 0.10 : 0;
+      const satPenalty = sat < 0.2  ? -0.08 : 0; // grays stay subtle
+      return Math.min(0.55, Math.max(0.30, base + lumBoost + satPenalty));
+    }
+
+    return [
+      hexToRgba(sources[0].color || '#2D6A4F', blobAlpha(sources[0].color)),
+      hexToRgba(sources[1].color || '#40916C', blobAlpha(sources[1].color)),
+      hexToRgba(sources[2].color || '#FF9F1C', blobAlpha(sources[2].color)),
+    ];
+  }
+
+  // Cache blob elements — all three are real divs now
+  const _blobs = [
+    document.getElementById('blob1'),
+    document.getElementById('blob2'),
+    document.getElementById('blob3'),
+  ];
+
+  let _lastBlobColorKey = '';
+  function applyBlobColors() {
+    if (!state || !categories) return;
+    const colorKey = (state.focusCategoryIds || []).slice().sort().join(',') || getTodayString();
+    if (colorKey === _lastBlobColorKey) return;
+    _lastBlobColorKey = colorKey;
+    const [c1, c2, c3] = getBlobColors();
+    if (_blobs[0]) _blobs[0].style.setProperty('--blob1-color', c1);
+    if (_blobs[1]) _blobs[1].style.setProperty('--blob2-color', c2);
+    if (_blobs[2]) _blobs[2].style.setProperty('--blob3-color', c3);
+  }
+
+  function applyBlobTimeOffsets() {
+    const h = new Date().getHours() + new Date().getMinutes() / 60;
+    const dayFrac = h / 24;
+    const s = Math.sin(dayFrac * Math.PI);
+    if (_blobs[0]) {
+      _blobs[0].style.setProperty('--bx', (s * 8).toFixed(1) + 'vw');
+      _blobs[0].style.setProperty('--by', (s * 5).toFixed(1) + 'vh');
+    }
+    if (_blobs[1]) {
+      _blobs[1].style.setProperty('--bx', (-s * 6).toFixed(1) + 'vw');
+      _blobs[1].style.setProperty('--by', (-s * 4).toFixed(1) + 'vh');
+    }
+    if (_blobs[2]) {
+      _blobs[2].style.setProperty('--bx', (Math.sin(dayFrac * Math.PI * 2) * 6).toFixed(1) + 'vw');
+      _blobs[2].style.setProperty('--by', (Math.sin(dayFrac * Math.PI * 2) * 4).toFixed(1) + 'vh');
+    }
+  }
+
+  let _swirlTimer = null;
+  function pulseBlobEvent(type) {
+    if (_swirlTimer) { clearTimeout(_swirlTimer); _swirlTimer = null; }
+
+    const dur = type === 'complete' ? 2200 : 1400;
+    const swirlType = (type === 'distraction') ? 'add' : type;
+    const targets = (type === 'distraction') ? [_blobs[2]] : _blobs;
+
+    // Save existing delays, zero them out so swirl starts from 0, then restore after
+    const savedDelays = _blobs.map(b => b ? b.style.animationDelay : '');
+
+    _blobs.forEach(b => { if (b) b.removeAttribute('data-swirl'); });
+    void document.body.offsetWidth;
+
+    targets.forEach((b, i) => {
+      if (!b) return;
+      b.style.animationDelay = '0s';
+      b.setAttribute('data-swirl', swirlType);
+    });
+
+    _swirlTimer = setTimeout(() => {
+      _blobs.forEach((b, i) => {
+        if (!b) return;
+        b.removeAttribute('data-swirl');
+        b.style.animationDelay = savedDelays[i];
+      });
+      _swirlTimer = null;
+    }, dur);
+  }
+
+  // Randomize start position in cycle so blobs are never in the same formation on load
+  (function randomizeBlobStartPositions() {
+    const durations = [55, 68, 44];
+    _blobs.forEach((b, i) => {
+      if (b) b.style.animationDelay = -(Math.random() * durations[i]).toFixed(2) + 's';
+    });
+  })();
+
+  applyBlobTimeOffsets();
+  // Defer color apply until after state loads (state isn't set yet at this point in the IIFE)
+  setTimeout(applyBlobColors, 0);
+
   function storageGet(key) {
     if (!storageAvailable) return null;
     try { return localStorage.getItem(key); } catch (e) { return null; }
@@ -288,6 +440,7 @@
     const ampm = h >= 12 ? 'PM' : 'AM';
     timeEl.textContent = `${h % 12 || 12}:${m} ${ampm}`;
     dateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    applyBlobTimeOffsets();
   }
   updateClock();
   const msUntilNextMinute = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
@@ -1521,6 +1674,7 @@
     renderDone();
     updateAddButtonVisibility();
     renderSidebar();
+    applyBlobColors();
   }
 
   // Split goals into active (< 100%) and completed (= 100%)
@@ -1632,6 +1786,7 @@
       saveState();
       if (val >= 100) {
         item.classList.add('task-completing');
+        pulseBlobEvent('complete');
         setTimeout(() => render(), 350);
       } else {
         renderSummary();
@@ -1893,6 +2048,7 @@
     if (quickInputEl && name === undefined) quickInputEl.value = '';
     doneExpanded.quick = false;
     saveState(); renderDone();
+    pulseBlobEvent('add');
   }
 
   function openLogDoneModal() {
@@ -2284,12 +2440,14 @@
     if (!n || getActiveGoals().length >= MAX_GOALS) return;
     state.goals.push({ name: n, hours: 0, progress: 0 }); goalInputEl.value = '';
     saveState(); render();
+    pulseBlobEvent('add');
     if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
   }
   function addDistraction() {
     const n = distractionInputEl.value.trim(); if (!n || state.distractions.length >= MAX_DISTRACTIONS) return;
     state.distractions.push({ name: n, hours: 0 }); distractionInputEl.value = '';
     saveState(); render();
+    pulseBlobEvent('distraction');
   }
 
   addGoalBtn.addEventListener('click', () => {
@@ -2300,7 +2458,7 @@
         if (getActiveGoals().length >= MAX_GOALS) return;
         state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
         goalInputEl.value = '';
-        saveState(); render();
+        saveState(); render(); pulseBlobEvent('add');
         if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
       });
     } else {
@@ -2308,7 +2466,7 @@
       openTaskDetailModal({ name: '', category: null, repeatable: false }, (result) => {
         if (!result.name || getActiveGoals().length >= MAX_GOALS) return;
         state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        saveState(); render();
+        saveState(); render(); pulseBlobEvent('add');
         if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
       });
     }
@@ -2317,10 +2475,10 @@
     if (e.key === 'Enter') {
       const n = goalInputEl.value.trim();
       if (!n || getActiveGoals().length >= MAX_GOALS) return;
-      // Quick-add on Enter without modal (fast path)
       state.goals.push({ name: n, hours: 0, progress: 0 });
       goalInputEl.value = '';
       saveState(); render();
+      pulseBlobEvent('add');
       if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
     }
   });
@@ -3280,6 +3438,7 @@
       saveState();
       render();
       renderSidebar();
+      applyBlobColors();
       overlay.remove();
     });
 

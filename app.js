@@ -259,23 +259,65 @@
     if (_blobs[2]) _blobs[2].style.setProperty('--blob3-color', c3);
   }
 
-  function applyBlobTimeOffsets() {
-    const h = new Date().getHours() + new Date().getMinutes() / 60;
-    const dayFrac = h / 24;
-    const s = Math.sin(dayFrac * Math.PI);
-    if (_blobs[0]) {
-      _blobs[0].style.setProperty('--bx', (s * 8).toFixed(1) + 'vw');
-      _blobs[0].style.setProperty('--by', (s * 5).toFixed(1) + 'vh');
-    }
-    if (_blobs[1]) {
-      _blobs[1].style.setProperty('--bx', (-s * 6).toFixed(1) + 'vw');
-      _blobs[1].style.setProperty('--by', (-s * 4).toFixed(1) + 'vh');
-    }
-    if (_blobs[2]) {
-      _blobs[2].style.setProperty('--bx', (Math.sin(dayFrac * Math.PI * 2) * 6).toFixed(1) + 'vw');
-      _blobs[2].style.setProperty('--by', (Math.sin(dayFrac * Math.PI * 2) * 4).toFixed(1) + 'vh');
-    }
+  // ── Blob motion: JS-driven bouncing drift (DVD-logo style) + CSS swirl on events ──
+  //
+  // Each blob has a position (px, py) and velocity (vx, vy) in viewport-fraction units.
+  // A rAF loop updates positions each frame. Speed is ~0.008 vw/frame (~0.48 vw/s at 60fps).
+  // Blobs bounce off the viewport edges (accounting for their own size).
+  // When a swirl triggers, the rAF loop pauses and the CSS swirl animation plays.
+  // When swirl ends, the loop resumes from the blob's current rendered position.
+
+  const _blobState = _blobs.map((b, i) => {
+    const w = [0.55, 0.50, 0.48][i];
+    const h = [0.55, 0.60, 0.48][i];
+    const px = Math.random() * (1 - w);
+    const py = Math.random() * (1 - h);
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.0004; // vw-fraction per frame
+    // turnRate: how many radians the direction rotates per frame — creates arcs.
+    // Each blob gets a different rate so they trace different curve radii.
+    // Sign alternates so they curve in different directions.
+    // turnRate oscillates via a per-blob phase so arcs curve both ways over time,
+    // preventing inward spiraling. Each blob has a different oscillation period.
+    const turnPeriods = [380, 520, 290]; // frames per full oscillation
+    const turnAmps   = [0.012, 0.009, 0.014];
+    return { px, py, angle, speed, w, h, frame: Math.floor(Math.random() * turnPeriods[i]), turnPeriod: turnPeriods[i], turnAmp: turnAmps[i] };
+  });
+
+  let _driftPaused = false;
+  let _rafId = null;
+
+  function _driftTick() {
+    if (_driftPaused) return;
+    _blobState.forEach((s, i) => {
+      const b = _blobs[i];
+      if (!b) return;
+      // Oscillating turn rate — curves left then right over time, no inward spiral
+      s.frame++;
+      const turnRate = s.turnAmp * Math.sin((s.frame / s.turnPeriod) * Math.PI * 2);
+      s.angle += turnRate;
+      // Edge repulsion — only kick in very close to boundary, low strength
+      const margin = 0.03;
+      if (s.px < margin)           s.angle += 0.12 * Math.pow(1 - s.px / margin, 2);
+      if (s.px > 1 - s.w - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.w - s.px) / margin, 2);
+      if (s.py < margin)           s.angle += 0.12 * Math.pow(1 - s.py / margin, 2);
+      if (s.py > 1 - s.h - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.h - s.py) / margin, 2);
+      s.px += Math.cos(s.angle) * s.speed;
+      s.py += Math.sin(s.angle) * s.speed;
+      // Last-resort clamp + flip angle inward if a blob somehow escapes
+      if (s.px < 0)       { s.px = 0;       s.angle =  Math.abs(Math.cos(s.angle)) > 0.1 ? Math.PI - s.angle : s.angle; }
+      if (s.px > 1 - s.w) { s.px = 1 - s.w; s.angle = -Math.PI - s.angle; }
+      if (s.py < 0)       { s.py = 0;       s.angle = -s.angle; }
+      if (s.py > 1 - s.h) { s.py = 1 - s.h; s.angle = -s.angle; }
+      b.style.left = (s.px * 100).toFixed(3) + 'vw';
+      b.style.top  = (s.py * 100).toFixed(3) + 'vh';
+    });
+    _rafId = requestAnimationFrame(_driftTick);
   }
+
+  // Strip CSS drift animations — motion is now fully JS-driven
+  _blobs.forEach(b => { if (b) { b.style.animation = 'none'; b.style.bottom = ''; b.style.right = ''; } });
+  _driftTick();
 
   let _swirlTimer = null;
   function pulseBlobEvent(type) {
@@ -285,37 +327,47 @@
     const swirlType = (type === 'distraction') ? 'add' : type;
     const targets = (type === 'distraction') ? [_blobs[2]] : _blobs;
 
-    // Save existing delays, zero them out so swirl starts from 0, then restore after
-    const savedDelays = _blobs.map(b => b ? b.style.animationDelay : '');
+    // Pause drift loop, freeze each blob at current position so swirl starts from here
+    _driftPaused = true;
+    if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
 
-    _blobs.forEach(b => { if (b) b.removeAttribute('data-swirl'); });
+    _blobs.forEach((b, i) => {
+      if (!b) return;
+      b.removeAttribute('data-swirl');
+      // Position already set by drift loop — just clear any animation so swirl CSS takes over
+      b.style.animation = 'none';
+    });
     void document.body.offsetWidth;
 
     targets.forEach((b, i) => {
       if (!b) return;
+      b.style.animation = '';  // re-enable CSS animations for swirl
       b.style.animationDelay = '0s';
       b.setAttribute('data-swirl', swirlType);
     });
 
     _swirlTimer = setTimeout(() => {
+      // Swirl ended — read each blob's final rendered position back into _blobState
+      // so the drift loop resumes seamlessly from exactly where the swirl landed.
       _blobs.forEach((b, i) => {
         if (!b) return;
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const rect = b.getBoundingClientRect();
+        _blobState[i].px = rect.left / vw;
+        _blobState[i].py = rect.top  / vh;
+        // Keep current angle so arc continues in the same direction it was heading
         b.removeAttribute('data-swirl');
-        b.style.animationDelay = savedDelays[i];
+        b.style.animation = 'none';
+        b.style.left = (rect.left / vw * 100).toFixed(3) + 'vw';
+        b.style.top  = (rect.top  / vh * 100).toFixed(3) + 'vh';
       });
+      void document.body.offsetWidth;
+      _driftPaused = false;
+      _driftTick();
       _swirlTimer = null;
     }, dur);
   }
 
-  // Randomize start position in cycle so blobs are never in the same formation on load
-  (function randomizeBlobStartPositions() {
-    const durations = [55, 68, 44];
-    _blobs.forEach((b, i) => {
-      if (b) b.style.animationDelay = -(Math.random() * durations[i]).toFixed(2) + 's';
-    });
-  })();
-
-  applyBlobTimeOffsets();
   // Defer color apply until after state loads (state isn't set yet at this point in the IIFE)
   setTimeout(applyBlobColors, 0);
 
@@ -440,7 +492,6 @@
     const ampm = h >= 12 ? 'PM' : 'AM';
     timeEl.textContent = `${h % 12 || 12}:${m} ${ampm}`;
     dateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-    applyBlobTimeOffsets();
   }
   updateClock();
   const msUntilNextMinute = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
@@ -1528,6 +1579,24 @@
 
   let _prevDayForModal = null; // set when new day detected, consumed by modal
 
+  // Permanently delete a goal by index — scrubs it from state.goals AND _carryover so
+  // it never resurfaces in the day transition modal or anywhere else.
+  function permanentlyDeleteGoal(index) {
+    const goal = state.goals[index];
+    undoStack.push({ type: 'goal', item: goal, index });
+    state.goals.splice(index, 1);
+    // Also remove from _carryover (built at day-rollover, not updated on subsequent deletes)
+    if (state._carryover && goal) {
+      state._carryover = state._carryover.filter(g => g.name !== goal.name);
+    }
+    // Also remove from _prevDayForModal so the summary modal doesn't show it
+    if (_prevDayForModal && _prevDayForModal.goals && goal) {
+      _prevDayForModal.goals = _prevDayForModal.goals.filter(g => g.name !== goal.name);
+    }
+    saveState();
+    render();
+  }
+
   function loadState() {
     try {
       const raw = storageGet(STORAGE_KEY);
@@ -1720,10 +1789,7 @@
     deleteBtn.className = 'task-delete';
     deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
     deleteBtn.title = 'Remove';
-    deleteBtn.addEventListener('click', () => {
-      undoStack.push({ type: 'goal', item: state.goals[index], index });
-      state.goals.splice(index, 1); saveState(); render();
-    });
+    deleteBtn.addEventListener('click', () => { permanentlyDeleteGoal(index); });
 
     const trailing = [];
     if (goal.prevHours > 0) {
@@ -1961,10 +2027,7 @@
     const del = document.createElement('button');
     del.className = 'task-delete';
     del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-    del.addEventListener('click', () => {
-      undoStack.push({ type: 'goal', item: state.goals[index], index });
-      state.goals.splice(index, 1); saveState(); render();
-    });
+    del.addEventListener('click', () => { permanentlyDeleteGoal(index); });
 
     row.append(catBadge, name, meta, reopenBtn, del);
     return row;

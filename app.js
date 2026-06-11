@@ -3676,10 +3676,13 @@
     const gap   = parseFloat(getComputedStyle(list).gap) || 10;
     const step  = itemH + gap;
 
-    const siblings = Array.from(list.querySelectorAll('.task-item'))
-      .filter(el => el !== item);
+    const allItems = Array.from(list.querySelectorAll('.task-item'));
+    const siblings = allItems.filter(el => el !== item);
 
-    const draggingIndex = parseInt(item.dataset.goalIndex ?? item.dataset.distIndex ?? -1);
+    // displayIndex = position among DOM items (0-based); used for all slot math
+    const displayIndex = allItems.indexOf(item);
+    // stateIndex = index in state.goals / state.distractions array
+    const stateIndex = parseInt(item.dataset.goalIndex ?? item.dataset.distIndex ?? -1);
 
     item.classList.add('task-lifted');
     siblings.forEach(s => s.classList.add('task-shifting'));
@@ -3693,7 +3696,8 @@
     // The card that owns this list — used to detect when drag exits card bounds
     const parentCard = list.closest('.card');
 
-    activeDrag = { item, list, type, siblings, step, draggingIndex, currentSlot: draggingIndex,
+    activeDrag = { item, list, type, siblings, step, displayIndex, stateIndex,
+                   draggingIndex: displayIndex, currentSlot: displayIndex,
                    pointerOffsetY, naturalTop, listTop: listRect.top, minTop, maxTop,
                    dragType: 'task', parentCard };
 
@@ -3706,28 +3710,52 @@
 
     // ── Cross-card ghost mode ──────────────────────────────────
     if (activeDrag.dragType === 'cross') {
-      const { ghost, goalData, crossPlaceholder, crossList } = activeDrag;
-      ghost.style.left = (e.clientX - ghost.offsetWidth / 2) + 'px';
-      ghost.style.top  = (e.clientY - ghost.offsetHeight / 2) + 'px';
+      const { ghost, goalData, ghostW, ghostH } = activeDrag;
+      ghost.style.transform = `translate(${e.clientX - (ghostW || 200) / 2}px, ${e.clientY - (ghostH || 44) / 2}px)`;
 
-      // Determine which cross-card target we're over
       const backlogCard = document.getElementById('backlog-section');
       const goalsCard   = document.getElementById('goals-section');
 
-      // Goals card (only relevant if dragging from backlog — skip for goal→backlog)
-      // Backlog card (goal → backlog)
-      if (activeDrag.crossTarget === 'backlog' && backlogCard) {
-        const br = backlogCard.getBoundingClientRect();
-        const inside = e.clientX >= br.left && e.clientX <= br.right && e.clientY >= br.top && e.clientY <= br.bottom;
-        if (inside) {
+      if (activeDrag.crossTarget === 'backlog') {
+        const insideBacklog = backlogCard && (() => { const br = backlogCard.getBoundingClientRect(); return e.clientX >= br.left && e.clientX <= br.right && e.clientY >= br.top && e.clientY <= br.bottom; })();
+        const insideGoals   = goalsCard   && (() => { const gr = goalsCard.getBoundingClientRect();   return e.clientX >= gr.left && e.clientX <= gr.right && e.clientY >= gr.top && e.clientY <= gr.bottom; })();
+
+        if (insideBacklog) {
+          // ── Over backlog card ──
+          if (activeDrag.overGoals) { removeGoalsReentryPlaceholder(); }
+          activeDrag.overGoals = false;
+          activeDrag.overBacklog = true;
+          goalsCard && goalsCard.classList.remove('goals-drop-target');
           backlogCard.classList.add('goals-drop-target');
           const step = crossDropStep(backlogListEl, '.backlog-item');
           const listRect = backlogListEl.getBoundingClientRect();
           const slot = Math.max(0, Math.round((e.clientY - listRect.top) / step));
           insertCrossPlaceholder(slot, backlogListEl, '.backlog-item', 'backlog-item backlog-placeholder', goalData.name);
+
+        } else if (insideGoals) {
+          // ── Re-entered goals card ──
+          if (!activeDrag.overGoals) { removeCrossPlaceholder(); }
+          activeDrag.overGoals = true;
+          activeDrag.overBacklog = false;
+          backlogCard && backlogCard.classList.remove('goals-drop-target');
+          goalsCard.classList.add('goals-drop-target');
+          // Compute step from a real task row (original item already removed from DOM)
+          const refRow = goalsListEl.querySelector('.task-item:not(.task-reentry-placeholder)');
+          const stepH = refRow
+            ? refRow.getBoundingClientRect().height + (parseFloat(getComputedStyle(goalsListEl).gap) || 10)
+            : 52;
+          const listRect = goalsListEl.getBoundingClientRect();
+          const slot = Math.max(0, Math.round((e.clientY - listRect.top) / stepH));
+          insertGoalsReentryPlaceholder(slot, goalData.name);
+
         } else {
-          backlogCard.classList.remove('goals-drop-target');
-          removeCrossPlaceholder();
+          // ── Over neither card ──
+          if (activeDrag.overGoals) { removeGoalsReentryPlaceholder(); }
+          if (activeDrag.overBacklog) { removeCrossPlaceholder(); }
+          activeDrag.overGoals = false;
+          activeDrag.overBacklog = false;
+          backlogCard && backlogCard.classList.remove('goals-drop-target');
+          goalsCard   && goalsCard.classList.remove('goals-drop-target');
         }
       }
       return;
@@ -3747,28 +3775,70 @@
         item.style.transform = '';
         siblings.forEach(s => { s.classList.remove('task-shifting'); s.style.transform = ''; });
 
-        // Get data for the goal being dragged
-        const goalData = state.goals[activeDrag.draggingIndex];
+        // Get data for the goal being dragged (use stateIndex to address state.goals correctly)
+        const goalData = state.goals[activeDrag.stateIndex];
         if (!goalData) { activeDrag = null; return; }
 
-        // Build ghost
+        // Release pointer capture from handle so events route globally during cross-drag
+        try { handle.releasePointerCapture(e.pointerId); } catch(_) {}
+
+        // Remove the item from the DOM entirely — hiding/collapsing leaves compositor
+        // layer artifacts that trail across the screen during pointer movement
+        const itemParent = item.parentNode;
+        const itemNextSibling = item.nextSibling;
+        if (itemParent) itemParent.removeChild(item);
+
+        // Build ghost — no backdrop-filter (causes compositing trail); plain opaque pill
         const cat = getCategoryById(goalData.category || 'general');
         const ghost = document.createElement('div');
-        ghost.className = 'sidebar-drag-ghost';
-        ghost.innerHTML = `<span class="sidebar-drag-ghost-emoji">${cat.emoji}</span><span class="sidebar-drag-ghost-name">${goalData.name}</span>`;
-        ghost.style.left = (e.clientX - 80) + 'px';
-        ghost.style.top  = (e.clientY - 20) + 'px';
+        ghost.style.cssText = [
+          'position:fixed',
+          'left:0',
+          'top:0',
+          'pointer-events:none',
+          'z-index:9999',
+          'display:flex',
+          'align-items:center',
+          'gap:8px',
+          'background:#ffffff',
+          'border:1.5px solid rgba(45,106,79,0.25)',
+          'border-radius:12px',
+          'padding:10px 16px',
+          'box-shadow:0 8px 24px rgba(0,0,0,0.18)',
+          'font-family:var(--font,system-ui)',
+          'font-size:0.85rem',
+          'font-weight:600',
+          'color:#1B4332',
+          'max-width:260px',
+          'white-space:nowrap',
+          'will-change:transform',
+        ].join(';');
+        ghost.innerHTML = `<span style="font-size:1rem;flex-shrink:0">${cat.emoji}</span><span style="overflow:hidden;text-overflow:ellipsis">${goalData.name}</span>`;
         document.body.appendChild(ghost);
+        const gw = ghost.offsetWidth || 200;
+        const gh = ghost.offsetHeight || 44;
+        ghost.style.transform = `translate(${e.clientX - gw / 2}px, ${e.clientY - gh / 2}px)`;
 
         // Transition activeDrag to cross mode
         activeDrag = {
           dragType: 'cross',
           crossTarget: 'backlog',
           ghost,
+          ghostW: gw,
+          ghostH: gh,
           goalData,
-          goalIndex: activeDrag.draggingIndex,
+          goalIndex: activeDrag.stateIndex,
+          originalItem: item,
+          originalList: list,
+          originalDisplayIndex: activeDrag.displayIndex,
+          itemParent,
+          itemNextSibling,
           crossPlaceholderEl: null,
           crossSlot: -1,
+          goalsPlaceholderEl: null,
+          goalsSlot: -1,
+          overGoals: false,
+          overBacklog: false,
         };
         return;
       }
@@ -3827,6 +3897,34 @@
     activeDrag.crossSlot = -1;
   }
 
+  function insertGoalsReentryPlaceholder(slot, label) {
+    if (!activeDrag) return;
+    if (!activeDrag.goalsPlaceholderEl) {
+      const ph = document.createElement('div');
+      ph.className = 'task-item task-reentry-placeholder';
+      // Match the height of a real task row (item is removed from DOM, so all rows are real)
+      const refItem = goalsListEl.querySelector('.task-item:not(.task-reentry-placeholder)');
+      if (refItem) ph.style.height = refItem.getBoundingClientRect().height + 'px';
+      ph.innerHTML = `<span class="task-reentry-name">${label}</span>`;
+      activeDrag.goalsPlaceholderEl = ph;
+    }
+    const rows = Array.from(goalsListEl.querySelectorAll('.task-item:not(.task-reentry-placeholder)'));
+    const clamped = Math.max(0, Math.min(slot, rows.length));
+    if (clamped !== activeDrag.goalsSlot) {
+      activeDrag.goalsSlot = clamped;
+      clamped >= rows.length
+        ? goalsListEl.appendChild(activeDrag.goalsPlaceholderEl)
+        : goalsListEl.insertBefore(activeDrag.goalsPlaceholderEl, rows[clamped]);
+    }
+  }
+
+  function removeGoalsReentryPlaceholder() {
+    if (!activeDrag || !activeDrag.goalsPlaceholderEl) return;
+    if (activeDrag.goalsPlaceholderEl.parentNode) activeDrag.goalsPlaceholderEl.parentNode.removeChild(activeDrag.goalsPlaceholderEl);
+    activeDrag.goalsPlaceholderEl = null;
+    activeDrag.goalsSlot = -1;
+  }
+
   function onTaskDragEnd(e) {
     document.removeEventListener('pointermove', onTaskDragMove);
 
@@ -3834,27 +3932,54 @@
 
     // ── Cross-card drop ────────────────────────────────────────
     if (activeDrag.dragType === 'cross') {
-      const { ghost, goalData, goalIndex, crossSlot } = activeDrag;
+      const { ghost, goalData, goalIndex, crossSlot, goalsSlot, originalItem, originalDisplayIndex, itemParent, itemNextSibling } = activeDrag;
       ghost.remove();
 
       const backlogCard = document.getElementById('backlog-section');
+      const goalsCard   = document.getElementById('goals-section');
       removeCrossPlaceholder();
+      removeGoalsReentryPlaceholder();
       if (backlogCard) backlogCard.classList.remove('goals-drop-target');
+      if (goalsCard)   goalsCard.classList.remove('goals-drop-target');
 
-      const br = backlogCard ? backlogCard.getBoundingClientRect() : null;
-      const dropped = br && e.clientX >= br.left && e.clientX <= br.right && e.clientY >= br.top && e.clientY <= br.bottom;
+      // Use actual drop coordinates — don't rely solely on flags (pointermove may not fire on final frame)
+      function hitTest(el) {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      }
+      const droppedOnBacklog = hitTest(backlogCard);
+      const droppedOnGoals   = hitTest(goalsCard);
 
-      if (dropped && goalData) {
+      if (droppedOnBacklog && goalData) {
+        // ── Drop onto backlog ──
         const g = state.goals[goalIndex];
         if (g) {
           const newItem = { name: g.name, category: g.category || null, repeatable: g.repeatable || false };
-          const clamped = Math.max(0, Math.min(crossSlot < 0 ? backlog.length : crossSlot, backlog.length));
-          backlog.splice(clamped, 0, newItem);
+          const slot = activeDrag.crossSlot >= 0 ? activeDrag.crossSlot : backlog.length;
+          backlog.splice(Math.min(slot, backlog.length), 0, newItem);
           state.goals.splice(goalIndex, 1);
           saveState(); saveBacklog(); render(); renderSidebar();
         }
+      } else if (droppedOnGoals && goalData) {
+        // ── Drop back onto Top 5 ──
+        const targetSlot = goalsSlot >= 0 ? goalsSlot : originalDisplayIndex;
+        const activeGoals = getActiveGoals();
+        const completedGoals = getCompletedGoals();
+        const [moved] = activeGoals.splice(originalDisplayIndex, 1);
+        activeGoals.splice(Math.min(targetSlot, activeGoals.length), 0, moved);
+        state.goals = [...activeGoals, ...completedGoals];
+        saveState(); render();
       } else {
-        render(); // restore visual state if cancelled
+        // ── Cancelled: restore item to its original DOM position ──
+        if (itemParent && originalItem) {
+          if (itemNextSibling && itemNextSibling.parentNode === itemParent) {
+            itemParent.insertBefore(originalItem, itemNextSibling);
+          } else {
+            itemParent.appendChild(originalItem);
+          }
+        }
+        Array.from(goalsListEl.querySelectorAll('.task-shifting')).forEach(s => { s.classList.remove('task-shifting'); s.style.transform = ''; });
       }
 
       activeDrag = null;
@@ -3864,16 +3989,25 @@
     // ── Normal within-list reorder ─────────────────────────────
     if (activeDrag.dragType !== 'task') { activeDrag = null; return; }
 
-    const { item, list, type, siblings, draggingIndex, currentSlot } = activeDrag;
+    const { item, list, type, siblings, displayIndex, stateIndex, currentSlot } = activeDrag;
 
     item.classList.remove('task-lifted');
     item.style.transform = '';
     siblings.forEach(s => { s.classList.remove('task-shifting'); s.style.transform = ''; });
 
-    if (currentSlot !== draggingIndex) {
-      const arr = type === 'goal' ? state.goals : state.distractions;
-      const [moved] = arr.splice(draggingIndex, 1);
-      arr.splice(Math.min(currentSlot, arr.length), 0, moved);
+    if (currentSlot !== displayIndex) {
+      if (type === 'goal') {
+        // Reorder within active goals only, then rebuild state.goals preserving completed goals
+        const activeGoals = getActiveGoals();
+        const completedGoals = getCompletedGoals();
+        const [moved] = activeGoals.splice(displayIndex, 1);
+        activeGoals.splice(Math.min(currentSlot, activeGoals.length), 0, moved);
+        state.goals = [...activeGoals, ...completedGoals];
+      } else {
+        const arr = state.distractions;
+        const [moved] = arr.splice(stateIndex, 1);
+        arr.splice(Math.min(currentSlot, arr.length), 0, moved);
+      }
       saveState();
     }
 

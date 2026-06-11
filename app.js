@@ -1588,7 +1588,7 @@
   }
 
   function getDefaultState() {
-    return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [], quickDone: [] };
+    return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [], quickDone: [], focusSessions: [] };
   }
 
   let _prevDayForModal = null; // set when new day detected, consumed by modal
@@ -1805,6 +1805,12 @@
     deleteBtn.title = 'Remove';
     deleteBtn.addEventListener('click', () => { permanentlyDeleteGoal(index); });
 
+    const focusBtn = document.createElement('button');
+    focusBtn.className = 'task-focus-btn';
+    focusBtn.title = 'Focus on this task';
+    focusBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>';
+    focusBtn.addEventListener('click', e => { e.stopPropagation(); openFocusModal(goal, index); });
+
     const trailing = [];
     if (goal.prevHours > 0) {
       const badge = document.createElement('span');
@@ -1826,29 +1832,61 @@
       saveState(); saveBacklog(); render(); renderSidebar();
     });
     trailing.push(demoteBtn);
-
+    trailing.push(focusBtn);
     trailing.push(deleteBtn);
     topRow.append(dragHandle, number, name, ...trailing);
 
     const logRow = document.createElement('div');
     logRow.className = 'task-logging-row';
 
-    const hg = document.createElement('div'); hg.className = 'log-group';
-    const hl = document.createElement('label'); hl.textContent = 'Hours';
-    const hi = document.createElement('input');
-    hi.type = 'number'; hi.className = 'hours-input'; hi.min = '0'; hi.max = '24'; hi.step = '0.25';
-    hi.value = goal.hours || 0;
-    hi.addEventListener('change', () => {
-      const prev = state.goals[index].hours || 0;
-      let v = Math.max(0, Math.min(24, parseFloat(hi.value) || 0));
-      hi.value = v;
-      const delta = v - prev;
-      state.goals[index].hours = v;
-      saveState();
-      accumulateCategoryHours(state.goals[index].category || 'general', delta);
-      renderSummary();
+    // Hours pill — clickable to edit inline, matches done-card badge style
+    const hoursPill = document.createElement('span');
+    hoursPill.className = 'goal-hours-pill';
+    hoursPill.dataset.goalIndex = index;
+
+    function formatGoalHours(h) {
+      if (!h || h === 0) return '+ hrs';
+      if (h < 1) return `${Math.round(h * 60)}m`;
+      const hrs = Math.floor(h);
+      const mins = Math.round((h - hrs) * 60);
+      return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+    }
+
+    function renderHoursPill() {
+      const h = state.goals[index].hours || 0;
+      hoursPill.textContent = formatGoalHours(h);
+      hoursPill.classList.toggle('goal-hours-pill--empty', h === 0);
+    }
+    renderHoursPill();
+
+    hoursPill.addEventListener('click', () => {
+      if (hoursPill.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'done-hours-input';
+      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
+      inp.value = state.goals[index].hours || '';
+      inp.placeholder = '0';
+      hoursPill.textContent = '';
+      hoursPill.appendChild(inp);
+      inp.focus(); inp.select();
+
+      function commitHours() {
+        const prev = state.goals[index].hours || 0;
+        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
+        const delta = v - prev;
+        state.goals[index].hours = v;
+        saveState();
+        accumulateCategoryHours(state.goals[index].category || 'general', delta);
+        renderSummary();
+        renderHoursPill();
+      }
+      inp.addEventListener('blur', commitHours);
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        if (e.key === 'Escape') renderHoursPill();
+      });
     });
-    hg.append(hl, hi);
 
     const pg = document.createElement('div'); pg.className = 'log-group';
     const pl = document.createElement('label'); pl.textContent = 'Progress';
@@ -1892,13 +1930,809 @@
       }
     );
 
-    logRow.append(hg, pg, repeatIcon, catPill);
+    logRow.append(hoursPill, pg, repeatIcon, catPill);
     item.append(topRow, logRow);
 
     // Task-level drag & drop — reorder within Top 5, or drag out to backlog
     setupTaskDrag(item, goalsListEl, 'goal');
 
     return item;
+  }
+
+  // =========================================================
+  // FOCUS MODAL
+  // =========================================================
+
+  const FOCUS_WISDOM = [
+    "The anxiety of not starting is always worse than the discomfort of doing the work.",
+    "Distraction isn't random — it's your mind flinching away from the discomfort of real work. Lean in.",
+    "You don't need to feel ready. The leap is what creates the readiness.",
+    "Stop waiting for motivation. Action creates motivation, not the other way around.",
+    "The discomfort you feel when starting? That's the feeling of doing something that matters.",
+    "You'll never clear the decks. The question is: are you doing what matters?",
+    "Every time you choose your goal over a distraction, you're voting for the person you want to become.",
+  ];
+
+  const ENTRY_STATES = [
+    { emoji: '😶', label: 'Hard to start',     prompt: 'What\'s making it hard to begin? Is it the task itself, or something else on your mind?' },
+    { emoji: '💭', label: 'Mind is scattered',  prompt: 'What\'s pulling your attention? Sometimes naming it is enough to set it aside.' },
+    { emoji: '😰', label: 'Feels too big',      prompt: 'What feels overwhelming about this? What would the smallest possible first step look like?' },
+    { emoji: '📱', label: 'Tempted to scroll',  prompt: 'What are you avoiding by reaching for distraction? What feels uncomfortable about diving in?' },
+    { emoji: '😴', label: 'Low energy',         prompt: 'Is this tiredness physical, mental, or emotional? What does your body actually need right now?' },
+    { emoji: '✨', label: 'Actually ready',      prompt: null },
+    { emoji: '✏️', label: 'Something else…',    prompt: 'Describe what\'s going on for you right now.', custom: true },
+  ];
+
+  const EXIT_STATES = [
+    { emoji: '🎯', label: 'Got into flow',               prompt: 'What helped you get there? Capture it so you can recreate it.' },
+    { emoji: '🌊', label: 'Some resistance, made progress', prompt: 'What created the friction? What kept you going despite it?' },
+    { emoji: '🧱', label: 'Kept hitting walls',           prompt: 'What wall did you keep running into? Is it a blocker you can remove, or something to work around?' },
+    { emoji: '🌀', label: 'Got distracted',               prompt: 'What pulled you away? No judgment — just notice it. What would you do differently next time?' },
+    { emoji: '✏️', label: 'Something else…',              prompt: 'What was the experience like? Write whatever comes up.', custom: true },
+  ];
+
+  const LESSON_SUGGESTIONS = {
+    'Hard to start':     'When it\'s hard to start, try committing to just 5 minutes.',
+    'Mind is scattered': 'When my mind is scattered, writing down what\'s distracting me first helps.',
+    'Feels too big':     'When a task feels too big, break it into one next action and start there.',
+    'Tempted to scroll': 'When I want to scroll, putting my phone out of reach for 20 minutes works.',
+    'Low energy':        'When my energy is low, a short walk before starting helps more than I expect.',
+  };
+
+  let activeFocusOverlay = null;
+
+  function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return `${r},${g},${b}`;
+  }
+
+  function openFocusModal(goal, index) {
+    if (activeFocusOverlay) activeFocusOverlay.remove();
+
+    const cat = getCategoryById(goal.category || 'general');
+    const catColor = cat ? cat.color : '#2D6A4F';
+    const catEmoji = cat ? cat.emoji : '⚡';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'focus-modal-overlay';
+    activeFocusOverlay = overlay;
+
+    const modal = document.createElement('div');
+    modal.className = 'focus-modal';
+    modal.style.setProperty('--focus-cat-color-rgb', hexToRgb(catColor));
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'focus-modal-header';
+
+    const catTag = document.createElement('span');
+    catTag.className = 'focus-modal-cat-tag';
+    catTag.style.setProperty('--cat-color', catColor);
+    catTag.textContent = `${catEmoji} ${cat ? cat.name : 'General'}`;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'focus-modal-close';
+    closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+    closeBtn.addEventListener('click', () => { overlay.remove(); activeFocusOverlay = null; });
+    header.append(catTag, closeBtn);
+
+    // Task name
+    const taskName = document.createElement('h2');
+    taskName.className = 'focus-modal-task-name';
+    taskName.textContent = goal.name;
+
+    // Hours pill — same pattern as goal card, clickable to edit
+    function fmtH(h) {
+      if (!h || h === 0) return '+ hrs';
+      if (h < 1) return `${Math.round(h * 60)}m`;
+      const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
+      return mn > 0 ? `${hr}h ${mn}m` : `${hr}h`;
+    }
+
+    const hoursDisplay = document.createElement('span');
+    hoursDisplay.className = 'goal-hours-pill focus-modal-hours-pill';
+
+    const updateHoursDisplay = () => {
+      const h = state.goals[index] ? (state.goals[index].hours || 0) : (goal.hours || 0);
+      if (hoursDisplay.querySelector('input')) return;
+      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${fmtH(h)} today`;
+      hoursDisplay.classList.toggle('goal-hours-pill--empty', h === 0);
+    };
+    updateHoursDisplay();
+
+    hoursDisplay.addEventListener('click', () => {
+      if (hoursDisplay.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.className = 'done-hours-input';
+      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
+      inp.value = state.goals[index].hours || '';
+      inp.placeholder = '0';
+      hoursDisplay.textContent = '';
+      hoursDisplay.appendChild(inp);
+      inp.focus(); inp.select();
+
+      function commitModalHours() {
+        const prev = state.goals[index].hours || 0;
+        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
+        const delta = v - prev;
+        state.goals[index].hours = v;
+        saveState();
+        accumulateCategoryHours(state.goals[index].category || 'general', delta);
+        renderSummary();
+        updateHoursDisplay();
+        // Sync card pill too
+        const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
+        if (cardPill && !cardPill.querySelector('input')) {
+          cardPill.textContent = fmtH(v) || '+ hrs';
+          cardPill.classList.toggle('goal-hours-pill--empty', v === 0);
+        }
+      }
+      inp.addEventListener('blur', commitModalHours);
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        if (e.key === 'Escape') updateHoursDisplay();
+      });
+    });
+
+    // Quick time chips
+    const chipsSection = document.createElement('div');
+    chipsSection.className = 'focus-modal-chips-section';
+
+    const chipsLabel = document.createElement('p');
+    chipsLabel.className = 'focus-modal-chips-label';
+    chipsLabel.textContent = 'Log time on this task';
+
+    const chips = document.createElement('div');
+    chips.className = 'focus-modal-chips';
+
+    const timeChips = [
+      { label: '+10m', hours: 10/60 },
+      { label: '+15m', hours: 15/60 },
+      { label: '+30m', hours: 30/60 },
+      { label: '+1h',  hours: 1 },
+      { label: '+2h',  hours: 2 },
+    ];
+
+    timeChips.forEach(({ label, hours }) => {
+      const chip = document.createElement('button');
+      chip.className = 'focus-time-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => {
+        const prev = state.goals[index].hours || 0;
+        const next = Math.min(24, prev + hours);
+        const delta = next - prev;
+        state.goals[index].hours = Math.round(next * 100) / 100;
+        saveState();
+        accumulateCategoryHours(state.goals[index].category || 'general', delta);
+        renderSummary();
+        updateHoursDisplay();
+        // Sync the hours pill on the card without a full re-render
+        const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
+        if (cardPill && !cardPill.querySelector('input')) {
+          const h = state.goals[index].hours || 0;
+          const fh = h => h < 1 ? `${Math.round(h*60)}m` : (() => { const hr=Math.floor(h),mn=Math.round((h-hr)*60); return mn>0?`${hr}h ${mn}m`:`${hr}h`; })();
+          cardPill.textContent = fh(h);
+          cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
+        }
+
+        chip.classList.add('focus-time-chip-flash');
+        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
+      });
+      chips.appendChild(chip);
+    });
+
+    chipsSection.append(chipsLabel, chips);
+
+    // Divider
+    const divider = document.createElement('div');
+    divider.className = 'focus-modal-divider';
+
+    // Focus mode button
+    const focusModeBtn = document.createElement('button');
+    focusModeBtn.className = 'focus-enter-btn';
+    focusModeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg> Enter Focus Mode';
+    focusModeBtn.addEventListener('click', () => {
+      overlay.remove();
+      activeFocusOverlay = null;
+      openFullFocusMode(goal, index, catColor, catEmoji, cat);
+    });
+
+    modal.append(header, taskName, hoursDisplay, chipsSection, divider, focusModeBtn);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('pointerdown', e => {
+      if (e.target === overlay) { overlay.remove(); activeFocusOverlay = null; }
+    });
+  }
+
+  function openFullFocusMode(goal, index, catColor, catEmoji, cat) {
+    if (activeFocusOverlay) activeFocusOverlay.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'focus-fullscreen-overlay';
+    overlay.style.setProperty('--focus-cat-color', catColor);
+    overlay.style.setProperty('--focus-cat-color-rgb', hexToRgb(catColor));
+    activeFocusOverlay = overlay;
+    document.body.appendChild(overlay);
+
+    // Shared session state — carries through all screens
+    let sessionIntention = '';
+    let sessionEntryTag = null;
+    let sessionEntryNote = '';
+    let sessionNotes = [];
+    let sessionStartTime = null; // set when ambient screen opens
+
+    // ── helpers ──────────────────────────────────────────────
+
+    function transition(fromEl, buildNext) {
+      if (fromEl.classList.contains('focus-full-screen')) {
+        fromEl.classList.add('focus-screen-exit');
+      } else {
+        // Ambient screen uses inline style transitions
+        fromEl.style.opacity = '0';
+        fromEl.style.transform = 'translateY(-12px)';
+      }
+      setTimeout(() => {
+        fromEl.remove();
+        const next = buildNext();
+        overlay.appendChild(next);
+        if (next.classList.contains('focus-full-screen')) {
+          requestAnimationFrame(() => next.classList.add('focus-screen-enter'));
+        }
+      }, 280);
+    }
+
+    function makeScreen(extraClass) {
+      const s = document.createElement('div');
+      s.className = 'focus-full-screen' + (extraClass ? ' ' + extraClass : '');
+      return s;
+    }
+
+    function makeLabel(text, cls) {
+      const el = document.createElement('p');
+      el.className = cls || 'focus-entry-label';
+      el.textContent = text;
+      return el;
+    }
+
+    function makeTextarea(placeholder, rows, cls) {
+      const ta = document.createElement('textarea');
+      ta.className = cls || 'focus-lesson-input';
+      ta.placeholder = placeholder;
+      ta.rows = rows || 3;
+      return ta;
+    }
+
+    function makeTagGrid(states, onSelect) {
+      const grid = document.createElement('div');
+      grid.className = 'focus-entry-tags';
+      states.forEach(({ emoji, label, custom }) => {
+        const btn = document.createElement('button');
+        btn.className = 'focus-entry-tag';
+        btn.dataset.label = label;
+        if (custom) {
+          btn.innerHTML = `<span class="focus-tag-emoji">${emoji}</span><span class="focus-tag-label">${label}</span>`;
+          btn.addEventListener('click', () => {
+            grid.querySelectorAll('.focus-entry-tag').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            onSelect(label, true);
+          });
+        } else {
+          btn.innerHTML = `<span class="focus-tag-emoji">${emoji}</span><span class="focus-tag-label">${label}</span>`;
+          btn.addEventListener('click', () => {
+            grid.querySelectorAll('.focus-entry-tag').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            onSelect(label, false);
+          });
+        }
+        grid.appendChild(btn);
+      });
+      return grid;
+    }
+
+    function makeCloseBtn() {
+      const btn = document.createElement('button');
+      btn.className = 'focus-fullscreen-close';
+      btn.title = 'Close focus mode';
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+      btn.addEventListener('click', () => { overlay.remove(); activeFocusOverlay = null; });
+      return btn;
+    }
+
+    // ── Screen 1: Intention ──────────────────────────────────
+
+    function buildIntentionScreen() {
+      const screen = makeScreen('focus-intention-screen');
+
+      const label = makeLabel('What do you want to achieve in this session?');
+      const sub = makeLabel('Set an intention — even a rough one. It helps.', 'focus-entry-sublabel');
+
+      const intentionInput = makeTextarea('e.g. "Get the first draft of the intro written" or "figure out why the bug is happening"', 3, 'focus-lesson-input focus-intention-input');
+
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'focus-enter-btn focus-entry-start';
+      nextBtn.textContent = 'Next →';
+      nextBtn.addEventListener('click', () => {
+        sessionIntention = intentionInput.value.trim();
+        transition(screen, buildEntryScreen);
+      });
+
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'focus-skip-btn';
+      skipBtn.textContent = 'Skip intention';
+      skipBtn.addEventListener('click', () => transition(screen, buildEntryScreen));
+
+      screen.append(makeCloseBtn(), label, sub, intentionInput, nextBtn, skipBtn);
+      return screen;
+    }
+
+    // ── Screen 2: Entry check-in ─────────────────────────────
+
+    function buildEntryScreen() {
+      const screen = makeScreen('focus-entry-screen');
+
+      const label = makeLabel('How\'s your mind right now?');
+      const sub = makeLabel('Pick what fits — or skip straight in.', 'focus-entry-sublabel');
+
+      // Journaling area — revealed after tag pick (if prompt exists)
+      const journalArea = document.createElement('div');
+      journalArea.className = 'focus-journal-area hidden';
+      const journalPrompt = document.createElement('p');
+      journalPrompt.className = 'focus-lesson-label';
+      const journalInput = makeTextarea('Write freely…', 3);
+      journalArea.append(journalPrompt, journalInput);
+
+      // Custom label input — shown when "Something else…" picked
+      const customLabelArea = document.createElement('div');
+      customLabelArea.className = 'focus-journal-area hidden';
+      const customInput = makeTextarea('Describe how you\'re feeling…', 2);
+      customLabelArea.appendChild(customInput);
+
+      const tagGrid = makeTagGrid(ENTRY_STATES, (label, isCustom) => {
+        sessionEntryTag = label;
+        if (isCustom) {
+          journalArea.classList.add('hidden');
+          customLabelArea.classList.remove('hidden');
+          customInput.focus();
+        } else {
+          customLabelArea.classList.add('hidden');
+          const stateObj = ENTRY_STATES.find(s => s.label === label);
+          if (stateObj && stateObj.prompt) {
+            journalPrompt.textContent = stateObj.prompt;
+            journalArea.classList.remove('hidden');
+            journalInput.focus();
+          } else {
+            journalArea.classList.add('hidden');
+          }
+        }
+      });
+
+      const beginBtn = document.createElement('button');
+      beginBtn.className = 'focus-enter-btn focus-entry-start';
+      beginBtn.textContent = 'Begin →';
+      beginBtn.addEventListener('click', () => {
+        if (sessionEntryTag === 'Something else…') {
+          sessionEntryNote = customInput.value.trim();
+          sessionEntryTag = sessionEntryNote || 'Something else';
+        } else {
+          sessionEntryNote = journalInput.value.trim();
+        }
+        transition(screen, buildAmbientScreen);
+      });
+
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'focus-skip-btn';
+      skipBtn.textContent = 'Skip';
+      skipBtn.addEventListener('click', () => transition(screen, buildAmbientScreen));
+
+      screen.append(makeCloseBtn(), label, sub, tagGrid, journalArea, customLabelArea, beginBtn, skipBtn);
+      return screen;
+    }
+
+    // ── Screen 3: Ambient (3-column) ─────────────────────────
+
+    function buildAmbientScreen() {
+      sessionStartTime = Date.now();
+
+      const screen = document.createElement('div');
+      screen.className = 'focus-ambient-screen';
+      screen.style.setProperty('--cat-color', catColor);
+
+      const closeBtn = makeCloseBtn();
+      closeBtn.classList.add('focus-ambient-close');
+      screen.appendChild(closeBtn);
+
+      // ── LEFT: Journal log ──────────────────────────────────
+      const leftCol = document.createElement('div');
+      leftCol.className = 'focus-col focus-col-left';
+
+      const leftTitle = document.createElement('p');
+      leftTitle.className = 'focus-col-title';
+      leftTitle.textContent = 'This session';
+
+      // Intention block
+      if (sessionIntention) {
+        const intentBlock = document.createElement('div');
+        intentBlock.className = 'focus-journal-block';
+        const intentLabel = document.createElement('span');
+        intentLabel.className = 'focus-journal-block-label';
+        intentLabel.textContent = 'Intention';
+        const intentText = document.createElement('p');
+        intentText.className = 'focus-journal-block-text';
+        intentText.textContent = sessionIntention;
+        intentBlock.append(intentLabel, intentText);
+        leftCol.append(leftTitle, intentBlock);
+      } else {
+        leftCol.appendChild(leftTitle);
+      }
+
+      // Entry state block
+      if (sessionEntryTag) {
+        const entryBlock = document.createElement('div');
+        entryBlock.className = 'focus-journal-block';
+        const entryLabel = document.createElement('span');
+        entryLabel.className = 'focus-journal-block-label';
+        entryLabel.textContent = 'State of mind';
+        const entryText = document.createElement('p');
+        entryText.className = 'focus-journal-block-text';
+        entryText.textContent = sessionEntryTag + (sessionEntryNote ? ` — "${sessionEntryNote}"` : '');
+        entryBlock.append(entryLabel, entryText);
+        leftCol.appendChild(entryBlock);
+      }
+
+      // Live notes list — updates as notes are saved
+      const notesListEl = document.createElement('div');
+      notesListEl.className = 'focus-notes-list';
+      const renderNotesList = () => {
+        notesListEl.innerHTML = '';
+        if (sessionNotes.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'focus-notes-empty';
+          empty.textContent = 'Notes you add will appear here.';
+          notesListEl.appendChild(empty);
+        } else {
+          sessionNotes.forEach((n, i) => {
+            const noteEl = document.createElement('div');
+            noteEl.className = 'focus-note-item';
+            const dot = document.createElement('span');
+            dot.className = 'focus-note-dot';
+            const txt = document.createElement('span');
+            txt.textContent = n;
+            noteEl.append(dot, txt);
+            notesListEl.appendChild(noteEl);
+          });
+        }
+      };
+      renderNotesList();
+      leftCol.appendChild(notesListEl);
+
+      // ── CENTER: Task + clock + add note ───────────────────
+      const centerCol = document.createElement('div');
+      centerCol.className = 'focus-col focus-col-center';
+
+      const catEl = document.createElement('div');
+      catEl.className = 'focus-ambient-cat';
+      catEl.textContent = catEmoji;
+
+      const nameEl = document.createElement('h1');
+      nameEl.className = 'focus-ambient-name';
+      nameEl.textContent = goal.name;
+
+      const clockEl = document.createElement('div');
+      clockEl.className = 'focus-ambient-clock';
+      const tick = () => { clockEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+      tick();
+      const clockInterval = setInterval(tick, 10000);
+
+      // Add note area — always visible in center
+      const noteInputWrapper = document.createElement('div');
+      noteInputWrapper.className = 'focus-note-input-wrapper';
+      const noteInput = makeTextarea('Capture a thought, a blocker, a breakthrough…', 3, 'focus-lesson-input focus-notes-input');
+      const saveNoteBtn = document.createElement('button');
+      saveNoteBtn.className = 'focus-note-save-btn';
+      saveNoteBtn.textContent = 'Save note';
+      saveNoteBtn.addEventListener('click', () => {
+        const text = noteInput.value.trim();
+        if (text) {
+          sessionNotes.push(text);
+          noteInput.value = '';
+          renderNotesList();
+        }
+      });
+      noteInput.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveNoteBtn.click();
+      });
+      noteInputWrapper.append(noteInput, saveNoteBtn);
+
+      const doneBtn = document.createElement('button');
+      doneBtn.className = 'focus-done-btn';
+      doneBtn.textContent = 'I\'m done for now';
+      doneBtn.addEventListener('click', () => {
+        clearInterval(clockInterval);
+        transition(screen, buildExitScreen);
+      });
+
+      centerCol.append(catEl, nameEl, clockEl, noteInputWrapper, doneBtn);
+
+      // ── RIGHT: Focus tools ─────────────────────────────────
+      const rightCol = document.createElement('div');
+      rightCol.className = 'focus-col focus-col-right';
+
+      const rightTitle = document.createElement('p');
+      rightTitle.className = 'focus-col-title';
+      rightTitle.textContent = 'Focus tools';
+
+      const wisdomCard = document.createElement('div');
+      wisdomCard.className = 'focus-tool-card';
+      const wisdomIcon = document.createElement('span');
+      wisdomIcon.className = 'focus-tool-icon';
+      wisdomIcon.textContent = '💡';
+      const wisdomText = document.createElement('p');
+      wisdomText.className = 'focus-tool-text';
+      wisdomText.textContent = FOCUS_WISDOM[Math.floor(Math.random() * FOCUS_WISDOM.length)];
+      wisdomCard.append(wisdomIcon, wisdomText);
+
+      const breatheCard = document.createElement('div');
+      breatheCard.className = 'focus-tool-card focus-breathe-card';
+      const breatheIcon = document.createElement('span');
+      breatheIcon.className = 'focus-tool-icon';
+      breatheIcon.textContent = '🌬️';
+      const breatheTitle = document.createElement('p');
+      breatheTitle.className = 'focus-tool-label';
+      breatheTitle.textContent = 'Box breathing';
+      const breatheDesc = document.createElement('p');
+      breatheDesc.className = 'focus-tool-text';
+      breatheDesc.textContent = 'In 4s · Hold 4s · Out 4s · Hold 4s. Repeat 4×. Resets the nervous system in under 2 minutes.';
+      const breatheBtn = document.createElement('button');
+      breatheBtn.className = 'focus-tool-btn';
+      breatheBtn.textContent = 'Start guide';
+      let breatheInterval = null;
+      let breathePhase = 0;
+      const breathePhases = ['Breathe in…', 'Hold…', 'Breathe out…', 'Hold…'];
+      breatheBtn.addEventListener('click', () => {
+        if (breatheInterval) {
+          clearInterval(breatheInterval);
+          breatheInterval = null;
+          breatheBtn.textContent = 'Start guide';
+          breatheDesc.textContent = 'In 4s · Hold 4s · Out 4s · Hold 4s. Repeat 4×. Resets the nervous system in under 2 minutes.';
+          breatheDesc.classList.remove('focus-breathe-active');
+        } else {
+          breathePhase = 0;
+          breatheDesc.textContent = breathePhases[0];
+          breatheDesc.classList.add('focus-breathe-active');
+          breatheBtn.textContent = 'Stop';
+          breatheInterval = setInterval(() => {
+            breathePhase = (breathePhase + 1) % 4;
+            breatheDesc.textContent = breathePhases[breathePhase];
+          }, 4000);
+        }
+      });
+      breatheCard.append(breatheIcon, breatheTitle, breatheDesc, breatheBtn);
+
+      const groundCard = document.createElement('div');
+      groundCard.className = 'focus-tool-card';
+      const groundIcon = document.createElement('span');
+      groundIcon.className = 'focus-tool-icon';
+      groundIcon.textContent = '🌿';
+      const groundTitle = document.createElement('p');
+      groundTitle.className = 'focus-tool-label';
+      groundTitle.textContent = '5-4-3-2-1 grounding';
+      const groundText = document.createElement('p');
+      groundText.className = 'focus-tool-text';
+      groundText.textContent = 'Name 5 things you see · 4 you can touch · 3 you hear · 2 you smell · 1 you taste. Brings you back to now.';
+      groundCard.append(groundIcon, groundTitle, groundText);
+
+      rightCol.append(rightTitle, wisdomCard, breatheCard, groundCard);
+
+      // Cleanup breathe interval on done
+      const origDone = doneBtn.onclick;
+      doneBtn.addEventListener('click', () => { if (breatheInterval) clearInterval(breatheInterval); });
+
+      screen.append(leftCol, centerCol, rightCol);
+
+      // Animate in
+      screen.style.opacity = '0';
+      screen.style.transform = 'translateY(16px)';
+      screen.style.transition = 'opacity 0.35s ease, transform 0.35s cubic-bezier(0.34,1.2,0.64,1)';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        screen.style.opacity = '1';
+        screen.style.transform = 'translateY(0)';
+      }));
+
+      return screen;
+    }
+
+    // ── Screen 4: Exit check-in ──────────────────────────────
+
+    function buildExitScreen() {
+      const screen = makeScreen('focus-exit-screen');
+
+      // Compute total session minutes
+      const sessionMs = sessionStartTime ? (Date.now() - sessionStartTime) : 0;
+      const totalMins = Math.round(sessionMs / 60000);
+
+      const label = makeLabel('How did it go?');
+      const sub = makeLabel('No judgment — just honest.', 'focus-entry-sublabel');
+
+      // ── Focus % slider ───────────────────────────────────────
+      const sliderSection = document.createElement('div');
+      sliderSection.className = 'focus-pct-section';
+
+      const sliderLabel = document.createElement('p');
+      sliderLabel.className = 'focus-lesson-label';
+      sliderLabel.textContent = 'How much of this session were you actually focused?';
+
+      const sliderRow = document.createElement('div');
+      sliderRow.className = 'focus-pct-row';
+
+      const slider = document.createElement('input');
+      slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '5'; slider.value = '80';
+      slider.className = 'focus-pct-slider';
+
+      const sliderVal = document.createElement('span');
+      sliderVal.className = 'focus-pct-value';
+      sliderVal.textContent = '80%';
+
+      const updateSlider = () => {
+        const pct = parseInt(slider.value);
+        sliderVal.textContent = pct + '%';
+        const focused = Math.round(totalMins * pct / 100);
+        const distracted = totalMins - focused;
+        timeBreakdown.textContent = totalMins > 0
+          ? `${focused}m focused · ${distracted}m distracted`
+          : 'Set time via the hours pill after closing';
+        slider.style.background = `linear-gradient(to right, rgba(var(--focus-cat-color-rgb,64,145,108),0.8) 0%, rgba(var(--focus-cat-color-rgb,64,145,108),0.8) ${pct}%, rgba(255,255,255,0.12) ${pct}%)`;
+        // Show distraction capture if ≥50% distracted
+        distractionCapture.classList.toggle('hidden', pct > 50);
+      };
+
+      slider.addEventListener('input', updateSlider);
+      sliderRow.append(slider, sliderVal);
+
+      const timeBreakdown = document.createElement('p');
+      timeBreakdown.className = 'focus-entry-sublabel';
+
+      sliderSection.append(sliderLabel, sliderRow, timeBreakdown);
+
+      // ── Distraction capture (shown when focus < 50%) ─────────
+      const distractionCapture = document.createElement('div');
+      distractionCapture.className = 'focus-journal-area hidden';
+      const distLabel = document.createElement('p');
+      distLabel.className = 'focus-lesson-label';
+      distLabel.textContent = 'What pulled you away? (will be added to 5 to Avoid)';
+      const distInput = makeTextarea('e.g. phone, email, thoughts about X…', 2);
+      distractionCapture.append(distLabel, distInput);
+
+      // ── Reflection area ──────────────────────────────────────
+      const reflectionArea = document.createElement('div');
+      reflectionArea.className = 'focus-journal-area hidden';
+      const reflectionPrompt = document.createElement('p');
+      reflectionPrompt.className = 'focus-lesson-label';
+      const reflectionInput = makeTextarea('Write what comes up…', 4);
+      reflectionArea.append(reflectionPrompt, reflectionInput);
+
+      const customExitArea = document.createElement('div');
+      customExitArea.className = 'focus-journal-area hidden';
+      const customExitInput = makeTextarea('What was the experience like?', 4);
+      customExitArea.appendChild(customExitInput);
+
+      let selectedExitTag = null;
+
+      const tagGrid = makeTagGrid(EXIT_STATES, (tagLabel, isCustom) => {
+        selectedExitTag = tagLabel;
+        if (isCustom) {
+          reflectionArea.classList.add('hidden');
+          customExitArea.classList.remove('hidden');
+          customExitInput.focus();
+        } else {
+          customExitArea.classList.add('hidden');
+          const stateObj = EXIT_STATES.find(s => s.label === tagLabel);
+          reflectionPrompt.textContent = sessionIntention && tagLabel === 'Got into flow'
+            ? `You set out to: "${sessionIntention}" — did you get there? What helped?`
+            : (stateObj ? stateObj.prompt : 'What did you notice?');
+          reflectionArea.classList.remove('hidden');
+          reflectionInput.focus();
+        }
+      });
+
+      // ── Save ─────────────────────────────────────────────────
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'focus-enter-btn focus-entry-start';
+      saveBtn.textContent = 'Save & close';
+      saveBtn.addEventListener('click', () => {
+        const focusPct = parseInt(slider.value);
+        const focusMins = Math.round(totalMins * focusPct / 100);
+        const distractMins = totalMins - focusMins;
+        const focusHours = Math.round(focusMins / 60 * 100) / 100;
+        const distractHours = Math.round(distractMins / 60 * 100) / 100;
+
+        // Log focus hours to the goal
+        if (focusHours > 0 && state.goals[index]) {
+          const prev = state.goals[index].hours || 0;
+          state.goals[index].hours = Math.round(Math.min(24, prev + focusHours) * 100) / 100;
+          accumulateCategoryHours(state.goals[index].category || 'general', focusHours);
+          // Sync the pill on the card
+          const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
+          if (cardPill && !cardPill.querySelector('input')) {
+            const h = state.goals[index].hours;
+            const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
+            cardPill.textContent = h === 0 ? '+ hrs' : (hr > 0 && mn > 0 ? `${hr}h ${mn}m` : hr > 0 ? `${hr}h` : `${mn}m`);
+            cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
+          }
+        }
+
+        // Log distraction time — add to first existing distraction or create one
+        if (distractHours > 0) {
+          if (state.distractions.length > 0) {
+            state.distractions[0].hours = Math.round(((state.distractions[0].hours || 0) + distractHours) * 100) / 100;
+          }
+          // If distraction text was entered, add as new distraction item
+          const distText = distInput.value.trim();
+          if (distText && state.distractions.length < 5) {
+            state.distractions.push({ name: distText, hours: distractHours });
+          }
+        }
+
+        // Build exit reflection text
+        const exitNote = selectedExitTag === 'Something else…'
+          ? customExitInput.value.trim()
+          : reflectionInput.value.trim();
+
+        // Save focus session object
+        if (!state.focusSessions) state.focusSessions = [];
+        const session = {
+          timestamp: Date.now(),
+          goalName: goal.name,
+          goalIndex: index,
+          category: goal.category || 'general',
+          catEmoji,
+          catColor,
+          totalMins,
+          focusPct,
+          focusMins,
+          distractMins,
+          isWin: focusPct >= 70,
+          intention: sessionIntention || null,
+          entryTag: sessionEntryTag || null,
+          entryNote: sessionEntryNote || null,
+          midNotes: [...sessionNotes],
+          exitTag: selectedExitTag || null,
+          exitNote: exitNote || null,
+        };
+        state.focusSessions.push(session);
+
+        saveState();
+        renderSummary();
+        renderJournal();
+        render(); // refresh goal card hours pill
+        overlay.remove();
+        activeFocusOverlay = null;
+      });
+
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'focus-skip-btn';
+      skipBtn.textContent = 'Skip — just close';
+      skipBtn.addEventListener('click', () => { overlay.remove(); activeFocusOverlay = null; });
+
+      const actions = document.createElement('div');
+      actions.className = 'focus-exit-actions';
+      actions.append(saveBtn, skipBtn);
+
+      // Init slider display
+      updateSlider();
+
+      screen.append(makeCloseBtn(), label, sub, sliderSection, distractionCapture, tagGrid, reflectionArea, customExitArea, actions);
+      return screen;
+    }
+
+    // ── Boot ─────────────────────────────────────────────────
+
+    const firstScreen = buildIntentionScreen();
+    overlay.appendChild(firstScreen);
+    requestAnimationFrame(() => firstScreen.classList.add('focus-screen-enter'));
   }
 
   // =========================================================
@@ -2074,7 +2908,13 @@
     hoursBadge.title = 'Click to edit hours';
 
     function renderHoursBadge() {
-      hoursBadge.textContent = (item.hours > 0) ? `${item.hours}h` : '+ hrs';
+      if (item.hours > 0) {
+        const h = item.hours;
+        const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
+        hoursBadge.textContent = (hr > 0 && mn > 0) ? `${hr}h ${mn}m` : hr > 0 ? `${hr}h` : `${mn}m`;
+      } else {
+        hoursBadge.textContent = '+ hrs';
+      }
       hoursBadge.classList.toggle('done-hours-badge--empty', !(item.hours > 0));
     }
     renderHoursBadge();
@@ -2391,10 +3231,136 @@
   // =========================================================
   function renderJournal() {
     if (!successesListEl || !failuresListEl) return;
+
+    // ── Focus sessions section ─────────────────────────────────
+    const journalCard = successesListEl.closest('.card-journal');
+    let focusSessionsEl = journalCard ? journalCard.querySelector('.focus-sessions-list') : null;
+
+    const sessions = state.focusSessions || [];
+    if (journalCard) {
+      if (!focusSessionsEl) {
+        // Insert before the wins block
+        focusSessionsEl = document.createElement('div');
+        focusSessionsEl.className = 'focus-sessions-list';
+        const winsBlock = journalCard.querySelector('.journal-block');
+        if (winsBlock) journalCard.insertBefore(focusSessionsEl, winsBlock);
+        else journalCard.appendChild(focusSessionsEl);
+      }
+      focusSessionsEl.innerHTML = '';
+      if (sessions.length > 0) {
+        const heading = document.createElement('h3');
+        heading.className = 'journal-heading journal-heading-focus';
+        heading.textContent = 'Focus Sessions';
+        focusSessionsEl.appendChild(heading);
+        [...sessions].reverse().forEach((s, ri) => {
+          const i = sessions.length - 1 - ri;
+          focusSessionsEl.appendChild(createFocusSessionEntry(s, i));
+        });
+      }
+    }
+
+    // ── Manual wins & lessons ──────────────────────────────────
     successesListEl.innerHTML = '';
     state.successes.forEach((t, i) => successesListEl.appendChild(createJournalEntry(t, i, 'successes')));
     failuresListEl.innerHTML = '';
     state.failures.forEach((t, i) => failuresListEl.appendChild(createJournalEntry(t, i, 'failures')));
+  }
+
+  function fmtMins(m) {
+    if (!m || m <= 0) return '0m';
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60), rem = m % 60;
+    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
+  }
+
+  function createFocusSessionEntry(session, index) {
+    const row = document.createElement('div');
+    row.className = 'focus-session-entry' + (session.isWin ? ' focus-session-win' : ' focus-session-lesson');
+
+    // ── Collapsed pill ──────────────────────────────────────
+    const pill = document.createElement('div');
+    pill.className = 'focus-session-pill';
+
+    const pillLeft = document.createElement('div');
+    pillLeft.className = 'focus-session-pill-left';
+
+    const badge = document.createElement('span');
+    badge.className = 'focus-session-badge';
+    badge.textContent = session.isWin ? '🏆' : '📖';
+    badge.title = session.isWin ? 'Win session (70%+ focused)' : 'Lesson session';
+
+    const pillName = document.createElement('span');
+    pillName.className = 'focus-session-name';
+    pillName.textContent = session.catEmoji + ' ' + session.goalName;
+
+    pillLeft.append(badge, pillName);
+
+    const pillRight = document.createElement('div');
+    pillRight.className = 'focus-session-pill-right';
+
+    const timePill = document.createElement('span');
+    timePill.className = 'focus-session-time';
+    timePill.textContent = fmtMins(session.focusMins) + ' focused';
+
+    const pctPill = document.createElement('span');
+    pctPill.className = 'focus-session-pct' + (session.isWin ? ' pct-win' : ' pct-lesson');
+    pctPill.textContent = session.focusPct + '%';
+
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'done-expand-btn focus-session-expand';
+    expandBtn.textContent = 'Details';
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'task-delete';
+    delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+    delBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      state.focusSessions.splice(index, 1);
+      saveState(); renderJournal();
+    });
+
+    pillRight.append(timePill, pctPill, expandBtn, delBtn);
+    pill.append(pillLeft, pillRight);
+
+    // ── Expanded detail panel ────────────────────────────────
+    const detail = document.createElement('div');
+    detail.className = 'focus-session-detail hidden';
+
+    function addDetailBlock(label, text) {
+      if (!text) return;
+      const block = document.createElement('div');
+      block.className = 'focus-session-detail-block';
+      const lbl = document.createElement('span');
+      lbl.className = 'focus-session-detail-label';
+      lbl.textContent = label;
+      const txt = document.createElement('p');
+      txt.className = 'focus-session-detail-text';
+      txt.textContent = text;
+      block.append(lbl, txt);
+      detail.appendChild(block);
+    }
+
+    addDetailBlock('Intention', session.intention);
+    addDetailBlock('State of mind', session.entryTag
+      ? session.entryTag + (session.entryNote ? ` — "${session.entryNote}"` : '')
+      : null);
+    if (session.midNotes && session.midNotes.length > 0) {
+      addDetailBlock('During session', session.midNotes.join(' · '));
+    }
+    addDetailBlock('Exit note', session.exitTag
+      ? session.exitTag + (session.exitNote ? ` — "${session.exitNote}"` : '')
+      : session.exitNote);
+
+    let expanded = false;
+    expandBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      expanded = !expanded;
+      detail.classList.toggle('hidden', !expanded);
+      expandBtn.textContent = expanded ? 'Hide' : 'Details';
+    });
+
+    row.append(pill, detail);
+    return row;
   }
 
   function createJournalEntry(text, index, type) {

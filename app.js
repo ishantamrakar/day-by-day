@@ -2531,15 +2531,16 @@
       const origDone = doneBtn.onclick;
       doneBtn.addEventListener('click', () => { if (breatheInterval) clearInterval(breatheInterval); });
 
-      screen.append(leftCol, centerCol, rightCol);
+      const grid = document.createElement('div');
+      grid.className = 'focus-ambient-grid';
+      grid.append(leftCol, centerCol, rightCol);
+      screen.appendChild(grid);
 
       // Animate in
       screen.style.opacity = '0';
-      screen.style.transform = 'translateY(16px)';
-      screen.style.transition = 'opacity 0.35s ease, transform 0.35s cubic-bezier(0.34,1.2,0.64,1)';
+      screen.style.transition = 'opacity 0.35s ease';
       requestAnimationFrame(() => requestAnimationFrame(() => {
         screen.style.opacity = '1';
-        screen.style.transform = 'translateY(0)';
       }));
 
       return screen;

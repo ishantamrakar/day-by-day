@@ -526,10 +526,16 @@
     const todayActive = {};
     const todayCompleted = {};
     const todayBacklog = {};
+    const todayHours = {};
     state.goals.forEach(g => {
       const id = g.category || 'general';
       if ((g.progress || 0) >= 100) todayCompleted[id] = (todayCompleted[id] || 0) + 1;
       else todayActive[id] = (todayActive[id] || 0) + 1;
+      if ((g.hours || 0) > 0) todayHours[id] = (todayHours[id] || 0) + (g.hours || 0);
+    });
+    (state.quickDone || []).forEach(q => {
+      const id = q.category || 'general';
+      if ((q.hours || 0) > 0) todayHours[id] = (todayHours[id] || 0) + (q.hours || 0);
     });
     backlog.forEach(b => {
       const id = b.category || 'general';
@@ -576,7 +582,15 @@
 
       const hoursEl = document.createElement('span');
       hoursEl.className = 'sidebar-cat-hours';
-      hoursEl.textContent = cat.totalHours > 0 ? `${cat.totalHours.toFixed(1)}h` : '—';
+      const todayH = todayHours[cat.id] || 0;
+      const totalH = cat.totalHours || 0;
+      if (todayH > 0) {
+        hoursEl.innerHTML = `<span class="sidebar-hours-today">${todayH.toFixed(1)}h</span><span class="sidebar-hours-sep"> | </span><span class="sidebar-hours-total">${totalH.toFixed(1)}h</span>`;
+      } else if (isFocused) {
+        hoursEl.innerHTML = `<span class="sidebar-hours-today sidebar-hours-today-zero">0h</span><span class="sidebar-hours-sep"> | </span><span class="sidebar-hours-total">${totalH > 0 ? totalH.toFixed(1) + 'h' : '—'}</span>`;
+      } else {
+        hoursEl.textContent = totalH > 0 ? `${totalH.toFixed(1)}h` : '—';
+      }
 
       const editBtn = document.createElement('button');
       editBtn.className = 'sidebar-cat-edit-btn';

@@ -51,6 +51,12 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `getCategoryById(id)` — always returns something; falls back to `general`.
 - `accumulateCategoryHours(catId, delta)` — **only place `totalHours` is mutated.** Called on every hours-input change.
 - `createCategoryPill()` — tracks `currentCatId` in closure so picker always shows current value.
+- `openTaskContextPicker(anchor, catId, repeatable, onConfirm, { showRepeatable })` — the **single** category/context modal for every task-like row. `showRepeatable: false` gives a category-only picker (used by backlog + distractions); default shows the repeatable toggle (Top 5 goals). There is no separate popover picker.
+
+**Shared UI helpers** (added to kill duplication — reuse these, don't reimplement):
+- `formatHours(h, emptyLabel='+ hrs')` — the one h/m pill formatter. For minutes pass `formatHours(mins / 60, '0m')`.
+- `makeInlineHoursEditor(pillEl, { getValue, onCommit, render })` — click-to-edit hours widget (0–24, 0.25 step; blur/Enter commit, Escape cancel). Used by the goal card, focus modal, and done badge.
+- `makeTimeAddPills(onAdd, presets=DEFAULT_TIME_PRESETS)` — row of +10m/…/+2h chips; `onAdd(deltaHours)` owns clamp/save/accumulate/sync.
 
 **Day transition:**
 - `getTodayString()` — local date `YYYY-MM-DD`, never UTC.

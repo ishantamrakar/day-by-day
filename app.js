@@ -1103,55 +1103,6 @@
     if (e.target.closest && e.target.closest('.cat-modal-overlay')) return;
   }
 
-  function openCategoryPicker(anchorEl, currentCatId, onSelect) {
-    closePicker();
-
-    const picker = document.createElement('div');
-    picker.className = 'cat-picker';
-    activePicker = picker;
-
-    const list = document.createElement('div');
-    list.className = 'cat-picker-list';
-
-    categories.forEach(cat => {
-      const opt = document.createElement('button');
-      opt.className = 'cat-picker-option' + (cat.id === (currentCatId || 'general') ? ' selected' : '');
-      const emojiSpan = document.createElement('span');
-      emojiSpan.className = 'cat-picker-emoji';
-      emojiSpan.textContent = cat.emoji || '●';
-      emojiSpan.style.color = cat.color;
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = cat.name;
-      opt.append(emojiSpan, nameSpan);
-      opt.addEventListener('click', () => { closePicker(); onSelect(cat.id); });
-      list.appendChild(opt);
-    });
-
-    const divider = document.createElement('div');
-    divider.className = 'cat-picker-divider';
-    list.appendChild(divider);
-
-    const newBtn = document.createElement('button');
-    newBtn.className = 'cat-picker-new';
-    newBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></svg> New area…';
-    newBtn.addEventListener('click', () => { closePicker(); openNewCategoryModal(onSelect); });
-    list.appendChild(newBtn);
-
-    picker.appendChild(list);
-    document.body.appendChild(picker);
-
-    // Position below anchor, ensure it stays in viewport
-    const rect = anchorEl.getBoundingClientRect();
-    const pickerW = 192;
-    let left = rect.left;
-    let top = rect.bottom + 8;
-    if (left + pickerW > window.innerWidth - 12) left = window.innerWidth - pickerW - 12;
-    if (top + 320 > window.innerHeight) top = rect.top - 8 - picker.offsetHeight;
-    picker.style.left = left + 'px';
-    picker.style.top = top + 'px';
-
-    setTimeout(() => document.addEventListener('pointerdown', onPickerOutsideClick, true), 50);
-  }
 
   // =========================================================
   // NEW AREA MODAL — full splash dialog
@@ -1393,15 +1344,16 @@
           renderSidebar();
         });
       } else {
-        openCategoryPicker(pill, currentCatId, newId => {
-          currentCatId = newId;
-          onCategorySelect(newId);
-          const newCat = getCategoryById(newId);
+        // Category-only: same unified modal as Top 5, repeatable row hidden.
+        openTaskContextPicker(pill, currentCatId, false, newCatId => {
+          currentCatId = newCatId;
+          onCategorySelect(newCatId);
+          const newCat = getCategoryById(newCatId);
           pill.title = newCat.name;
           pill.style.setProperty('--pill-color', newCat.color);
           emojiSpan.textContent = newCat.emoji || '●';
           renderSidebar();
-        });
+        }, { showRepeatable: false });
       }
     });
 
@@ -1410,7 +1362,12 @@
 
   // Context popover shown when clicking the pill on an existing task row
   // Shows category list + repeatable toggle in one floating panel
-  function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm) {
+  // Unified category/context modal. Used by every task-like row (Top 5 goals,
+  // backlog, distractions). Pass opts.showRepeatable === false to get a
+  // category-only picker (hides the repeatable toggle) — keeps the backlog and
+  // distraction pickers visually consistent with Top 5.
+  function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm, opts = {}) {
+    const showRepeatable = opts.showRepeatable !== false;
     closePicker();
     closeModal();
 
@@ -1428,7 +1385,7 @@
     header.className = 'task-context-modal-header';
     const title = document.createElement('h3');
     title.className = 'task-context-modal-title';
-    title.textContent = 'Task Settings';
+    title.textContent = showRepeatable ? 'Task Settings' : 'Life Area';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'cat-modal-close';
     closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
@@ -1436,11 +1393,14 @@
     header.append(title, closeBtn);
     modal.appendChild(header);
 
-    // Life Area section label
-    const catLabel = document.createElement('div');
-    catLabel.className = 'task-context-section-label';
-    catLabel.textContent = 'Life Area';
-    modal.appendChild(catLabel);
+    // Life Area section label — only when the repeatable section follows it,
+    // otherwise the modal title already says "Life Area".
+    if (showRepeatable) {
+      const catLabel = document.createElement('div');
+      catLabel.className = 'task-context-section-label';
+      catLabel.textContent = 'Life Area';
+      modal.appendChild(catLabel);
+    }
 
     // Category list
     const list = document.createElement('div');
@@ -1472,30 +1432,32 @@
     list.appendChild(newCatBtn);
     modal.appendChild(list);
 
-    // Divider
-    const divider = document.createElement('div');
-    divider.className = 'task-context-divider';
-    modal.appendChild(divider);
+    // Repeatable toggle row — only in full "Task Settings" mode.
+    let toggleInput = null;
+    if (showRepeatable) {
+      const divider = document.createElement('div');
+      divider.className = 'task-context-divider';
+      modal.appendChild(divider);
 
-    // Repeatable toggle row
-    const repeatRow = document.createElement('div');
-    repeatRow.className = 'context-picker-repeat-row';
-    const repeatLabel = document.createElement('label');
-    repeatLabel.className = 'context-picker-repeat-label';
-    repeatLabel.htmlFor = 'ctx-repeat-toggle';
-    repeatLabel.innerHTML = '↻ Repeatable <span>carries forward if not done</span>';
+      const repeatRow = document.createElement('div');
+      repeatRow.className = 'context-picker-repeat-row';
+      const repeatLabel = document.createElement('label');
+      repeatLabel.className = 'context-picker-repeat-label';
+      repeatLabel.htmlFor = 'ctx-repeat-toggle';
+      repeatLabel.innerHTML = '↻ Repeatable <span>carries forward if not done</span>';
 
-    const toggleSwitch = document.createElement('label');
-    toggleSwitch.className = 'toggle-switch';
-    const toggleInput = document.createElement('input');
-    toggleInput.type = 'checkbox';
-    toggleInput.id = 'ctx-repeat-toggle';
-    toggleInput.checked = currentRepeatable;
-    const toggleTrack = document.createElement('span');
-    toggleTrack.className = 'toggle-track';
-    toggleSwitch.append(toggleInput, toggleTrack);
-    repeatRow.append(repeatLabel, toggleSwitch);
-    modal.appendChild(repeatRow);
+      const toggleSwitch = document.createElement('label');
+      toggleSwitch.className = 'toggle-switch';
+      toggleInput = document.createElement('input');
+      toggleInput.type = 'checkbox';
+      toggleInput.id = 'ctx-repeat-toggle';
+      toggleInput.checked = currentRepeatable;
+      const toggleTrack = document.createElement('span');
+      toggleTrack.className = 'toggle-track';
+      toggleSwitch.append(toggleInput, toggleTrack);
+      repeatRow.append(repeatLabel, toggleSwitch);
+      modal.appendChild(repeatRow);
+    }
 
     // Done button
     const footer = document.createElement('div');
@@ -1505,7 +1467,7 @@
     doneBtn.textContent = 'Done';
     doneBtn.addEventListener('click', () => {
       closeModal();
-      onConfirm(selectedCatId, toggleInput.checked);
+      onConfirm(selectedCatId, toggleInput ? toggleInput.checked : undefined);
     });
     footer.appendChild(doneBtn);
     modal.appendChild(footer);

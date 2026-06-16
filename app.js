@@ -493,69 +493,107 @@
     return store;
   }
 
-  // ---- Store <-> state adapter (Phase 3, step 2: goals) ----
-  // The store is the source of truth; state.goals is a live view over it so the
-  // existing rendering/undo/drag code keeps working unchanged. hydrate* builds
-  // the view from the store; sync* writes the view back into the store. Each
-  // goal object carries its entity id (_eid) so we can reconcile by identity.
-  function goalEntityToView(e) {
-    const g = {
-      _eid: e.id,
-      name: e.name,
-      hours: e.hours || 0,
-      progress: e.progress || 0,
-      category: e.category || null,
-      repeatable: e.repeatable || false,
-    };
-    if (e.prevHours != null) g.prevHours = e.prevHours;
-    if (e.fromBacklog) g.fromBacklog = true;
-    return g;
+  // ---- Store <-> state adapter (Phase 3) ----
+  // The store is the source of truth; state.goals / state.distractions /
+  // state.quickDone / backlog are live views over it so the existing
+  // rendering/undo/drag code keeps working unchanged. hydrate* builds the view
+  // from the store; sync* writes the view back into the store. Each view object
+  // carries its entity id (_eid) so we reconcile by identity.
+
+  // Project an entity into the plain view shape its array expects, carrying _eid.
+  function entityToView(e) {
+    const v = { _eid: e.id, name: e.name, hours: e.hours || 0, category: e.category || null };
+    if (e.type === 'goal') {
+      v.progress = e.progress || 0;
+      v.repeatable = e.repeatable || false;
+      if (e.prevHours != null) v.prevHours = e.prevHours;
+      if (e.fromBacklog) v.fromBacklog = true;
+    } else if (e.type === 'backlog') {
+      v.repeatable = e.repeatable || false;
+    }
+    return v;
   }
 
-  function hydrateGoalsFromStore(day) {
-    const ids = store.days[day] || [];
-    return ids
+  // Copy a view's fields onto its entity (in place).
+  function applyViewToEntity(e, v, type, now) {
+    e.name = v.name;
+    e.hours = v.hours || 0;
+    e.category = v.category || null;
+    if (type === 'goal') {
+      e.progress = v.progress || 0;
+      e.repeatable = v.repeatable || false;
+      if (v.prevHours != null) e.prevHours = v.prevHours; else delete e.prevHours;
+      if (v.fromBacklog) e.fromBacklog = true; else delete e.fromBacklog;
+      if ((v.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; } else delete e.completedAt;
+    } else if (type === 'backlog') {
+      e.repeatable = v.repeatable || false;
+    }
+    e.updatedAt = now;
+  }
+
+  // Build a view array from a day's entities of a given type, in stored order.
+  function hydrateDayType(day, type) {
+    return (store.days[day] || [])
       .map(id => store.entities[id])
-      .filter(e => e && e.type === 'goal')
-      .map(goalEntityToView);
+      .filter(e => e && e.type === type)
+      .map(entityToView);
   }
 
-  // Reconcile the store's goal entities for `day` to match state.goals exactly:
-  // update existing (by _eid), mint entities for new goals, drop removed ones,
-  // and rewrite the goal slots of store.days[day] in the view's order while
-  // preserving any non-goal entity ids already in that day.
-  function syncGoalsToStore(day) {
+  // Reconcile the store's entities-of-`type` to match `views` exactly: update
+  // existing (by _eid), mint new ones, drop removed ones. Returns the ordered
+  // entity ids. Does not touch store.days — the caller rebuilds day membership.
+  function reconcileType(type, views) {
     const now = Date.now();
-    const goalIds = [];
-    state.goals.forEach(g => {
-      let e = g._eid ? store.entities[g._eid] : null;
-      if (!e) {
-        e = makeEntity('goal', g);
-        g._eid = e.id;
-        store.entities[e.id] = e;
-      }
-      e.name = g.name;
-      e.hours = g.hours || 0;
-      e.progress = g.progress || 0;
-      e.category = g.category || null;
-      e.repeatable = g.repeatable || false;
-      if (g.prevHours != null) e.prevHours = g.prevHours; else delete e.prevHours;
-      if (g.fromBacklog) e.fromBacklog = true; else delete e.fromBacklog;
-      if ((g.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; }
-      else delete e.completedAt;
-      e.updatedAt = now;
-      goalIds.push(e.id);
+    const ids = [];
+    views.forEach(v => {
+      let e = v._eid ? store.entities[v._eid] : null;
+      if (!e) { e = makeEntity(type, v); v._eid = e.id; store.entities[e.id] = e; }
+      applyViewToEntity(e, v, type, now);
+      ids.push(e.id);
     });
+    return ids;
+  }
 
-    // Non-goal ids already on this day stay; remove goal entities no longer present.
-    const prev = store.days[day] || [];
-    const keptGoalSet = new Set(goalIds);
-    prev.forEach(id => {
+  // Sync all three day-resident view arrays into the store for `day`. The day's
+  // membership is rebuilt as goals → distractions → quickDone; entities of those
+  // types no longer present are deleted.
+  function syncDayToStore(day) {
+    const goalIds = reconcileType('goal', state.goals);
+    const distIds = reconcileType('distraction', state.distractions || []);
+    const quickIds = reconcileType('quickDone', state.quickDone || []);
+    const kept = new Set([...goalIds, ...distIds, ...quickIds]);
+    (store.days[day] || []).forEach(id => {
       const e = store.entities[id];
-      if (e && e.type === 'goal' && !keptGoalSet.has(id)) delete store.entities[id];
+      if (e && (e.type === 'goal' || e.type === 'distraction' || e.type === 'quickDone') && !kept.has(id)) {
+        delete store.entities[id];
+      }
     });
-    const nonGoalIds = prev.filter(id => { const e = store.entities[id]; return e && e.type !== 'goal'; });
-    store.days[day] = [...goalIds, ...nonGoalIds];
+    store.days[day] = [...goalIds, ...distIds, ...quickIds];
+  }
+
+  // Backlog is a day-less queue tracked by store.backlogIds.
+  function hydrateBacklogFromStore() {
+    return store.backlogIds
+      .map(id => store.entities[id])
+      .filter(e => e && e.type === 'backlog')
+      .map(entityToView);
+  }
+
+  function syncBacklogToStore() {
+    const now = Date.now();
+    const ids = [];
+    backlog.forEach(v => {
+      let e = v._eid ? store.entities[v._eid] : null;
+      if (!e) { e = makeEntity('backlog', v); v._eid = e.id; store.entities[e.id] = e; }
+      applyViewToEntity(e, v, 'backlog', now);
+      ids.push(e.id);
+    });
+    const kept = new Set(ids);
+    store.backlogIds.forEach(id => {
+      const e = store.entities[id];
+      if (e && e.type === 'backlog' && !kept.has(id)) delete store.entities[id];
+    });
+    store.backlogIds = ids;
   }
 
   function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
@@ -685,24 +723,27 @@
 
   // --- Unified store (Phase 3) ---
   // Built once at boot from the legacy keys. The store is the source of truth;
-  // goals are read/written through the adapter above (step 2). Backlog,
-  // distractions, quickDone and sessions still use legacy paths for now.
+  // goals, distractions, quickDone and backlog are read/written through the
+  // adapter above. Sessions still use the legacy path for now.
   let store = migrateToStore();
 
-  // Make state.goals a live view over the store for the active day. If the store
-  // already has this day (normal same-day boot), the store wins; otherwise (e.g.
-  // a fresh new-day state with _carryover) we keep the loaded goals and let the
-  // first saveState() sync them in.
   // Share one categories array between the store and the module so totalHours
   // updates (via accumulateCategoryHours) stay reflected in the store.
   store.categories = categories;
 
+  // Make the view arrays live over the store for the active day. If the store
+  // already has this day (normal same-day boot), the store wins; otherwise (e.g.
+  // a fresh new-day state with _carryover) keep the loaded data and let the
+  // first save sync it in.
   if (store.days[state.date]) {
-    state.goals = hydrateGoalsFromStore(state.date);
+    state.goals = hydrateDayType(state.date, 'goal');
+    state.distractions = hydrateDayType(state.date, 'distraction');
+    state.quickDone = hydrateDayType(state.date, 'quickDone');
   } else {
-    syncGoalsToStore(state.date);
-    saveStore();
+    syncDayToStore(state.date);
   }
+  backlog = hydrateBacklogFromStore();
+  saveStore();
 
   // --- Undo stack ---
   const undoStack = [];
@@ -1881,7 +1922,11 @@
     } catch (e) { return []; }
   }
 
-  function saveBacklog() { storageSet(BACKLOG_KEY, JSON.stringify(backlog)); }
+  function saveBacklog() {
+    syncBacklogToStore();
+    saveStore();
+    storageSet(BACKLOG_KEY, JSON.stringify(backlog));
+  }
 
   function archiveDay(ds) {
     if (!ds || !ds.date) return;
@@ -1900,9 +1945,10 @@
   }
 
   function saveState() {
-    // Sync today's goals view back into the store (source of truth), then persist
-    // both. Legacy key is still written so the old backup stays current too.
-    syncGoalsToStore(state.date);
+    // Sync today's goals/distractions/quickDone views back into the store
+    // (source of truth), then persist both. Legacy key is still written so the
+    // old backup stays current too.
+    syncDayToStore(state.date);
     saveStore();
     storageSet(STORAGE_KEY, JSON.stringify(state));
   }

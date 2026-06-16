@@ -413,6 +413,76 @@
     return cat ? cat.color : '#8d99ae';
   }
 
+  // Format a duration in hours as a calm h/m pill (no seconds). Shared by every
+  // hours pill in the app. `emptyLabel` is shown when the value is zero/falsy.
+  // For a duration in whole minutes, pass formatHours(mins / 60, '0m').
+  function formatHours(h, emptyLabel = '+ hrs') {
+    if (!h || h <= 0) return emptyLabel;
+    if (h < 1) return `${Math.round(h * 60)}m`;
+    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  }
+
+  // Preset quick-add amounts for the time-add pills.
+  const DEFAULT_TIME_PRESETS = [
+    { label: '+10m', hours: 10 / 60 },
+    { label: '+15m', hours: 15 / 60 },
+    { label: '+30m', hours: 30 / 60 },
+    { label: '+1h',  hours: 1 },
+    { label: '+2h',  hours: 2 },
+  ];
+
+  // Build a row of preset time-add chips (+10m, +15m, …). Each click calls
+  // onAdd(deltaHours) — the caller owns the clamp/save/accumulate/sync — then
+  // the chip flashes. Returns the container element.
+  function makeTimeAddPills(onAdd, presets = DEFAULT_TIME_PRESETS) {
+    const chips = document.createElement('div');
+    chips.className = 'focus-modal-chips';
+    presets.forEach(({ label, hours }) => {
+      const chip = document.createElement('button');
+      chip.className = 'focus-time-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => {
+        onAdd(hours);
+        chip.classList.add('focus-time-chip-flash');
+        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
+      });
+      chips.appendChild(chip);
+    });
+    return chips;
+  }
+
+  // Inline click-to-edit for an hours pill. Shared by the goal card, the focus
+  // modal, and the done-card badge. The element becomes a number input on click
+  // (0–24, quarter-hour steps); blur/Enter commit, Escape cancels.
+  //   getValue() → current hours · onCommit(v, prev, delta) · render() repaints
+  function makeInlineHoursEditor(pillEl, { getValue, onCommit, render }) {
+    pillEl.addEventListener('click', () => {
+      if (pillEl.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'done-hours-input';
+      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
+      inp.value = getValue() || '';
+      inp.placeholder = '0';
+      pillEl.textContent = '';
+      pillEl.appendChild(inp);
+      inp.focus(); inp.select();
+
+      function commit() {
+        const prev = getValue() || 0;
+        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
+        onCommit(v, prev, v - prev);
+        render();
+      }
+      inp.addEventListener('blur', commit);
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        if (e.key === 'Escape') render();
+      });
+    });
+  }
+
   // Accumulate hours into category totals — called when hours change on a task
   function accumulateCategoryHours(catId, delta) {
     if (!catId || delta === 0) return;
@@ -1033,55 +1103,6 @@
     if (e.target.closest && e.target.closest('.cat-modal-overlay')) return;
   }
 
-  function openCategoryPicker(anchorEl, currentCatId, onSelect) {
-    closePicker();
-
-    const picker = document.createElement('div');
-    picker.className = 'cat-picker';
-    activePicker = picker;
-
-    const list = document.createElement('div');
-    list.className = 'cat-picker-list';
-
-    categories.forEach(cat => {
-      const opt = document.createElement('button');
-      opt.className = 'cat-picker-option' + (cat.id === (currentCatId || 'general') ? ' selected' : '');
-      const emojiSpan = document.createElement('span');
-      emojiSpan.className = 'cat-picker-emoji';
-      emojiSpan.textContent = cat.emoji || '●';
-      emojiSpan.style.color = cat.color;
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = cat.name;
-      opt.append(emojiSpan, nameSpan);
-      opt.addEventListener('click', () => { closePicker(); onSelect(cat.id); });
-      list.appendChild(opt);
-    });
-
-    const divider = document.createElement('div');
-    divider.className = 'cat-picker-divider';
-    list.appendChild(divider);
-
-    const newBtn = document.createElement('button');
-    newBtn.className = 'cat-picker-new';
-    newBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></svg> New area…';
-    newBtn.addEventListener('click', () => { closePicker(); openNewCategoryModal(onSelect); });
-    list.appendChild(newBtn);
-
-    picker.appendChild(list);
-    document.body.appendChild(picker);
-
-    // Position below anchor, ensure it stays in viewport
-    const rect = anchorEl.getBoundingClientRect();
-    const pickerW = 192;
-    let left = rect.left;
-    let top = rect.bottom + 8;
-    if (left + pickerW > window.innerWidth - 12) left = window.innerWidth - pickerW - 12;
-    if (top + 320 > window.innerHeight) top = rect.top - 8 - picker.offsetHeight;
-    picker.style.left = left + 'px';
-    picker.style.top = top + 'px';
-
-    setTimeout(() => document.addEventListener('pointerdown', onPickerOutsideClick, true), 50);
-  }
 
   // =========================================================
   // NEW AREA MODAL — full splash dialog
@@ -1323,15 +1344,16 @@
           renderSidebar();
         });
       } else {
-        openCategoryPicker(pill, currentCatId, newId => {
-          currentCatId = newId;
-          onCategorySelect(newId);
-          const newCat = getCategoryById(newId);
+        // Category-only: same unified modal as Top 5, repeatable row hidden.
+        openTaskContextPicker(pill, currentCatId, false, newCatId => {
+          currentCatId = newCatId;
+          onCategorySelect(newCatId);
+          const newCat = getCategoryById(newCatId);
           pill.title = newCat.name;
           pill.style.setProperty('--pill-color', newCat.color);
           emojiSpan.textContent = newCat.emoji || '●';
           renderSidebar();
-        });
+        }, { showRepeatable: false });
       }
     });
 
@@ -1340,7 +1362,12 @@
 
   // Context popover shown when clicking the pill on an existing task row
   // Shows category list + repeatable toggle in one floating panel
-  function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm) {
+  // Unified category/context modal. Used by every task-like row (Top 5 goals,
+  // backlog, distractions). Pass opts.showRepeatable === false to get a
+  // category-only picker (hides the repeatable toggle) — keeps the backlog and
+  // distraction pickers visually consistent with Top 5.
+  function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm, opts = {}) {
+    const showRepeatable = opts.showRepeatable !== false;
     closePicker();
     closeModal();
 
@@ -1358,7 +1385,7 @@
     header.className = 'task-context-modal-header';
     const title = document.createElement('h3');
     title.className = 'task-context-modal-title';
-    title.textContent = 'Task Settings';
+    title.textContent = showRepeatable ? 'Task Settings' : 'Life Area';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'cat-modal-close';
     closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
@@ -1366,11 +1393,14 @@
     header.append(title, closeBtn);
     modal.appendChild(header);
 
-    // Life Area section label
-    const catLabel = document.createElement('div');
-    catLabel.className = 'task-context-section-label';
-    catLabel.textContent = 'Life Area';
-    modal.appendChild(catLabel);
+    // Life Area section label — only when the repeatable section follows it,
+    // otherwise the modal title already says "Life Area".
+    if (showRepeatable) {
+      const catLabel = document.createElement('div');
+      catLabel.className = 'task-context-section-label';
+      catLabel.textContent = 'Life Area';
+      modal.appendChild(catLabel);
+    }
 
     // Category list
     const list = document.createElement('div');
@@ -1402,30 +1432,32 @@
     list.appendChild(newCatBtn);
     modal.appendChild(list);
 
-    // Divider
-    const divider = document.createElement('div');
-    divider.className = 'task-context-divider';
-    modal.appendChild(divider);
+    // Repeatable toggle row — only in full "Task Settings" mode.
+    let toggleInput = null;
+    if (showRepeatable) {
+      const divider = document.createElement('div');
+      divider.className = 'task-context-divider';
+      modal.appendChild(divider);
 
-    // Repeatable toggle row
-    const repeatRow = document.createElement('div');
-    repeatRow.className = 'context-picker-repeat-row';
-    const repeatLabel = document.createElement('label');
-    repeatLabel.className = 'context-picker-repeat-label';
-    repeatLabel.htmlFor = 'ctx-repeat-toggle';
-    repeatLabel.innerHTML = '↻ Repeatable <span>carries forward if not done</span>';
+      const repeatRow = document.createElement('div');
+      repeatRow.className = 'context-picker-repeat-row';
+      const repeatLabel = document.createElement('label');
+      repeatLabel.className = 'context-picker-repeat-label';
+      repeatLabel.htmlFor = 'ctx-repeat-toggle';
+      repeatLabel.innerHTML = '↻ Repeatable <span>carries forward if not done</span>';
 
-    const toggleSwitch = document.createElement('label');
-    toggleSwitch.className = 'toggle-switch';
-    const toggleInput = document.createElement('input');
-    toggleInput.type = 'checkbox';
-    toggleInput.id = 'ctx-repeat-toggle';
-    toggleInput.checked = currentRepeatable;
-    const toggleTrack = document.createElement('span');
-    toggleTrack.className = 'toggle-track';
-    toggleSwitch.append(toggleInput, toggleTrack);
-    repeatRow.append(repeatLabel, toggleSwitch);
-    modal.appendChild(repeatRow);
+      const toggleSwitch = document.createElement('label');
+      toggleSwitch.className = 'toggle-switch';
+      toggleInput = document.createElement('input');
+      toggleInput.type = 'checkbox';
+      toggleInput.id = 'ctx-repeat-toggle';
+      toggleInput.checked = currentRepeatable;
+      const toggleTrack = document.createElement('span');
+      toggleTrack.className = 'toggle-track';
+      toggleSwitch.append(toggleInput, toggleTrack);
+      repeatRow.append(repeatLabel, toggleSwitch);
+      modal.appendChild(repeatRow);
+    }
 
     // Done button
     const footer = document.createElement('div');
@@ -1435,7 +1467,7 @@
     doneBtn.textContent = 'Done';
     doneBtn.addEventListener('click', () => {
       closeModal();
-      onConfirm(selectedCatId, toggleInput.checked);
+      onConfirm(selectedCatId, toggleInput ? toggleInput.checked : undefined);
     });
     footer.appendChild(doneBtn);
     modal.appendChild(footer);
@@ -1844,48 +1876,22 @@
     hoursPill.className = 'goal-hours-pill';
     hoursPill.dataset.goalIndex = index;
 
-    function formatGoalHours(h) {
-      if (!h || h === 0) return '+ hrs';
-      if (h < 1) return `${Math.round(h * 60)}m`;
-      const hrs = Math.floor(h);
-      const mins = Math.round((h - hrs) * 60);
-      return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-    }
-
     function renderHoursPill() {
       const h = state.goals[index].hours || 0;
-      hoursPill.textContent = formatGoalHours(h);
+      hoursPill.textContent = formatHours(h);
       hoursPill.classList.toggle('goal-hours-pill--empty', h === 0);
     }
     renderHoursPill();
 
-    hoursPill.addEventListener('click', () => {
-      if (hoursPill.querySelector('input')) return;
-      const inp = document.createElement('input');
-      inp.type = 'number';
-      inp.className = 'done-hours-input';
-      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
-      inp.value = state.goals[index].hours || '';
-      inp.placeholder = '0';
-      hoursPill.textContent = '';
-      hoursPill.appendChild(inp);
-      inp.focus(); inp.select();
-
-      function commitHours() {
-        const prev = state.goals[index].hours || 0;
-        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
-        const delta = v - prev;
+    makeInlineHoursEditor(hoursPill, {
+      getValue: () => state.goals[index].hours,
+      onCommit: (v, prev, delta) => {
         state.goals[index].hours = v;
         saveState();
         accumulateCategoryHours(state.goals[index].category || 'general', delta);
         renderSummary();
-        renderHoursPill();
-      }
-      inp.addEventListener('blur', commitHours);
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') renderHoursPill();
-      });
+      },
+      render: renderHoursPill,
     });
 
     const pg = document.createElement('div'); pg.className = 'log-group';
@@ -2024,56 +2030,32 @@
     taskName.textContent = goal.name;
 
     // Hours pill — same pattern as goal card, clickable to edit
-    function fmtH(h) {
-      if (!h || h === 0) return '+ hrs';
-      if (h < 1) return `${Math.round(h * 60)}m`;
-      const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
-      return mn > 0 ? `${hr}h ${mn}m` : `${hr}h`;
-    }
-
     const hoursDisplay = document.createElement('span');
     hoursDisplay.className = 'goal-hours-pill focus-modal-hours-pill';
 
     const updateHoursDisplay = () => {
       const h = state.goals[index] ? (state.goals[index].hours || 0) : (goal.hours || 0);
       if (hoursDisplay.querySelector('input')) return;
-      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${fmtH(h)} today`;
+      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${formatHours(h)} today`;
       hoursDisplay.classList.toggle('goal-hours-pill--empty', h === 0);
     };
     updateHoursDisplay();
 
-    hoursDisplay.addEventListener('click', () => {
-      if (hoursDisplay.querySelector('input')) return;
-      const inp = document.createElement('input');
-      inp.type = 'number'; inp.className = 'done-hours-input';
-      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
-      inp.value = state.goals[index].hours || '';
-      inp.placeholder = '0';
-      hoursDisplay.textContent = '';
-      hoursDisplay.appendChild(inp);
-      inp.focus(); inp.select();
-
-      function commitModalHours() {
-        const prev = state.goals[index].hours || 0;
-        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
-        const delta = v - prev;
+    makeInlineHoursEditor(hoursDisplay, {
+      getValue: () => state.goals[index].hours,
+      onCommit: (v, prev, delta) => {
         state.goals[index].hours = v;
         saveState();
         accumulateCategoryHours(state.goals[index].category || 'general', delta);
         renderSummary();
-        updateHoursDisplay();
         // Sync card pill too
         const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
         if (cardPill && !cardPill.querySelector('input')) {
-          cardPill.textContent = fmtH(v) || '+ hrs';
+          cardPill.textContent = formatHours(v);
           cardPill.classList.toggle('goal-hours-pill--empty', v === 0);
         }
-      }
-      inp.addEventListener('blur', commitModalHours);
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') updateHoursDisplay();
-      });
+      },
+      render: updateHoursDisplay,
     });
 
     // Quick time chips
@@ -2084,43 +2066,22 @@
     chipsLabel.className = 'focus-modal-chips-label';
     chipsLabel.textContent = 'Log time on this task';
 
-    const chips = document.createElement('div');
-    chips.className = 'focus-modal-chips';
-
-    const timeChips = [
-      { label: '+10m', hours: 10/60 },
-      { label: '+15m', hours: 15/60 },
-      { label: '+30m', hours: 30/60 },
-      { label: '+1h',  hours: 1 },
-      { label: '+2h',  hours: 2 },
-    ];
-
-    timeChips.forEach(({ label, hours }) => {
-      const chip = document.createElement('button');
-      chip.className = 'focus-time-chip';
-      chip.textContent = label;
-      chip.addEventListener('click', () => {
-        const prev = state.goals[index].hours || 0;
-        const next = Math.min(24, prev + hours);
-        const delta = next - prev;
-        state.goals[index].hours = Math.round(next * 100) / 100;
-        saveState();
-        accumulateCategoryHours(state.goals[index].category || 'general', delta);
-        renderSummary();
-        updateHoursDisplay();
-        // Sync the hours pill on the card without a full re-render
-        const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
-        if (cardPill && !cardPill.querySelector('input')) {
-          const h = state.goals[index].hours || 0;
-          const fh = h => h < 1 ? `${Math.round(h*60)}m` : (() => { const hr=Math.floor(h),mn=Math.round((h-hr)*60); return mn>0?`${hr}h ${mn}m`:`${hr}h`; })();
-          cardPill.textContent = fh(h);
-          cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
-        }
-
-        chip.classList.add('focus-time-chip-flash');
-        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
-      });
-      chips.appendChild(chip);
+    const chips = makeTimeAddPills(addedHours => {
+      const prev = state.goals[index].hours || 0;
+      const next = Math.min(24, prev + addedHours);
+      const delta = next - prev;
+      state.goals[index].hours = Math.round(next * 100) / 100;
+      saveState();
+      accumulateCategoryHours(state.goals[index].category || 'general', delta);
+      renderSummary();
+      updateHoursDisplay();
+      // Sync the hours pill on the card without a full re-render
+      const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
+      if (cardPill && !cardPill.querySelector('input')) {
+        const h = state.goals[index].hours || 0;
+        cardPill.textContent = formatHours(h);
+        cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
+      }
     });
 
     chipsSection.append(chipsLabel, chips);
@@ -2909,42 +2870,20 @@
     hoursBadge.title = 'Click to edit hours';
 
     function renderHoursBadge() {
-      if (item.hours > 0) {
-        const h = item.hours;
-        const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
-        hoursBadge.textContent = (hr > 0 && mn > 0) ? `${hr}h ${mn}m` : hr > 0 ? `${hr}h` : `${mn}m`;
-      } else {
-        hoursBadge.textContent = '+ hrs';
-      }
+      hoursBadge.textContent = formatHours(item.hours);
       hoursBadge.classList.toggle('done-hours-badge--empty', !(item.hours > 0));
     }
     renderHoursBadge();
 
-    hoursBadge.addEventListener('click', () => {
-      if (hoursBadge.querySelector('input')) return;
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.className = 'done-hours-input';
-      input.min = '0'; input.max = '24'; input.step = '0.25';
-      input.value = item.hours || '';
-      input.placeholder = '0';
-      hoursBadge.textContent = '';
-      hoursBadge.appendChild(input);
-      input.focus(); input.select();
-
-      function commit() {
-        const v = Math.max(0, Math.min(24, parseFloat(input.value) || 0));
+    makeInlineHoursEditor(hoursBadge, {
+      getValue: () => item.hours,
+      onCommit: v => {
         state.quickDone[index].hours = v;
         item.hours = v;
         saveState();
         renderSummary();
-        renderHoursBadge();
-      }
-      input.addEventListener('blur', commit);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { hoursBadge.textContent = ''; renderHoursBadge(); }
-      });
+      },
+      render: renderHoursBadge,
     });
 
     const del = document.createElement('button');
@@ -3267,13 +3206,6 @@
     state.failures.forEach((t, i) => failuresListEl.appendChild(createJournalEntry(t, i, 'failures')));
   }
 
-  function fmtMins(m) {
-    if (!m || m <= 0) return '0m';
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60), rem = m % 60;
-    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
-  }
-
   function createFocusSessionEntry(session, index) {
     const row = document.createElement('div');
     row.className = 'focus-session-entry' + (session.isWin ? ' focus-session-win' : ' focus-session-lesson');
@@ -3301,7 +3233,7 @@
 
     const timePill = document.createElement('span');
     timePill.className = 'focus-session-time';
-    timePill.textContent = fmtMins(session.focusMins) + ' focused';
+    timePill.textContent = formatHours(session.focusMins / 60, '0m') + ' focused';
 
     const pctPill = document.createElement('span');
     pctPill.className = 'focus-session-pct' + (session.isWin ? ' pct-win' : ' pct-lesson');

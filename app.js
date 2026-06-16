@@ -493,6 +493,73 @@
     return store;
   }
 
+  // ---- Store <-> state adapter (Phase 3, step 2: goals) ----
+  // The store is the source of truth; state.goals is a live view over it so the
+  // existing rendering/undo/drag code keeps working unchanged. hydrate* builds
+  // the view from the store; sync* writes the view back into the store. Each
+  // goal object carries its entity id (_eid) so we can reconcile by identity.
+  function goalEntityToView(e) {
+    const g = {
+      _eid: e.id,
+      name: e.name,
+      hours: e.hours || 0,
+      progress: e.progress || 0,
+      category: e.category || null,
+      repeatable: e.repeatable || false,
+    };
+    if (e.prevHours != null) g.prevHours = e.prevHours;
+    if (e.fromBacklog) g.fromBacklog = true;
+    return g;
+  }
+
+  function hydrateGoalsFromStore(day) {
+    const ids = store.days[day] || [];
+    return ids
+      .map(id => store.entities[id])
+      .filter(e => e && e.type === 'goal')
+      .map(goalEntityToView);
+  }
+
+  // Reconcile the store's goal entities for `day` to match state.goals exactly:
+  // update existing (by _eid), mint entities for new goals, drop removed ones,
+  // and rewrite the goal slots of store.days[day] in the view's order while
+  // preserving any non-goal entity ids already in that day.
+  function syncGoalsToStore(day) {
+    const now = Date.now();
+    const goalIds = [];
+    state.goals.forEach(g => {
+      let e = g._eid ? store.entities[g._eid] : null;
+      if (!e) {
+        e = makeEntity('goal', g);
+        g._eid = e.id;
+        store.entities[e.id] = e;
+      }
+      e.name = g.name;
+      e.hours = g.hours || 0;
+      e.progress = g.progress || 0;
+      e.category = g.category || null;
+      e.repeatable = g.repeatable || false;
+      if (g.prevHours != null) e.prevHours = g.prevHours; else delete e.prevHours;
+      if (g.fromBacklog) e.fromBacklog = true; else delete e.fromBacklog;
+      if ((g.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; }
+      else delete e.completedAt;
+      e.updatedAt = now;
+      goalIds.push(e.id);
+    });
+
+    // Non-goal ids already on this day stay; remove goal entities no longer present.
+    const prev = store.days[day] || [];
+    const keptGoalSet = new Set(goalIds);
+    prev.forEach(id => {
+      const e = store.entities[id];
+      if (e && e.type === 'goal' && !keptGoalSet.has(id)) delete store.entities[id];
+    });
+    const nonGoalIds = prev.filter(id => { const e = store.entities[id]; return e && e.type !== 'goal'; });
+    store.days[day] = [...goalIds, ...nonGoalIds];
+  }
+
+  function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
+
   // --- Categories ---
   let categories = loadCategories();
 
@@ -617,10 +684,25 @@
   let backlog = loadBacklog();
 
   // --- Unified store (Phase 3) ---
-  // Built once at boot from the legacy keys. The app does not read from it yet
-  // (that's the next steps); building it here keeps it populated and lets us
-  // verify the migration in isolation.
+  // Built once at boot from the legacy keys. The store is the source of truth;
+  // goals are read/written through the adapter above (step 2). Backlog,
+  // distractions, quickDone and sessions still use legacy paths for now.
   let store = migrateToStore();
+
+  // Make state.goals a live view over the store for the active day. If the store
+  // already has this day (normal same-day boot), the store wins; otherwise (e.g.
+  // a fresh new-day state with _carryover) we keep the loaded goals and let the
+  // first saveState() sync them in.
+  // Share one categories array between the store and the module so totalHours
+  // updates (via accumulateCategoryHours) stay reflected in the store.
+  store.categories = categories;
+
+  if (store.days[state.date]) {
+    state.goals = hydrateGoalsFromStore(state.date);
+  } else {
+    syncGoalsToStore(state.date);
+    saveStore();
+  }
 
   // --- Undo stack ---
   const undoStack = [];
@@ -1817,7 +1899,13 @@
     try { const r = storageGet(HISTORY_KEY); return r ? JSON.parse(r) : []; } catch (e) { return []; }
   }
 
-  function saveState() { storageSet(STORAGE_KEY, JSON.stringify(state)); }
+  function saveState() {
+    // Sync today's goals view back into the store (source of truth), then persist
+    // both. Legacy key is still written so the old backup stays current too.
+    syncGoalsToStore(state.date);
+    saveStore();
+    storageSet(STORAGE_KEY, JSON.stringify(state));
+  }
 
   // =========================================================
   // CARRYOVER

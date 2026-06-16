@@ -20,6 +20,7 @@ notifications.js — nudge system, browser notifications
 | File | Contents |
 |------|----------|
 | [docs/architecture.md](docs/architecture.md) | State shapes, localStorage keys, file internals, key functions |
+| [docs/data-model.md](docs/data-model.md) | Unified store schema, store⇄view adapter, future DB design |
 | [docs/design-system.md](docs/design-system.md) | Colors, depth/glass system, buttons, typography, guardrails |
 | [docs/features.md](docs/features.md) | All implemented features, how each system works |
 | [docs/drag-drop.md](docs/drag-drop.md) | Drag & drop deep dive — all three systems, known bugs |

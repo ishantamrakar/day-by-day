@@ -11,6 +11,10 @@
   const BACKLOG_KEY = 'daybyday_backlog';
   const CATEGORIES_KEY = 'daybyday_categories';
   const SIDEBAR_KEY = 'daybyday_sidebar';
+  // Unified store (Phase 3). Built from the legacy keys above by migrateToStore();
+  // legacy keys are kept as a one-version backup so migration is reversible.
+  const STORE_KEY = 'daybyday_store';
+  const STORE_VERSION = 2;
   const RING_CIRCUMFERENCE = 2 * Math.PI * 34;
 
   // --- Default categories ---
@@ -380,6 +384,115 @@
     try { localStorage.setItem(key, value); } catch (e) {}
   }
 
+  // =========================================================
+  // UNIFIED STORE (Phase 3, step 1)
+  //
+  // One normalized shape every part of the app will read/write:
+  //   store = {
+  //     version,
+  //     entities: { [id]: Entity },        // every task-like thing, by id
+  //     days:     { [YYYY-MM-DD]: [id] },  // ordered membership per day
+  //     backlogIds: [id],                  // backlog (day-less queue)
+  //     categories: [ {id,name,emoji,color,totalHours,vision?} ],
+  //     sessions:  [ Session ],            // focus sessions
+  //     journal:   { [date]: { successes:[], failures:[] } },
+  //     history:   [ archived day snapshot ],   // kept verbatim for now
+  //     layout?: ...
+  //   }
+  //   Entity = { id, type:'goal'|'distraction'|'quickDone'|'backlog',
+  //              name, category, hours, progress?, repeatable?, prevHours?,
+  //              fromBacklog?, createdAt, updatedAt, completedAt? }
+  //
+  // This step ONLY builds + persists the store from the legacy keys; the app
+  // still reads from the legacy state/backlog/categories. Legacy keys are left
+  // untouched as a one-version backup, so the migration is reversible.
+  // =========================================================
+  let _idSeq = 0;
+  function genId() {
+    return 'e' + Date.now().toString(36) + (_idSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  function makeEntity(type, src) {
+    const now = Date.now();
+    const e = {
+      id: genId(),
+      type,
+      name: src.name || '',
+      category: src.category || null,
+      hours: src.hours || 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (type === 'goal') {
+      e.progress = src.progress || 0;
+      e.repeatable = src.repeatable || false;
+      if (src.prevHours != null) e.prevHours = src.prevHours;
+      if (src.fromBacklog) e.fromBacklog = true;
+      if ((src.progress || 0) >= 100) e.completedAt = now;
+    } else if (type === 'backlog') {
+      e.repeatable = src.repeatable || false;
+    }
+    return e;
+  }
+
+  // Build the unified store from the legacy localStorage keys. Idempotent:
+  // if a current-version store already exists, returns it untouched.
+  function migrateToStore() {
+    try {
+      const existing = storageGet(STORE_KEY);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (parsed && parsed.version === STORE_VERSION) return parsed;
+      }
+    } catch (e) {}
+
+    const store = {
+      version: STORE_VERSION,
+      entities: {},
+      days: {},
+      backlogIds: [],
+      categories: loadCategories(),
+      sessions: [],
+      journal: {},
+      history: loadHistory(),
+    };
+
+    // Today's state → entities + day membership + sessions + journal.
+    let day = getTodayString();
+    try {
+      const raw = storageGet(STORAGE_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        day = p.date || day;
+        const ids = [];
+        (p.goals || []).forEach(g => { const e = makeEntity('goal', g); store.entities[e.id] = e; ids.push(e.id); });
+        (p.distractions || []).forEach(d => { const e = makeEntity('distraction', d); store.entities[e.id] = e; ids.push(e.id); });
+        (p.quickDone || []).forEach(q => { const e = makeEntity('quickDone', q); store.entities[e.id] = e; ids.push(e.id); });
+        store.days[day] = ids;
+        store.sessions = (p.focusSessions || []).slice();
+        store.journal[day] = { successes: (p.successes || []).slice(), failures: (p.failures || []).slice() };
+      }
+    } catch (e) {}
+
+    // Backlog → backlog entities (day-less).
+    try {
+      (loadBacklog() || []).forEach(item => {
+        const e = makeEntity('backlog', item);
+        store.entities[e.id] = e;
+        store.backlogIds.push(e.id);
+      });
+    } catch (e) {}
+
+    // Layout (card order), if present, preserved verbatim.
+    try {
+      const rawLayout = storageGet(LAYOUT_KEY);
+      if (rawLayout) store.layout = JSON.parse(rawLayout);
+    } catch (e) {}
+
+    storageSet(STORE_KEY, JSON.stringify(store));
+    return store;
+  }
+
   // --- Categories ---
   let categories = loadCategories();
 
@@ -502,6 +615,12 @@
   // --- State ---
   let state = loadState();
   let backlog = loadBacklog();
+
+  // --- Unified store (Phase 3) ---
+  // Built once at boot from the legacy keys. The app does not read from it yet
+  // (that's the next steps); building it here keeps it populated and lets us
+  // verify the migration in isolation.
+  let store = migrateToStore();
 
   // --- Undo stack ---
   const undoStack = [];
@@ -4599,6 +4718,7 @@
     getState: () => state,
     getGoals: () => state.goals,
     getDistractions: () => state.distractions,
+    getStore: () => store,
     storageGet, storageSet
   };
 

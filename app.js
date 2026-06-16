@@ -3116,16 +3116,16 @@
     row.className = 'done-item done-item-quick' + (isLatest ? ' done-item-entering' : '');
     if (isLatest) requestAnimationFrame(() => row.classList.remove('done-item-entering'));
 
-    // Category emoji badge (only if a non-general category is set)
-    if (item.category && item.category !== 'general') {
-      const cat = getCategoryById(item.category);
-      const catBadge = document.createElement('span');
-      catBadge.className = 'done-item-cat-badge';
-      catBadge.textContent = cat.emoji;
-      catBadge.title = cat.name;
-      catBadge.style.setProperty('--badge-color', cat.color);
-      row.appendChild(catBadge);
-    }
+    // Category pill — clickable to assign/change the life area (reuses the same
+    // unified picker as distractions/backlog), so quick tasks can be categorized.
+    const catPill = createCategoryPill(item.category, newId => {
+      state.quickDone[index].category = newId;
+      item.category = newId;
+      saveState();
+      renderSidebar();
+    });
+    catPill.classList.add('done-item-cat-pill');
+    row.appendChild(catPill);
 
     const name = document.createElement('span');
     name.className = 'done-item-name';

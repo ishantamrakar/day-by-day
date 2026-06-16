@@ -423,6 +423,37 @@
     return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
   }
 
+  // Inline click-to-edit for an hours pill. Shared by the goal card, the focus
+  // modal, and the done-card badge. The element becomes a number input on click
+  // (0–24, quarter-hour steps); blur/Enter commit, Escape cancels.
+  //   getValue() → current hours · onCommit(v, prev, delta) · render() repaints
+  function makeInlineHoursEditor(pillEl, { getValue, onCommit, render }) {
+    pillEl.addEventListener('click', () => {
+      if (pillEl.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'done-hours-input';
+      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
+      inp.value = getValue() || '';
+      inp.placeholder = '0';
+      pillEl.textContent = '';
+      pillEl.appendChild(inp);
+      inp.focus(); inp.select();
+
+      function commit() {
+        const prev = getValue() || 0;
+        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
+        onCommit(v, prev, v - prev);
+        render();
+      }
+      inp.addEventListener('blur', commit);
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        if (e.key === 'Escape') render();
+      });
+    });
+  }
+
   // Accumulate hours into category totals — called when hours change on a task
   function accumulateCategoryHours(catId, delta) {
     if (!catId || delta === 0) return;
@@ -1861,33 +1892,15 @@
     }
     renderHoursPill();
 
-    hoursPill.addEventListener('click', () => {
-      if (hoursPill.querySelector('input')) return;
-      const inp = document.createElement('input');
-      inp.type = 'number';
-      inp.className = 'done-hours-input';
-      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
-      inp.value = state.goals[index].hours || '';
-      inp.placeholder = '0';
-      hoursPill.textContent = '';
-      hoursPill.appendChild(inp);
-      inp.focus(); inp.select();
-
-      function commitHours() {
-        const prev = state.goals[index].hours || 0;
-        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
-        const delta = v - prev;
+    makeInlineHoursEditor(hoursPill, {
+      getValue: () => state.goals[index].hours,
+      onCommit: (v, prev, delta) => {
         state.goals[index].hours = v;
         saveState();
         accumulateCategoryHours(state.goals[index].category || 'general', delta);
         renderSummary();
-        renderHoursPill();
-      }
-      inp.addEventListener('blur', commitHours);
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') renderHoursPill();
-      });
+      },
+      render: renderHoursPill,
     });
 
     const pg = document.createElement('div'); pg.className = 'log-group';
@@ -2037,38 +2050,21 @@
     };
     updateHoursDisplay();
 
-    hoursDisplay.addEventListener('click', () => {
-      if (hoursDisplay.querySelector('input')) return;
-      const inp = document.createElement('input');
-      inp.type = 'number'; inp.className = 'done-hours-input';
-      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
-      inp.value = state.goals[index].hours || '';
-      inp.placeholder = '0';
-      hoursDisplay.textContent = '';
-      hoursDisplay.appendChild(inp);
-      inp.focus(); inp.select();
-
-      function commitModalHours() {
-        const prev = state.goals[index].hours || 0;
-        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
-        const delta = v - prev;
+    makeInlineHoursEditor(hoursDisplay, {
+      getValue: () => state.goals[index].hours,
+      onCommit: (v, prev, delta) => {
         state.goals[index].hours = v;
         saveState();
         accumulateCategoryHours(state.goals[index].category || 'general', delta);
         renderSummary();
-        updateHoursDisplay();
         // Sync card pill too
         const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
         if (cardPill && !cardPill.querySelector('input')) {
           cardPill.textContent = formatHours(v);
           cardPill.classList.toggle('goal-hours-pill--empty', v === 0);
         }
-      }
-      inp.addEventListener('blur', commitModalHours);
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') updateHoursDisplay();
-      });
+      },
+      render: updateHoursDisplay,
     });
 
     // Quick time chips
@@ -2903,42 +2899,20 @@
     hoursBadge.title = 'Click to edit hours';
 
     function renderHoursBadge() {
-      if (item.hours > 0) {
-        const h = item.hours;
-        const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
-        hoursBadge.textContent = (hr > 0 && mn > 0) ? `${hr}h ${mn}m` : hr > 0 ? `${hr}h` : `${mn}m`;
-      } else {
-        hoursBadge.textContent = '+ hrs';
-      }
+      hoursBadge.textContent = formatHours(item.hours);
       hoursBadge.classList.toggle('done-hours-badge--empty', !(item.hours > 0));
     }
     renderHoursBadge();
 
-    hoursBadge.addEventListener('click', () => {
-      if (hoursBadge.querySelector('input')) return;
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.className = 'done-hours-input';
-      input.min = '0'; input.max = '24'; input.step = '0.25';
-      input.value = item.hours || '';
-      input.placeholder = '0';
-      hoursBadge.textContent = '';
-      hoursBadge.appendChild(input);
-      input.focus(); input.select();
-
-      function commit() {
-        const v = Math.max(0, Math.min(24, parseFloat(input.value) || 0));
+    makeInlineHoursEditor(hoursBadge, {
+      getValue: () => item.hours,
+      onCommit: v => {
         state.quickDone[index].hours = v;
         item.hours = v;
         saveState();
         renderSummary();
-        renderHoursBadge();
-      }
-      input.addEventListener('blur', commit);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { hoursBadge.textContent = ''; renderHoursBadge(); }
-      });
+      },
+      render: renderHoursBadge,
     });
 
     const del = document.createElement('button');

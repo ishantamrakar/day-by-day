@@ -6,13 +6,23 @@
 
 | Key | Contents |
 |-----|----------|
-| `daybyday_data` | Today's state object |
+| `daybyday_store` | **Unified store (source of truth, Phase 3).** See [data-model.md](data-model.md). |
+| `daybyday_data` | Today's state object — legacy, still written as a backup |
 | `daybyday_history` | Up to 30 archived day objects |
 | `daybyday_layout` | Card column order (JSON) |
 | `daybyday_backlog` | Persistent backlog array |
 | `daybyday_categories` | Categories with all-time `totalHours` |
 | `daybyday_sidebar` | `'collapsed'` or `'open'` |
 | `daybyday_prefs` | Notification dismissed flag |
+
+## Data model
+
+The **unified store** (`daybyday_store`) is the source of truth; `state.goals` /
+`state.distractions` / `state.quickDone` / `backlog` / `state.focusSessions` are
+live views over it (each carries its entity id as `_eid`). Full schema, the
+store⇄view adapter, and the future DB design: **[data-model.md](data-model.md)**.
+The legacy state shapes below are still written as a backup and still drive
+day-rollover detection in `loadState()`.
 
 ## State Shapes
 

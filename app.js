@@ -728,6 +728,10 @@
   let expandedCatId = null; // which sidebar card is currently expanded
 
   // --- State ---
+  // Declared before loadState() runs: loadState assigns _prevDayForModal when it
+  // detects a new day, so the binding must already exist (else a TDZ error here
+  // silently aborts carryover + the boot transition modal).
+  let _prevDayForModal = null; // set when new day detected, consumed by modal
   let state = loadState();
   let backlog = loadBacklog();
 
@@ -1876,8 +1880,6 @@
   function getDefaultState() {
     return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [], quickDone: [], focusSessions: [] };
   }
-
-  let _prevDayForModal = null; // set when new day detected, consumed by modal
 
   // Permanently delete a goal by index — scrubs it from state.goals AND _carryover so
   // it never resurfaces in the day transition modal or anywhere else.
@@ -4517,6 +4519,11 @@
   // DAY TRANSITION MODAL
   // =========================================================
   function showDayTransitionModal(prev) {
+    // Only ever one transition modal at a time. If we cross several day
+    // boundaries (left the tab open, or skipped days), dismiss any modal already
+    // showing so the latest summary replaces it instead of stacking on top.
+    document.querySelectorAll('.day-modal-overlay').forEach(el => el.remove());
+
     // Compute yesterday's stats
     const prevGoals = prev.goals || [];
     const prevDistractions = prev.distractions || [];

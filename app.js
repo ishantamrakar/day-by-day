@@ -413,6 +413,16 @@
     return cat ? cat.color : '#8d99ae';
   }
 
+  // Format a duration in hours as a calm h/m pill (no seconds). Shared by every
+  // hours pill in the app. `emptyLabel` is shown when the value is zero/falsy.
+  // For a duration in whole minutes, pass formatHours(mins / 60, '0m').
+  function formatHours(h, emptyLabel = '+ hrs') {
+    if (!h || h <= 0) return emptyLabel;
+    if (h < 1) return `${Math.round(h * 60)}m`;
+    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  }
+
   // Accumulate hours into category totals — called when hours change on a task
   function accumulateCategoryHours(catId, delta) {
     if (!catId || delta === 0) return;
@@ -1844,17 +1854,9 @@
     hoursPill.className = 'goal-hours-pill';
     hoursPill.dataset.goalIndex = index;
 
-    function formatGoalHours(h) {
-      if (!h || h === 0) return '+ hrs';
-      if (h < 1) return `${Math.round(h * 60)}m`;
-      const hrs = Math.floor(h);
-      const mins = Math.round((h - hrs) * 60);
-      return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-    }
-
     function renderHoursPill() {
       const h = state.goals[index].hours || 0;
-      hoursPill.textContent = formatGoalHours(h);
+      hoursPill.textContent = formatHours(h);
       hoursPill.classList.toggle('goal-hours-pill--empty', h === 0);
     }
     renderHoursPill();
@@ -2024,20 +2026,13 @@
     taskName.textContent = goal.name;
 
     // Hours pill — same pattern as goal card, clickable to edit
-    function fmtH(h) {
-      if (!h || h === 0) return '+ hrs';
-      if (h < 1) return `${Math.round(h * 60)}m`;
-      const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
-      return mn > 0 ? `${hr}h ${mn}m` : `${hr}h`;
-    }
-
     const hoursDisplay = document.createElement('span');
     hoursDisplay.className = 'goal-hours-pill focus-modal-hours-pill';
 
     const updateHoursDisplay = () => {
       const h = state.goals[index] ? (state.goals[index].hours || 0) : (goal.hours || 0);
       if (hoursDisplay.querySelector('input')) return;
-      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${fmtH(h)} today`;
+      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${formatHours(h)} today`;
       hoursDisplay.classList.toggle('goal-hours-pill--empty', h === 0);
     };
     updateHoursDisplay();
@@ -2065,7 +2060,7 @@
         // Sync card pill too
         const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
         if (cardPill && !cardPill.querySelector('input')) {
-          cardPill.textContent = fmtH(v) || '+ hrs';
+          cardPill.textContent = formatHours(v);
           cardPill.classList.toggle('goal-hours-pill--empty', v === 0);
         }
       }
@@ -2112,8 +2107,7 @@
         const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
         if (cardPill && !cardPill.querySelector('input')) {
           const h = state.goals[index].hours || 0;
-          const fh = h => h < 1 ? `${Math.round(h*60)}m` : (() => { const hr=Math.floor(h),mn=Math.round((h-hr)*60); return mn>0?`${hr}h ${mn}m`:`${hr}h`; })();
-          cardPill.textContent = fh(h);
+          cardPill.textContent = formatHours(h);
           cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
         }
 
@@ -3267,13 +3261,6 @@
     state.failures.forEach((t, i) => failuresListEl.appendChild(createJournalEntry(t, i, 'failures')));
   }
 
-  function fmtMins(m) {
-    if (!m || m <= 0) return '0m';
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60), rem = m % 60;
-    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
-  }
-
   function createFocusSessionEntry(session, index) {
     const row = document.createElement('div');
     row.className = 'focus-session-entry' + (session.isWin ? ' focus-session-win' : ' focus-session-lesson');
@@ -3301,7 +3288,7 @@
 
     const timePill = document.createElement('span');
     timePill.className = 'focus-session-time';
-    timePill.textContent = fmtMins(session.focusMins) + ' focused';
+    timePill.textContent = formatHours(session.focusMins / 60, '0m') + ' focused';
 
     const pctPill = document.createElement('span');
     pctPill.className = 'focus-session-pct' + (session.isWin ? ' pct-win' : ' pct-lesson');

@@ -1,6 +1,8 @@
 # Day by Day
 
 > **For Claude:** Update this file and the relevant `docs/` file whenever you add a feature, fix a bug, or restructure code. Stale docs are worse than none.
+>
+> **Commits are manual.** The maintainer makes every git commit and push themselves. Never run `git commit`, `git push`, `git checkout -b`, or open PRs. When work reaches a commit point, output the exact commands (and commit message) for them to run by hand.
 
 Finitude-aware daily focus app. Personal tool first, product eventually. Inspired by Oliver Burkeman's *4,000 Weeks* — embrace limits, act imperfectly, focus on what matters.
 

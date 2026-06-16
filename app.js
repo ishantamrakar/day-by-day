@@ -423,6 +423,35 @@
     return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
   }
 
+  // Preset quick-add amounts for the time-add pills.
+  const DEFAULT_TIME_PRESETS = [
+    { label: '+10m', hours: 10 / 60 },
+    { label: '+15m', hours: 15 / 60 },
+    { label: '+30m', hours: 30 / 60 },
+    { label: '+1h',  hours: 1 },
+    { label: '+2h',  hours: 2 },
+  ];
+
+  // Build a row of preset time-add chips (+10m, +15m, …). Each click calls
+  // onAdd(deltaHours) — the caller owns the clamp/save/accumulate/sync — then
+  // the chip flashes. Returns the container element.
+  function makeTimeAddPills(onAdd, presets = DEFAULT_TIME_PRESETS) {
+    const chips = document.createElement('div');
+    chips.className = 'focus-modal-chips';
+    presets.forEach(({ label, hours }) => {
+      const chip = document.createElement('button');
+      chip.className = 'focus-time-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => {
+        onAdd(hours);
+        chip.classList.add('focus-time-chip-flash');
+        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
+      });
+      chips.appendChild(chip);
+    });
+    return chips;
+  }
+
   // Inline click-to-edit for an hours pill. Shared by the goal card, the focus
   // modal, and the done-card badge. The element becomes a number input on click
   // (0–24, quarter-hour steps); blur/Enter commit, Escape cancels.
@@ -2075,42 +2104,22 @@
     chipsLabel.className = 'focus-modal-chips-label';
     chipsLabel.textContent = 'Log time on this task';
 
-    const chips = document.createElement('div');
-    chips.className = 'focus-modal-chips';
-
-    const timeChips = [
-      { label: '+10m', hours: 10/60 },
-      { label: '+15m', hours: 15/60 },
-      { label: '+30m', hours: 30/60 },
-      { label: '+1h',  hours: 1 },
-      { label: '+2h',  hours: 2 },
-    ];
-
-    timeChips.forEach(({ label, hours }) => {
-      const chip = document.createElement('button');
-      chip.className = 'focus-time-chip';
-      chip.textContent = label;
-      chip.addEventListener('click', () => {
-        const prev = state.goals[index].hours || 0;
-        const next = Math.min(24, prev + hours);
-        const delta = next - prev;
-        state.goals[index].hours = Math.round(next * 100) / 100;
-        saveState();
-        accumulateCategoryHours(state.goals[index].category || 'general', delta);
-        renderSummary();
-        updateHoursDisplay();
-        // Sync the hours pill on the card without a full re-render
-        const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
-        if (cardPill && !cardPill.querySelector('input')) {
-          const h = state.goals[index].hours || 0;
-          cardPill.textContent = formatHours(h);
-          cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
-        }
-
-        chip.classList.add('focus-time-chip-flash');
-        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
-      });
-      chips.appendChild(chip);
+    const chips = makeTimeAddPills(addedHours => {
+      const prev = state.goals[index].hours || 0;
+      const next = Math.min(24, prev + addedHours);
+      const delta = next - prev;
+      state.goals[index].hours = Math.round(next * 100) / 100;
+      saveState();
+      accumulateCategoryHours(state.goals[index].category || 'general', delta);
+      renderSummary();
+      updateHoursDisplay();
+      // Sync the hours pill on the card without a full re-render
+      const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
+      if (cardPill && !cardPill.querySelector('input')) {
+        const h = state.goals[index].hours || 0;
+        cardPill.textContent = formatHours(h);
+        cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
+      }
     });
 
     chipsSection.append(chipsLabel, chips);

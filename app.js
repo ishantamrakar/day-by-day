@@ -3763,7 +3763,7 @@
 
     // ── Normal within-list reorder mode ───────────────────────
     if (activeDrag.dragType !== 'task') return;
-    const { item, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop, parentCard } = activeDrag;
+    const { item, list, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop, parentCard } = activeDrag;
 
     // Check if pointer has left the parent card — if so, switch to cross-card mode
     if (parentCard && activeDrag.type === 'goal') {
@@ -3780,7 +3780,8 @@
         if (!goalData) { activeDrag = null; return; }
 
         // Release pointer capture from handle so events route globally during cross-drag
-        try { handle.releasePointerCapture(e.pointerId); } catch(_) {}
+        const handle = item.querySelector('.task-drag-handle');
+        try { if (handle) handle.releasePointerCapture(e.pointerId); } catch(_) {}
 
         // Remove the item from the DOM entirely — hiding/collapsing leaves compositor
         // layer artifacts that trail across the screen during pointer movement

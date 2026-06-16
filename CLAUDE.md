@@ -22,6 +22,7 @@ notifications.js — nudge system, browser notifications
 | [docs/features.md](docs/features.md) | All implemented features, how each system works |
 | [docs/drag-drop.md](docs/drag-drop.md) | Drag & drop deep dive — all three systems, known bugs |
 | [docs/roadmap.md](docs/roadmap.md) | Known bugs, backlog, future ideas, product vision |
+| [docs/dev-workflow.md](docs/dev-workflow.md) | Branch model (`main`/`develop`/`feature/*`), CI checks, GitHub Pages deploy |
 
 ## Philosophy & Tone
 

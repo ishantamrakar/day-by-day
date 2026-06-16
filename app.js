@@ -596,6 +596,16 @@
     store.backlogIds = ids;
   }
 
+  // Focus sessions are append-style records (no entity reconciliation). The
+  // store holds the canonical array; state.focusSessions mirrors it.
+  function hydrateSessionsFromStore() {
+    return (store.sessions || []).slice();
+  }
+
+  function syncSessionsToStore() {
+    store.sessions = (state.focusSessions || []).slice();
+  }
+
   function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
 
   // --- Categories ---
@@ -739,8 +749,10 @@
     state.goals = hydrateDayType(state.date, 'goal');
     state.distractions = hydrateDayType(state.date, 'distraction');
     state.quickDone = hydrateDayType(state.date, 'quickDone');
+    state.focusSessions = hydrateSessionsFromStore();
   } else {
     syncDayToStore(state.date);
+    syncSessionsToStore();
   }
   backlog = hydrateBacklogFromStore();
   saveStore();
@@ -1949,6 +1961,7 @@
     // (source of truth), then persist both. Legacy key is still written so the
     // old backup stays current too.
     syncDayToStore(state.date);
+    syncSessionsToStore();
     saveStore();
     storageSet(STORAGE_KEY, JSON.stringify(state));
   }
@@ -2902,9 +2915,9 @@
           timestamp: Date.now(),
           goalName: goal.name,
           goalIndex: index,
+          // Store only the category id; emoji/color are resolved live at render
+          // so category edits reflect in the journal (no frozen snapshot).
           category: goal.category || 'general',
-          catEmoji,
-          catColor,
           totalMins,
           focusPct,
           focusMins,
@@ -3477,7 +3490,11 @@
 
     const pillName = document.createElement('span');
     pillName.className = 'focus-session-name';
-    pillName.textContent = session.catEmoji + ' ' + session.goalName;
+    // Resolve the category emoji LIVE from the id so renaming/recoloring a
+    // category reflects in past journal entries. goalName stays a snapshot since
+    // the goal itself may be renamed or deleted (this is an audit-log row).
+    const sessCat = getCategoryById(session.category || 'general');
+    pillName.textContent = (sessCat.emoji || session.catEmoji || '⚡') + ' ' + session.goalName;
 
     pillLeft.append(badge, pillName);
 

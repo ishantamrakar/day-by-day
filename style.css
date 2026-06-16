@@ -3603,6 +3603,11 @@ footer {
   opacity: 0.85;
 }
 
+/* Clickable life-area pill on a quick-done item — sits where the badge did. */
+.done-item-cat-pill {
+  flex-shrink: 0;
+}
+
 /* ============================================================
    GOAL HOURS PILL — replaces the number input on Top 5 rows
    ============================================================ */

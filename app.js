@@ -11,6 +11,10 @@
   const BACKLOG_KEY = 'daybyday_backlog';
   const CATEGORIES_KEY = 'daybyday_categories';
   const SIDEBAR_KEY = 'daybyday_sidebar';
+  // Unified store (Phase 3). Built from the legacy keys above by migrateToStore();
+  // legacy keys are kept as a one-version backup so migration is reversible.
+  const STORE_KEY = 'daybyday_store';
+  const STORE_VERSION = 2;
   const RING_CIRCUMFERENCE = 2 * Math.PI * 34;
 
   // --- Default categories ---
@@ -380,6 +384,230 @@
     try { localStorage.setItem(key, value); } catch (e) {}
   }
 
+  // =========================================================
+  // UNIFIED STORE (Phase 3, step 1)
+  //
+  // One normalized shape every part of the app will read/write:
+  //   store = {
+  //     version,
+  //     entities: { [id]: Entity },        // every task-like thing, by id
+  //     days:     { [YYYY-MM-DD]: [id] },  // ordered membership per day
+  //     backlogIds: [id],                  // backlog (day-less queue)
+  //     categories: [ {id,name,emoji,color,totalHours,vision?} ],
+  //     sessions:  [ Session ],            // focus sessions
+  //     journal:   { [date]: { successes:[], failures:[] } },
+  //     history:   [ archived day snapshot ],   // kept verbatim for now
+  //     layout?: ...
+  //   }
+  //   Entity = { id, type:'goal'|'distraction'|'quickDone'|'backlog',
+  //              name, category, hours, progress?, repeatable?, prevHours?,
+  //              fromBacklog?, createdAt, updatedAt, completedAt? }
+  //
+  // This step ONLY builds + persists the store from the legacy keys; the app
+  // still reads from the legacy state/backlog/categories. Legacy keys are left
+  // untouched as a one-version backup, so the migration is reversible.
+  // =========================================================
+  let _idSeq = 0;
+  function genId() {
+    return 'e' + Date.now().toString(36) + (_idSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  function makeEntity(type, src) {
+    const now = Date.now();
+    const e = {
+      id: genId(),
+      type,
+      name: src.name || '',
+      category: src.category || null,
+      hours: src.hours || 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (type === 'goal') {
+      e.progress = src.progress || 0;
+      e.repeatable = src.repeatable || false;
+      if (src.prevHours != null) e.prevHours = src.prevHours;
+      if (src.fromBacklog) e.fromBacklog = true;
+      if ((src.progress || 0) >= 100) e.completedAt = now;
+    } else if (type === 'backlog') {
+      e.repeatable = src.repeatable || false;
+    }
+    return e;
+  }
+
+  // Build the unified store from the legacy localStorage keys. Idempotent:
+  // if a current-version store already exists, returns it untouched.
+  function migrateToStore() {
+    try {
+      const existing = storageGet(STORE_KEY);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (parsed && parsed.version === STORE_VERSION) return parsed;
+      }
+    } catch (e) {}
+
+    const store = {
+      version: STORE_VERSION,
+      entities: {},
+      days: {},
+      backlogIds: [],
+      categories: loadCategories(),
+      sessions: [],
+      journal: {},
+      history: loadHistory(),
+    };
+
+    // Today's state → entities + day membership + sessions + journal.
+    let day = getTodayString();
+    try {
+      const raw = storageGet(STORAGE_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        day = p.date || day;
+        const ids = [];
+        (p.goals || []).forEach(g => { const e = makeEntity('goal', g); store.entities[e.id] = e; ids.push(e.id); });
+        (p.distractions || []).forEach(d => { const e = makeEntity('distraction', d); store.entities[e.id] = e; ids.push(e.id); });
+        (p.quickDone || []).forEach(q => { const e = makeEntity('quickDone', q); store.entities[e.id] = e; ids.push(e.id); });
+        store.days[day] = ids;
+        store.sessions = (p.focusSessions || []).slice();
+        store.journal[day] = { successes: (p.successes || []).slice(), failures: (p.failures || []).slice() };
+      }
+    } catch (e) {}
+
+    // Backlog → backlog entities (day-less).
+    try {
+      (loadBacklog() || []).forEach(item => {
+        const e = makeEntity('backlog', item);
+        store.entities[e.id] = e;
+        store.backlogIds.push(e.id);
+      });
+    } catch (e) {}
+
+    // Layout (card order), if present, preserved verbatim.
+    try {
+      const rawLayout = storageGet(LAYOUT_KEY);
+      if (rawLayout) store.layout = JSON.parse(rawLayout);
+    } catch (e) {}
+
+    storageSet(STORE_KEY, JSON.stringify(store));
+    return store;
+  }
+
+  // ---- Store <-> state adapter (Phase 3) ----
+  // The store is the source of truth; state.goals / state.distractions /
+  // state.quickDone / backlog are live views over it so the existing
+  // rendering/undo/drag code keeps working unchanged. hydrate* builds the view
+  // from the store; sync* writes the view back into the store. Each view object
+  // carries its entity id (_eid) so we reconcile by identity.
+
+  // Project an entity into the plain view shape its array expects, carrying _eid.
+  function entityToView(e) {
+    const v = { _eid: e.id, name: e.name, hours: e.hours || 0, category: e.category || null };
+    if (e.type === 'goal') {
+      v.progress = e.progress || 0;
+      v.repeatable = e.repeatable || false;
+      if (e.prevHours != null) v.prevHours = e.prevHours;
+      if (e.fromBacklog) v.fromBacklog = true;
+    } else if (e.type === 'backlog') {
+      v.repeatable = e.repeatable || false;
+    }
+    return v;
+  }
+
+  // Copy a view's fields onto its entity (in place).
+  function applyViewToEntity(e, v, type, now) {
+    e.name = v.name;
+    e.hours = v.hours || 0;
+    e.category = v.category || null;
+    if (type === 'goal') {
+      e.progress = v.progress || 0;
+      e.repeatable = v.repeatable || false;
+      if (v.prevHours != null) e.prevHours = v.prevHours; else delete e.prevHours;
+      if (v.fromBacklog) e.fromBacklog = true; else delete e.fromBacklog;
+      if ((v.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; } else delete e.completedAt;
+    } else if (type === 'backlog') {
+      e.repeatable = v.repeatable || false;
+    }
+    e.updatedAt = now;
+  }
+
+  // Build a view array from a day's entities of a given type, in stored order.
+  function hydrateDayType(day, type) {
+    return (store.days[day] || [])
+      .map(id => store.entities[id])
+      .filter(e => e && e.type === type)
+      .map(entityToView);
+  }
+
+  // Reconcile the store's entities-of-`type` to match `views` exactly: update
+  // existing (by _eid), mint new ones, drop removed ones. Returns the ordered
+  // entity ids. Does not touch store.days — the caller rebuilds day membership.
+  function reconcileType(type, views) {
+    const now = Date.now();
+    const ids = [];
+    views.forEach(v => {
+      let e = v._eid ? store.entities[v._eid] : null;
+      if (!e) { e = makeEntity(type, v); v._eid = e.id; store.entities[e.id] = e; }
+      applyViewToEntity(e, v, type, now);
+      ids.push(e.id);
+    });
+    return ids;
+  }
+
+  // Sync all three day-resident view arrays into the store for `day`. The day's
+  // membership is rebuilt as goals → distractions → quickDone; entities of those
+  // types no longer present are deleted.
+  function syncDayToStore(day) {
+    const goalIds = reconcileType('goal', state.goals);
+    const distIds = reconcileType('distraction', state.distractions || []);
+    const quickIds = reconcileType('quickDone', state.quickDone || []);
+    const kept = new Set([...goalIds, ...distIds, ...quickIds]);
+    (store.days[day] || []).forEach(id => {
+      const e = store.entities[id];
+      if (e && (e.type === 'goal' || e.type === 'distraction' || e.type === 'quickDone') && !kept.has(id)) {
+        delete store.entities[id];
+      }
+    });
+    store.days[day] = [...goalIds, ...distIds, ...quickIds];
+  }
+
+  // Backlog is a day-less queue tracked by store.backlogIds.
+  function hydrateBacklogFromStore() {
+    return store.backlogIds
+      .map(id => store.entities[id])
+      .filter(e => e && e.type === 'backlog')
+      .map(entityToView);
+  }
+
+  function syncBacklogToStore() {
+    const now = Date.now();
+    const ids = [];
+    backlog.forEach(v => {
+      let e = v._eid ? store.entities[v._eid] : null;
+      if (!e) { e = makeEntity('backlog', v); v._eid = e.id; store.entities[e.id] = e; }
+      applyViewToEntity(e, v, 'backlog', now);
+      ids.push(e.id);
+    });
+    const kept = new Set(ids);
+    store.backlogIds.forEach(id => {
+      const e = store.entities[id];
+      if (e && e.type === 'backlog' && !kept.has(id)) delete store.entities[id];
+    });
+    store.backlogIds = ids;
+  }
+
+  // Focus sessions are append-style records (no entity reconciliation). The
+  // store holds the canonical array; state.focusSessions mirrors it.
+  function hydrateSessionsFromStore() {
+    return (store.sessions || []).slice();
+  }
+
+  function syncSessionsToStore() {
+    store.sessions = (state.focusSessions || []).slice();
+  }
+
+  function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
+
   // --- Categories ---
   let categories = loadCategories();
 
@@ -413,6 +641,76 @@
     return cat ? cat.color : '#8d99ae';
   }
 
+  // Format a duration in hours as a calm h/m pill (no seconds). Shared by every
+  // hours pill in the app. `emptyLabel` is shown when the value is zero/falsy.
+  // For a duration in whole minutes, pass formatHours(mins / 60, '0m').
+  function formatHours(h, emptyLabel = '+ hrs') {
+    if (!h || h <= 0) return emptyLabel;
+    if (h < 1) return `${Math.round(h * 60)}m`;
+    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  }
+
+  // Preset quick-add amounts for the time-add pills.
+  const DEFAULT_TIME_PRESETS = [
+    { label: '+10m', hours: 10 / 60 },
+    { label: '+15m', hours: 15 / 60 },
+    { label: '+30m', hours: 30 / 60 },
+    { label: '+1h',  hours: 1 },
+    { label: '+2h',  hours: 2 },
+  ];
+
+  // Build a row of preset time-add chips (+10m, +15m, …). Each click calls
+  // onAdd(deltaHours) — the caller owns the clamp/save/accumulate/sync — then
+  // the chip flashes. Returns the container element.
+  function makeTimeAddPills(onAdd, presets = DEFAULT_TIME_PRESETS) {
+    const chips = document.createElement('div');
+    chips.className = 'focus-modal-chips';
+    presets.forEach(({ label, hours }) => {
+      const chip = document.createElement('button');
+      chip.className = 'focus-time-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => {
+        onAdd(hours);
+        chip.classList.add('focus-time-chip-flash');
+        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
+      });
+      chips.appendChild(chip);
+    });
+    return chips;
+  }
+
+  // Inline click-to-edit for an hours pill. Shared by the goal card, the focus
+  // modal, and the done-card badge. The element becomes a number input on click
+  // (0–24, quarter-hour steps); blur/Enter commit, Escape cancels.
+  //   getValue() → current hours · onCommit(v, prev, delta) · render() repaints
+  function makeInlineHoursEditor(pillEl, { getValue, onCommit, render }) {
+    pillEl.addEventListener('click', () => {
+      if (pillEl.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'done-hours-input';
+      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
+      inp.value = getValue() || '';
+      inp.placeholder = '0';
+      pillEl.textContent = '';
+      pillEl.appendChild(inp);
+      inp.focus(); inp.select();
+
+      function commit() {
+        const prev = getValue() || 0;
+        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
+        onCommit(v, prev, v - prev);
+        render();
+      }
+      inp.addEventListener('blur', commit);
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        if (e.key === 'Escape') render();
+      });
+    });
+  }
+
   // Accumulate hours into category totals — called when hours change on a task
   function accumulateCategoryHours(catId, delta) {
     if (!catId || delta === 0) return;
@@ -430,8 +728,38 @@
   let expandedCatId = null; // which sidebar card is currently expanded
 
   // --- State ---
+  // Declared before loadState() runs: loadState assigns _prevDayForModal when it
+  // detects a new day, so the binding must already exist (else a TDZ error here
+  // silently aborts carryover + the boot transition modal).
+  let _prevDayForModal = null; // set when new day detected, consumed by modal
   let state = loadState();
   let backlog = loadBacklog();
+
+  // --- Unified store (Phase 3) ---
+  // Built once at boot from the legacy keys. The store is the source of truth;
+  // goals, distractions, quickDone and backlog are read/written through the
+  // adapter above. Sessions still use the legacy path for now.
+  let store = migrateToStore();
+
+  // Share one categories array between the store and the module so totalHours
+  // updates (via accumulateCategoryHours) stay reflected in the store.
+  store.categories = categories;
+
+  // Make the view arrays live over the store for the active day. If the store
+  // already has this day (normal same-day boot), the store wins; otherwise (e.g.
+  // a fresh new-day state with _carryover) keep the loaded data and let the
+  // first save sync it in.
+  if (store.days[state.date]) {
+    state.goals = hydrateDayType(state.date, 'goal');
+    state.distractions = hydrateDayType(state.date, 'distraction');
+    state.quickDone = hydrateDayType(state.date, 'quickDone');
+    state.focusSessions = hydrateSessionsFromStore();
+  } else {
+    syncDayToStore(state.date);
+    syncSessionsToStore();
+  }
+  backlog = hydrateBacklogFromStore();
+  saveStore();
 
   // --- Undo stack ---
   const undoStack = [];
@@ -1033,55 +1361,6 @@
     if (e.target.closest && e.target.closest('.cat-modal-overlay')) return;
   }
 
-  function openCategoryPicker(anchorEl, currentCatId, onSelect) {
-    closePicker();
-
-    const picker = document.createElement('div');
-    picker.className = 'cat-picker';
-    activePicker = picker;
-
-    const list = document.createElement('div');
-    list.className = 'cat-picker-list';
-
-    categories.forEach(cat => {
-      const opt = document.createElement('button');
-      opt.className = 'cat-picker-option' + (cat.id === (currentCatId || 'general') ? ' selected' : '');
-      const emojiSpan = document.createElement('span');
-      emojiSpan.className = 'cat-picker-emoji';
-      emojiSpan.textContent = cat.emoji || '●';
-      emojiSpan.style.color = cat.color;
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = cat.name;
-      opt.append(emojiSpan, nameSpan);
-      opt.addEventListener('click', () => { closePicker(); onSelect(cat.id); });
-      list.appendChild(opt);
-    });
-
-    const divider = document.createElement('div');
-    divider.className = 'cat-picker-divider';
-    list.appendChild(divider);
-
-    const newBtn = document.createElement('button');
-    newBtn.className = 'cat-picker-new';
-    newBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></svg> New area…';
-    newBtn.addEventListener('click', () => { closePicker(); openNewCategoryModal(onSelect); });
-    list.appendChild(newBtn);
-
-    picker.appendChild(list);
-    document.body.appendChild(picker);
-
-    // Position below anchor, ensure it stays in viewport
-    const rect = anchorEl.getBoundingClientRect();
-    const pickerW = 192;
-    let left = rect.left;
-    let top = rect.bottom + 8;
-    if (left + pickerW > window.innerWidth - 12) left = window.innerWidth - pickerW - 12;
-    if (top + 320 > window.innerHeight) top = rect.top - 8 - picker.offsetHeight;
-    picker.style.left = left + 'px';
-    picker.style.top = top + 'px';
-
-    setTimeout(() => document.addEventListener('pointerdown', onPickerOutsideClick, true), 50);
-  }
 
   // =========================================================
   // NEW AREA MODAL — full splash dialog
@@ -1323,15 +1602,16 @@
           renderSidebar();
         });
       } else {
-        openCategoryPicker(pill, currentCatId, newId => {
-          currentCatId = newId;
-          onCategorySelect(newId);
-          const newCat = getCategoryById(newId);
+        // Category-only: same unified modal as Top 5, repeatable row hidden.
+        openTaskContextPicker(pill, currentCatId, false, newCatId => {
+          currentCatId = newCatId;
+          onCategorySelect(newCatId);
+          const newCat = getCategoryById(newCatId);
           pill.title = newCat.name;
           pill.style.setProperty('--pill-color', newCat.color);
           emojiSpan.textContent = newCat.emoji || '●';
           renderSidebar();
-        });
+        }, { showRepeatable: false });
       }
     });
 
@@ -1340,7 +1620,12 @@
 
   // Context popover shown when clicking the pill on an existing task row
   // Shows category list + repeatable toggle in one floating panel
-  function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm) {
+  // Unified category/context modal. Used by every task-like row (Top 5 goals,
+  // backlog, distractions). Pass opts.showRepeatable === false to get a
+  // category-only picker (hides the repeatable toggle) — keeps the backlog and
+  // distraction pickers visually consistent with Top 5.
+  function openTaskContextPicker(anchorEl, currentCatId, currentRepeatable, onConfirm, opts = {}) {
+    const showRepeatable = opts.showRepeatable !== false;
     closePicker();
     closeModal();
 
@@ -1358,7 +1643,7 @@
     header.className = 'task-context-modal-header';
     const title = document.createElement('h3');
     title.className = 'task-context-modal-title';
-    title.textContent = 'Task Settings';
+    title.textContent = showRepeatable ? 'Task Settings' : 'Life Area';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'cat-modal-close';
     closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
@@ -1366,11 +1651,14 @@
     header.append(title, closeBtn);
     modal.appendChild(header);
 
-    // Life Area section label
-    const catLabel = document.createElement('div');
-    catLabel.className = 'task-context-section-label';
-    catLabel.textContent = 'Life Area';
-    modal.appendChild(catLabel);
+    // Life Area section label — only when the repeatable section follows it,
+    // otherwise the modal title already says "Life Area".
+    if (showRepeatable) {
+      const catLabel = document.createElement('div');
+      catLabel.className = 'task-context-section-label';
+      catLabel.textContent = 'Life Area';
+      modal.appendChild(catLabel);
+    }
 
     // Category list
     const list = document.createElement('div');
@@ -1402,30 +1690,32 @@
     list.appendChild(newCatBtn);
     modal.appendChild(list);
 
-    // Divider
-    const divider = document.createElement('div');
-    divider.className = 'task-context-divider';
-    modal.appendChild(divider);
+    // Repeatable toggle row — only in full "Task Settings" mode.
+    let toggleInput = null;
+    if (showRepeatable) {
+      const divider = document.createElement('div');
+      divider.className = 'task-context-divider';
+      modal.appendChild(divider);
 
-    // Repeatable toggle row
-    const repeatRow = document.createElement('div');
-    repeatRow.className = 'context-picker-repeat-row';
-    const repeatLabel = document.createElement('label');
-    repeatLabel.className = 'context-picker-repeat-label';
-    repeatLabel.htmlFor = 'ctx-repeat-toggle';
-    repeatLabel.innerHTML = '↻ Repeatable <span>carries forward if not done</span>';
+      const repeatRow = document.createElement('div');
+      repeatRow.className = 'context-picker-repeat-row';
+      const repeatLabel = document.createElement('label');
+      repeatLabel.className = 'context-picker-repeat-label';
+      repeatLabel.htmlFor = 'ctx-repeat-toggle';
+      repeatLabel.innerHTML = '↻ Repeatable <span>carries forward if not done</span>';
 
-    const toggleSwitch = document.createElement('label');
-    toggleSwitch.className = 'toggle-switch';
-    const toggleInput = document.createElement('input');
-    toggleInput.type = 'checkbox';
-    toggleInput.id = 'ctx-repeat-toggle';
-    toggleInput.checked = currentRepeatable;
-    const toggleTrack = document.createElement('span');
-    toggleTrack.className = 'toggle-track';
-    toggleSwitch.append(toggleInput, toggleTrack);
-    repeatRow.append(repeatLabel, toggleSwitch);
-    modal.appendChild(repeatRow);
+      const toggleSwitch = document.createElement('label');
+      toggleSwitch.className = 'toggle-switch';
+      toggleInput = document.createElement('input');
+      toggleInput.type = 'checkbox';
+      toggleInput.id = 'ctx-repeat-toggle';
+      toggleInput.checked = currentRepeatable;
+      const toggleTrack = document.createElement('span');
+      toggleTrack.className = 'toggle-track';
+      toggleSwitch.append(toggleInput, toggleTrack);
+      repeatRow.append(repeatLabel, toggleSwitch);
+      modal.appendChild(repeatRow);
+    }
 
     // Done button
     const footer = document.createElement('div');
@@ -1435,7 +1725,7 @@
     doneBtn.textContent = 'Done';
     doneBtn.addEventListener('click', () => {
       closeModal();
-      onConfirm(selectedCatId, toggleInput.checked);
+      onConfirm(selectedCatId, toggleInput ? toggleInput.checked : undefined);
     });
     footer.appendChild(doneBtn);
     modal.appendChild(footer);
@@ -1591,8 +1881,6 @@
     return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [], quickDone: [], focusSessions: [] };
   }
 
-  let _prevDayForModal = null; // set when new day detected, consumed by modal
-
   // Permanently delete a goal by index — scrubs it from state.goals AND _carryover so
   // it never resurfaces in the day transition modal or anywhere else.
   function permanentlyDeleteGoal(index) {
@@ -1648,7 +1936,11 @@
     } catch (e) { return []; }
   }
 
-  function saveBacklog() { storageSet(BACKLOG_KEY, JSON.stringify(backlog)); }
+  function saveBacklog() {
+    syncBacklogToStore();
+    saveStore();
+    storageSet(BACKLOG_KEY, JSON.stringify(backlog));
+  }
 
   function archiveDay(ds) {
     if (!ds || !ds.date) return;
@@ -1666,7 +1958,15 @@
     try { const r = storageGet(HISTORY_KEY); return r ? JSON.parse(r) : []; } catch (e) { return []; }
   }
 
-  function saveState() { storageSet(STORAGE_KEY, JSON.stringify(state)); }
+  function saveState() {
+    // Sync today's goals/distractions/quickDone views back into the store
+    // (source of truth), then persist both. Legacy key is still written so the
+    // old backup stays current too.
+    syncDayToStore(state.date);
+    syncSessionsToStore();
+    saveStore();
+    storageSet(STORAGE_KEY, JSON.stringify(state));
+  }
 
   // =========================================================
   // CARRYOVER
@@ -1844,48 +2144,22 @@
     hoursPill.className = 'goal-hours-pill';
     hoursPill.dataset.goalIndex = index;
 
-    function formatGoalHours(h) {
-      if (!h || h === 0) return '+ hrs';
-      if (h < 1) return `${Math.round(h * 60)}m`;
-      const hrs = Math.floor(h);
-      const mins = Math.round((h - hrs) * 60);
-      return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-    }
-
     function renderHoursPill() {
       const h = state.goals[index].hours || 0;
-      hoursPill.textContent = formatGoalHours(h);
+      hoursPill.textContent = formatHours(h);
       hoursPill.classList.toggle('goal-hours-pill--empty', h === 0);
     }
     renderHoursPill();
 
-    hoursPill.addEventListener('click', () => {
-      if (hoursPill.querySelector('input')) return;
-      const inp = document.createElement('input');
-      inp.type = 'number';
-      inp.className = 'done-hours-input';
-      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
-      inp.value = state.goals[index].hours || '';
-      inp.placeholder = '0';
-      hoursPill.textContent = '';
-      hoursPill.appendChild(inp);
-      inp.focus(); inp.select();
-
-      function commitHours() {
-        const prev = state.goals[index].hours || 0;
-        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
-        const delta = v - prev;
+    makeInlineHoursEditor(hoursPill, {
+      getValue: () => state.goals[index].hours,
+      onCommit: (v, prev, delta) => {
         state.goals[index].hours = v;
         saveState();
         accumulateCategoryHours(state.goals[index].category || 'general', delta);
         renderSummary();
-        renderHoursPill();
-      }
-      inp.addEventListener('blur', commitHours);
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') renderHoursPill();
-      });
+      },
+      render: renderHoursPill,
     });
 
     const pg = document.createElement('div'); pg.className = 'log-group';
@@ -2024,56 +2298,32 @@
     taskName.textContent = goal.name;
 
     // Hours pill — same pattern as goal card, clickable to edit
-    function fmtH(h) {
-      if (!h || h === 0) return '+ hrs';
-      if (h < 1) return `${Math.round(h * 60)}m`;
-      const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
-      return mn > 0 ? `${hr}h ${mn}m` : `${hr}h`;
-    }
-
     const hoursDisplay = document.createElement('span');
     hoursDisplay.className = 'goal-hours-pill focus-modal-hours-pill';
 
     const updateHoursDisplay = () => {
       const h = state.goals[index] ? (state.goals[index].hours || 0) : (goal.hours || 0);
       if (hoursDisplay.querySelector('input')) return;
-      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${fmtH(h)} today`;
+      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${formatHours(h)} today`;
       hoursDisplay.classList.toggle('goal-hours-pill--empty', h === 0);
     };
     updateHoursDisplay();
 
-    hoursDisplay.addEventListener('click', () => {
-      if (hoursDisplay.querySelector('input')) return;
-      const inp = document.createElement('input');
-      inp.type = 'number'; inp.className = 'done-hours-input';
-      inp.min = '0'; inp.max = '24'; inp.step = '0.25';
-      inp.value = state.goals[index].hours || '';
-      inp.placeholder = '0';
-      hoursDisplay.textContent = '';
-      hoursDisplay.appendChild(inp);
-      inp.focus(); inp.select();
-
-      function commitModalHours() {
-        const prev = state.goals[index].hours || 0;
-        const v = Math.max(0, Math.min(24, parseFloat(inp.value) || 0));
-        const delta = v - prev;
+    makeInlineHoursEditor(hoursDisplay, {
+      getValue: () => state.goals[index].hours,
+      onCommit: (v, prev, delta) => {
         state.goals[index].hours = v;
         saveState();
         accumulateCategoryHours(state.goals[index].category || 'general', delta);
         renderSummary();
-        updateHoursDisplay();
         // Sync card pill too
         const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
         if (cardPill && !cardPill.querySelector('input')) {
-          cardPill.textContent = fmtH(v) || '+ hrs';
+          cardPill.textContent = formatHours(v);
           cardPill.classList.toggle('goal-hours-pill--empty', v === 0);
         }
-      }
-      inp.addEventListener('blur', commitModalHours);
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') updateHoursDisplay();
-      });
+      },
+      render: updateHoursDisplay,
     });
 
     // Quick time chips
@@ -2084,43 +2334,22 @@
     chipsLabel.className = 'focus-modal-chips-label';
     chipsLabel.textContent = 'Log time on this task';
 
-    const chips = document.createElement('div');
-    chips.className = 'focus-modal-chips';
-
-    const timeChips = [
-      { label: '+10m', hours: 10/60 },
-      { label: '+15m', hours: 15/60 },
-      { label: '+30m', hours: 30/60 },
-      { label: '+1h',  hours: 1 },
-      { label: '+2h',  hours: 2 },
-    ];
-
-    timeChips.forEach(({ label, hours }) => {
-      const chip = document.createElement('button');
-      chip.className = 'focus-time-chip';
-      chip.textContent = label;
-      chip.addEventListener('click', () => {
-        const prev = state.goals[index].hours || 0;
-        const next = Math.min(24, prev + hours);
-        const delta = next - prev;
-        state.goals[index].hours = Math.round(next * 100) / 100;
-        saveState();
-        accumulateCategoryHours(state.goals[index].category || 'general', delta);
-        renderSummary();
-        updateHoursDisplay();
-        // Sync the hours pill on the card without a full re-render
-        const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
-        if (cardPill && !cardPill.querySelector('input')) {
-          const h = state.goals[index].hours || 0;
-          const fh = h => h < 1 ? `${Math.round(h*60)}m` : (() => { const hr=Math.floor(h),mn=Math.round((h-hr)*60); return mn>0?`${hr}h ${mn}m`:`${hr}h`; })();
-          cardPill.textContent = fh(h);
-          cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
-        }
-
-        chip.classList.add('focus-time-chip-flash');
-        setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
-      });
-      chips.appendChild(chip);
+    const chips = makeTimeAddPills(addedHours => {
+      const prev = state.goals[index].hours || 0;
+      const next = Math.min(24, prev + addedHours);
+      const delta = next - prev;
+      state.goals[index].hours = Math.round(next * 100) / 100;
+      saveState();
+      accumulateCategoryHours(state.goals[index].category || 'general', delta);
+      renderSummary();
+      updateHoursDisplay();
+      // Sync the hours pill on the card without a full re-render
+      const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
+      if (cardPill && !cardPill.querySelector('input')) {
+        const h = state.goals[index].hours || 0;
+        cardPill.textContent = formatHours(h);
+        cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
+      }
     });
 
     chipsSection.append(chipsLabel, chips);
@@ -2688,9 +2917,9 @@
           timestamp: Date.now(),
           goalName: goal.name,
           goalIndex: index,
+          // Store only the category id; emoji/color are resolved live at render
+          // so category edits reflect in the journal (no frozen snapshot).
           category: goal.category || 'general',
-          catEmoji,
-          catColor,
           totalMins,
           focusPct,
           focusMins,
@@ -2909,42 +3138,20 @@
     hoursBadge.title = 'Click to edit hours';
 
     function renderHoursBadge() {
-      if (item.hours > 0) {
-        const h = item.hours;
-        const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
-        hoursBadge.textContent = (hr > 0 && mn > 0) ? `${hr}h ${mn}m` : hr > 0 ? `${hr}h` : `${mn}m`;
-      } else {
-        hoursBadge.textContent = '+ hrs';
-      }
+      hoursBadge.textContent = formatHours(item.hours);
       hoursBadge.classList.toggle('done-hours-badge--empty', !(item.hours > 0));
     }
     renderHoursBadge();
 
-    hoursBadge.addEventListener('click', () => {
-      if (hoursBadge.querySelector('input')) return;
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.className = 'done-hours-input';
-      input.min = '0'; input.max = '24'; input.step = '0.25';
-      input.value = item.hours || '';
-      input.placeholder = '0';
-      hoursBadge.textContent = '';
-      hoursBadge.appendChild(input);
-      input.focus(); input.select();
-
-      function commit() {
-        const v = Math.max(0, Math.min(24, parseFloat(input.value) || 0));
+    makeInlineHoursEditor(hoursBadge, {
+      getValue: () => item.hours,
+      onCommit: v => {
         state.quickDone[index].hours = v;
         item.hours = v;
         saveState();
         renderSummary();
-        renderHoursBadge();
-      }
-      input.addEventListener('blur', commit);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { hoursBadge.textContent = ''; renderHoursBadge(); }
-      });
+      },
+      render: renderHoursBadge,
     });
 
     const del = document.createElement('button');
@@ -3267,13 +3474,6 @@
     state.failures.forEach((t, i) => failuresListEl.appendChild(createJournalEntry(t, i, 'failures')));
   }
 
-  function fmtMins(m) {
-    if (!m || m <= 0) return '0m';
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60), rem = m % 60;
-    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
-  }
-
   function createFocusSessionEntry(session, index) {
     const row = document.createElement('div');
     row.className = 'focus-session-entry' + (session.isWin ? ' focus-session-win' : ' focus-session-lesson');
@@ -3292,7 +3492,11 @@
 
     const pillName = document.createElement('span');
     pillName.className = 'focus-session-name';
-    pillName.textContent = session.catEmoji + ' ' + session.goalName;
+    // Resolve the category emoji LIVE from the id so renaming/recoloring a
+    // category reflects in past journal entries. goalName stays a snapshot since
+    // the goal itself may be renamed or deleted (this is an audit-log row).
+    const sessCat = getCategoryById(session.category || 'general');
+    pillName.textContent = (sessCat.emoji || session.catEmoji || '⚡') + ' ' + session.goalName;
 
     pillLeft.append(badge, pillName);
 
@@ -3301,7 +3505,7 @@
 
     const timePill = document.createElement('span');
     timePill.className = 'focus-session-time';
-    timePill.textContent = fmtMins(session.focusMins) + ' focused';
+    timePill.textContent = formatHours(session.focusMins / 60, '0m') + ' focused';
 
     const pctPill = document.createElement('span');
     pctPill.className = 'focus-session-pct' + (session.isWin ? ' pct-win' : ' pct-lesson');
@@ -3763,7 +3967,7 @@
 
     // ── Normal within-list reorder mode ───────────────────────
     if (activeDrag.dragType !== 'task') return;
-    const { item, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop, parentCard } = activeDrag;
+    const { item, list, siblings, step, draggingIndex, pointerOffsetY, naturalTop, minTop, maxTop, parentCard } = activeDrag;
 
     // Check if pointer has left the parent card — if so, switch to cross-card mode
     if (parentCard && activeDrag.type === 'goal') {
@@ -3780,7 +3984,8 @@
         if (!goalData) { activeDrag = null; return; }
 
         // Release pointer capture from handle so events route globally during cross-drag
-        try { handle.releasePointerCapture(e.pointerId); } catch(_) {}
+        const handle = item.querySelector('.task-drag-handle');
+        try { if (handle) handle.releasePointerCapture(e.pointerId); } catch(_) {}
 
         // Remove the item from the DOM entirely — hiding/collapsing leaves compositor
         // layer artifacts that trail across the screen during pointer movement
@@ -4314,6 +4519,11 @@
   // DAY TRANSITION MODAL
   // =========================================================
   function showDayTransitionModal(prev) {
+    // Only ever one transition modal at a time. If we cross several day
+    // boundaries (left the tab open, or skipped days), dismiss any modal already
+    // showing so the latest summary replaces it instead of stacking on top.
+    document.querySelectorAll('.day-modal-overlay').forEach(el => el.remove());
+
     // Compute yesterday's stats
     const prevGoals = prev.goals || [];
     const prevDistractions = prev.distractions || [];
@@ -4666,6 +4876,7 @@
     getState: () => state,
     getGoals: () => state.goals,
     getDistractions: () => state.distractions,
+    getStore: () => store,
     storageGet, storageSet
   };
 

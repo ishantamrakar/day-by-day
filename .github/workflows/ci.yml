@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dev tooling
+        run: npm ci || npm install
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Validate HTML
+        run: npm run validate:html
+
+      - name: Install Chromium for smoke test
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test (app boots cleanly)
+        run: npm run test:smoke

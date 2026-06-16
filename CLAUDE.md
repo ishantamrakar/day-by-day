@@ -1,6 +1,8 @@
 # Day by Day
 
 > **For Claude:** Update this file and the relevant `docs/` file whenever you add a feature, fix a bug, or restructure code. Stale docs are worse than none.
+>
+> **Commits are manual.** The maintainer makes every git commit and push themselves. Never run `git commit`, `git push`, `git checkout -b`, or open PRs. When work reaches a commit point, output the exact commands (and commit message) for them to run by hand.
 
 Finitude-aware daily focus app. Personal tool first, product eventually. Inspired by Oliver Burkeman's *4,000 Weeks* — embrace limits, act imperfectly, focus on what matters.
 
@@ -18,10 +20,12 @@ notifications.js — nudge system, browser notifications
 | File | Contents |
 |------|----------|
 | [docs/architecture.md](docs/architecture.md) | State shapes, localStorage keys, file internals, key functions |
+| [docs/data-model.md](docs/data-model.md) | Unified store schema, store⇄view adapter, future DB design |
 | [docs/design-system.md](docs/design-system.md) | Colors, depth/glass system, buttons, typography, guardrails |
 | [docs/features.md](docs/features.md) | All implemented features, how each system works |
 | [docs/drag-drop.md](docs/drag-drop.md) | Drag & drop deep dive — all three systems, known bugs |
 | [docs/roadmap.md](docs/roadmap.md) | Known bugs, backlog, future ideas, product vision |
+| [docs/dev-workflow.md](docs/dev-workflow.md) | Branch model (`main`/`develop`/`feature/*`), CI checks, GitHub Pages deploy |
 
 ## Philosophy & Tone
 

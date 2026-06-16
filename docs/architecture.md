@@ -6,13 +6,23 @@
 
 | Key | Contents |
 |-----|----------|
-| `daybyday_data` | Today's state object |
+| `daybyday_store` | **Unified store (source of truth, Phase 3).** See [data-model.md](data-model.md). |
+| `daybyday_data` | Today's state object — legacy, still written as a backup |
 | `daybyday_history` | Up to 30 archived day objects |
 | `daybyday_layout` | Card column order (JSON) |
 | `daybyday_backlog` | Persistent backlog array |
 | `daybyday_categories` | Categories with all-time `totalHours` |
 | `daybyday_sidebar` | `'collapsed'` or `'open'` |
 | `daybyday_prefs` | Notification dismissed flag |
+
+## Data model
+
+The **unified store** (`daybyday_store`) is the source of truth; `state.goals` /
+`state.distractions` / `state.quickDone` / `backlog` / `state.focusSessions` are
+live views over it (each carries its entity id as `_eid`). Full schema, the
+store⇄view adapter, and the future DB design: **[data-model.md](data-model.md)**.
+The legacy state shapes below are still written as a backup and still drive
+day-rollover detection in `loadState()`.
 
 ## State Shapes
 
@@ -51,6 +61,12 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `getCategoryById(id)` — always returns something; falls back to `general`.
 - `accumulateCategoryHours(catId, delta)` — **only place `totalHours` is mutated.** Called on every hours-input change.
 - `createCategoryPill()` — tracks `currentCatId` in closure so picker always shows current value.
+- `openTaskContextPicker(anchor, catId, repeatable, onConfirm, { showRepeatable })` — the **single** category/context modal for every task-like row. `showRepeatable: false` gives a category-only picker (used by backlog + distractions); default shows the repeatable toggle (Top 5 goals). There is no separate popover picker.
+
+**Shared UI helpers** (added to kill duplication — reuse these, don't reimplement):
+- `formatHours(h, emptyLabel='+ hrs')` — the one h/m pill formatter. For minutes pass `formatHours(mins / 60, '0m')`.
+- `makeInlineHoursEditor(pillEl, { getValue, onCommit, render })` — click-to-edit hours widget (0–24, 0.25 step; blur/Enter commit, Escape cancel). Used by the goal card, focus modal, and done badge.
+- `makeTimeAddPills(onAdd, presets=DEFAULT_TIME_PRESETS)` — row of +10m/…/+2h chips; `onAdd(deltaHours)` owns clamp/save/accumulate/sync.
 
 **Day transition:**
 - `getTodayString()` — local date `YYYY-MM-DD`, never UTC.

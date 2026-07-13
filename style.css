@@ -1525,6 +1525,14 @@ footer {
   margin-bottom: 4px;
 }
 
+/* Note shown when backlog items outside today's focus categories are hidden */
+.backlog-hidden-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 4px 14px 2px;
+  font-style: italic;
+}
+
 .backlog-item {
   display: flex;
   align-items: center;

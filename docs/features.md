@@ -12,7 +12,7 @@
 - **5 Distractions** — hour logging, drag reorder
 - **Summary rings** — 4 SVG rings: avg progress (green), goal hours (mint), distraction hours (rose), quick wins hours (orange)
 - **Journal** — wins + lessons, mood/sentiment tracking
-- **Backlog** — unlimited items; promote (→ Top 5) / demote (→ backlog); `fromBacklog: true` flag on promoted goals
+- **Backlog** — unlimited items; promote (→ Top 5) / demote (→ backlog); `fromBacklog: true` flag on promoted goals. The card shows only items in today's focus categories (`state.focusCategoryIds`); with no focus set it shows all. Hidden items get a muted "N more tasks in other life areas" note and stay reachable via the sidebar category expansions (`isBacklogItemVisible` / `backlogVisibleSlotToIndex` in app.js map visible drop slots back to array indices)
 - **Day carryover** — archives up to 30 days; incomplete goals carried forward
 - **Notifications** — browser + in-app nudges; wisdom messages; guilt-trip nudges
 - **Undo** — Cmd/Ctrl+Z for goals, distractions, journal, backlog, quick wins

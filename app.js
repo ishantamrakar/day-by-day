@@ -3360,10 +3360,45 @@
   // =========================================================
   // BACKLOG
   // =========================================================
+  // The backlog card only shows items from today's focus categories (picked in
+  // the day-start modal). With no focus set (e.g. modal skipped) it shows all.
+  // Hidden items stay reachable via the sidebar category expansions.
+  function isBacklogItemVisible(item) {
+    const focusIds = state.focusCategoryIds || [];
+    return focusIds.length === 0 || focusIds.includes(item.category || 'general');
+  }
+
+  // Map a slot among the *visible* backlog rows to an index in the full
+  // backlog array (hidden items make the two diverge).
+  function backlogVisibleSlotToIndex(slot) {
+    let seen = 0;
+    for (let i = 0; i < backlog.length; i++) {
+      if (!isBacklogItemVisible(backlog[i])) continue;
+      if (seen === slot) return i;
+      seen++;
+    }
+    return backlog.length;
+  }
+
   function renderBacklog() {
     if (!backlogListEl) return;
     backlogListEl.innerHTML = '';
-    backlog.forEach((item, i) => backlogListEl.appendChild(createBacklogElement(item, i)));
+    let hiddenCount = 0;
+    backlog.forEach((item, i) => {
+      if (!isBacklogItemVisible(item)) {
+        hiddenCount++;
+        return;
+      }
+      backlogListEl.appendChild(createBacklogElement(item, i));
+    });
+    if (hiddenCount > 0) {
+      const note = document.createElement('div');
+      note.className = 'backlog-hidden-note';
+      note.textContent = hiddenCount === 1
+        ? '1 more task in other life areas — find it in the sidebar'
+        : `${hiddenCount} more tasks in other life areas — find them in the sidebar`;
+      backlogListEl.appendChild(note);
+    }
     updateAddButtonVisibility();
   }
 
@@ -3389,6 +3424,7 @@
       backlog[index].category = newId;
       saveBacklog();
       renderSidebar();
+      renderBacklog();
     });
     actions.appendChild(catPill);
 
@@ -4161,7 +4197,7 @@
         const g = state.goals[goalIndex];
         if (g) {
           const newItem = { name: g.name, category: g.category || null, repeatable: g.repeatable || false };
-          const slot = activeDrag.crossSlot >= 0 ? activeDrag.crossSlot : backlog.length;
+          const slot = activeDrag.crossSlot >= 0 ? backlogVisibleSlotToIndex(activeDrag.crossSlot) : backlog.length;
           backlog.splice(Math.min(slot, backlog.length), 0, newItem);
           state.goals.splice(goalIndex, 1);
           saveState(); saveBacklog(); render(); renderSidebar();

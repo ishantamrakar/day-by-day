@@ -1217,7 +1217,7 @@
     closeModal();
 
     const overlay = document.createElement('div');
-    overlay.className = 'quick-add-modal-overlay';
+    overlay.className = 'modal-overlay quick-add-modal-overlay';
     activeQuickAdd = overlay;
 
     const modal = document.createElement('div');
@@ -1312,7 +1312,7 @@
 
     function confirmAdd() {
       const name = taskInput.value.trim();
-      if (!name) { taskInput.focus(); return; }
+      if (!name) { taskInput.focus({ preventScroll: true }); return; }
       const repeatable = toggleInput.checked;
 
       if (dest === 'top5' && getActiveGoals().length < MAX_GOALS) {
@@ -1342,7 +1342,7 @@
     document.body.appendChild(overlay);
 
     overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeQuickAdd(); });
-    setTimeout(() => taskInput.focus(), 60);
+    setTimeout(() => taskInput.focus({ preventScroll: true }), 60);
   }
 
   // =========================================================
@@ -1377,7 +1377,7 @@
     const DEFAULT_EMOJI = '🌟';
 
     const overlay = document.createElement('div');
-    overlay.className = 'cat-modal-overlay';
+    overlay.className = 'modal-overlay cat-modal-overlay';
     activeModal = overlay;
 
     const modal = document.createElement('div');
@@ -1431,7 +1431,7 @@
 
     emojiDisplay.addEventListener('click', () => {
       emojiInput.value = '';
-      emojiInput.focus();
+      emojiInput.focus({ preventScroll: true });
       // On macOS, try triggering emoji picker via keyboard simulation hint
     });
 
@@ -1546,7 +1546,7 @@
 
     function confirmCreate() {
       const name = nameInput.value.trim();
-      if (!name) { nameInput.focus(); nameInput.style.borderColor = '#e63946'; return; }
+      if (!name) { nameInput.focus({ preventScroll: true }); nameInput.style.borderColor = '#e63946'; return; }
       const id = 'custom_' + Date.now();
       const emoji = emojiDisplay.textContent.trim() || DEFAULT_EMOJI;
       const newCat = { id, name, emoji, color: selectedColor, totalHours: 0, vision: visionInput.value.trim() };
@@ -1569,7 +1569,7 @@
       if (e.target === overlay) { emojiInput.remove(); closeModal(); }
     });
 
-    setTimeout(() => nameInput.focus(), 80);
+    setTimeout(() => nameInput.focus({ preventScroll: true }), 80);
   }
 
   // Build the category pill — emoji only, opens context popover (category + repeatable)
@@ -1632,7 +1632,7 @@
     let selectedCatId = currentCatId || 'general';
 
     const overlay = document.createElement('div');
-    overlay.className = 'task-context-modal-overlay';
+    overlay.className = 'modal-overlay task-context-modal-overlay';
     activeModal = overlay;
 
     const modal = document.createElement('div');
@@ -1750,7 +1750,7 @@
     closeModal(); closeQuickAdd();
 
     const overlay = document.createElement('div');
-    overlay.className = 'quick-add-modal-overlay';
+    overlay.className = 'modal-overlay quick-add-modal-overlay';
     activeModal = overlay;
 
     const modal = document.createElement('div');
@@ -1850,7 +1850,7 @@
     addBtn.textContent = 'Add Task';
     addBtn.addEventListener('click', () => {
       const name = taskInput.value.trim();
-      if (!name) { taskInput.focus(); return; }
+      if (!name) { taskInput.focus({ preventScroll: true }); return; }
       closeModal();
       onConfirm({ name, category: selectedCatId, repeatable: toggleInput.checked });
     });
@@ -1866,7 +1866,7 @@
     document.body.appendChild(overlay);
 
     overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeModal(); });
-    setTimeout(() => { taskInput.focus(); taskInput.setSelectionRange(taskInput.value.length, taskInput.value.length); }, 60);
+    setTimeout(() => { taskInput.focus({ preventScroll: true }); taskInput.setSelectionRange(taskInput.value.length, taskInput.value.length); }, 60);
   }
 
   // =========================================================
@@ -2270,7 +2270,7 @@
     const catEmoji = cat ? cat.emoji : '⚡';
 
     const overlay = document.createElement('div');
-    overlay.className = 'focus-modal-overlay';
+    overlay.className = 'modal-overlay focus-modal-overlay';
     activeFocusOverlay = overlay;
 
     const modal = document.createElement('div');
@@ -2381,7 +2381,7 @@
     if (activeFocusOverlay) activeFocusOverlay.remove();
 
     const overlay = document.createElement('div');
-    overlay.className = 'focus-fullscreen-overlay';
+    overlay.className = 'modal-overlay focus-fullscreen-overlay';
     overlay.style.setProperty('--focus-cat-color', catColor);
     overlay.style.setProperty('--focus-cat-color-rgb', hexToRgb(catColor));
     activeFocusOverlay = overlay;
@@ -2525,14 +2525,14 @@
         if (isCustom) {
           journalArea.classList.add('hidden');
           customLabelArea.classList.remove('hidden');
-          customInput.focus();
+          customInput.focus({ preventScroll: true });
         } else {
           customLabelArea.classList.add('hidden');
           const stateObj = ENTRY_STATES.find(s => s.label === label);
           if (stateObj && stateObj.prompt) {
             journalPrompt.textContent = stateObj.prompt;
             journalArea.classList.remove('hidden');
-            journalInput.focus();
+            journalInput.focus({ preventScroll: true });
           } else {
             journalArea.classList.add('hidden');
           }
@@ -2856,7 +2856,7 @@
         if (isCustom) {
           reflectionArea.classList.add('hidden');
           customExitArea.classList.remove('hidden');
-          customExitInput.focus();
+          customExitInput.focus({ preventScroll: true });
         } else {
           customExitArea.classList.add('hidden');
           const stateObj = EXIT_STATES.find(s => s.label === tagLabel);
@@ -2864,7 +2864,7 @@
             ? `You set out to: "${sessionIntention}" — did you get there? What helped?`
             : (stateObj ? stateObj.prompt : 'What did you notice?');
           reflectionArea.classList.remove('hidden');
-          reflectionInput.focus();
+          reflectionInput.focus({ preventScroll: true });
         }
       });
 
@@ -3181,7 +3181,7 @@
     closeModal();
 
     const overlay = document.createElement('div');
-    overlay.className = 'quick-add-modal-overlay';
+    overlay.className = 'modal-overlay quick-add-modal-overlay';
     activeQuickAdd = overlay;
 
     const modal = document.createElement('div');
@@ -3263,7 +3263,7 @@
 
     function confirmLog() {
       const name = taskInput.value.trim();
-      if (!name) { taskInput.focus(); return; }
+      if (!name) { taskInput.focus({ preventScroll: true }); return; }
       const hours = Math.max(0, parseFloat(hoursInput.value) || 0);
       addQuickDone(name, hours, selectedCatId !== 'general' ? selectedCatId : null);
       accumulateCategoryHours(selectedCatId, hours);
@@ -3278,7 +3278,7 @@
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeQuickAdd(); });
-    setTimeout(() => taskInput.focus(), 60);
+    setTimeout(() => taskInput.focus({ preventScroll: true }), 60);
   }
 
   if (addQuickBtn) addQuickBtn.addEventListener('click', () => openLogDoneModal());
@@ -4522,10 +4522,28 @@
   }
 
   // =========================================================
+  // MODAL LOCK — design rule: while any modal overlay is open,
+  // the page behind it is inert. Every overlay carries the shared
+  // `modal-overlay` class; this observer toggles `modal-open` on
+  // <body> (CSS kills page scroll) no matter which code path
+  // opens or removes the overlay. Global shortcuts must check
+  // isModalOpen() before touching background state.
+  // =========================================================
+  function isModalOpen() {
+    return !!document.querySelector('body > .modal-overlay');
+  }
+  new MutationObserver(() => {
+    // Class goes on <html>: overflow:hidden on body alone doesn't reliably
+    // stop viewport wheel scrolling in Chromium.
+    document.documentElement.classList.toggle('modal-open', isModalOpen());
+  }).observe(document.body, { childList: true });
+
+  // =========================================================
   // UNDO — Cmd+Z / Ctrl+Z
   // =========================================================
   document.addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+      if (isModalOpen()) return; // modal owns the keyboard (native text undo etc.)
       if (!undoStack.length) return;
       e.preventDefault();
       const { type, item, index } = undoStack.pop();
@@ -4592,7 +4610,7 @@
     }
 
     const overlay = document.createElement('div');
-    overlay.className = 'day-modal-overlay';
+    overlay.className = 'modal-overlay day-modal-overlay';
 
     const modal = document.createElement('div');
     modal.className = 'day-modal';

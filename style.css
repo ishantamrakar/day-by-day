@@ -64,6 +64,26 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Modal lock — design rule: the page behind a modal is inert.
+   Every modal overlay carries .modal-overlay; a MutationObserver in app.js
+   toggles html.modal-open while any is in the DOM. The full-viewport fixed
+   backdrop swallows clicks; overflow:hidden on the root stops background
+   scroll (on body alone Chromium still wheel-scrolls the viewport). */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  /* Scroll container + contain: wheel/touch over the modal never chains
+     to the page behind it (modals scroll internally via their own
+     overflow-y: auto). */
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+html.modal-open,
+html.modal-open body {
+  overflow: hidden;
+}
+
 /* Animated background blobs — real divs, all identical base rules */
 .blob {
   position: fixed;

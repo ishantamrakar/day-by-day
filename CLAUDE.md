@@ -43,3 +43,4 @@ The app must feel **calm and encouraging** — never stressful or micromanaging.
 - "Hours invested" not "wasted" — encouraging language throughout
 - Spacious layouts, never cramped
 - Guilt-trip messages are reflective questions, not attacks
+- Modals get full attention: the page behind an open modal is inert — no scroll, no clicks, no shortcuts (see [docs/design-system.md](docs/design-system.md) § Modals)

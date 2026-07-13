@@ -17,6 +17,7 @@
 - **Notifications** — browser + in-app nudges; wisdom messages; guilt-trip nudges
 - **Undo** — Cmd/Ctrl+Z for goals, distractions, journal, backlog, quick wins
 - **Inline editing** — all text items editable in place (Enter saves, Escape cancels)
+- **Modal lock** — while any modal is open the page behind it is inert: no scroll, no clicks, no Cmd+Z (see [design-system.md](design-system.md) § Modals for the rules new modals must follow)
 - **Drag & drop** — card reorder + task row reorder + cross-card goal↔backlog (see [drag-drop.md](drag-drop.md))
 - **Responsive** — two-col desktop, single-col at 800px
 - **Life Areas (Categories)** — 5 defaults + unlimited custom; all-time hours per category

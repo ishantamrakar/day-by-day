@@ -89,3 +89,31 @@ Never combine with `text-shadow` — incompatible with `background-clip: text`.
 - **No Apple SDK** — glass is pure CSS (`backdrop-filter` + gradient sheen). No external libs.
 - All new semantic colors → CSS custom property in `:root` first.
 - Derived colors use `rgba()` of the base hex, never new hex values.
+
+## Modals
+
+**Design rule: while a modal is open, the page behind it is inert.** No background
+scrolling, no background clicks, no global shortcuts mutating background state.
+A modal asks for the user's full attention — the calm way to do that is to quiet
+everything else, not compete with it.
+
+How it's enforced (every new modal must follow this):
+
+1. Give the overlay the shared class **plus** its own: `overlay.className = 'modal-overlay my-new-overlay'`.
+2. Append the overlay directly to `document.body`; close it by removing the overlay element.
+3. That's it — a `MutationObserver` in app.js toggles `modal-open` on `<html>`
+   (`overflow: hidden` on the root kills page scroll; on `body` alone Chromium
+   still wheel-scrolls the viewport) whenever any `.modal-overlay` enters or
+   leaves the DOM, so every open/close path is covered automatically.
+4. The base `.modal-overlay` rule supplies `position: fixed; inset: 0` (backdrop
+   swallows clicks) plus `overflow: hidden; overscroll-behavior: contain` so
+   wheel/touch over the modal never chains to the page. Overlays still declare
+   their own backdrop tint/blur/z-index. A modal taller than the viewport needs
+   its own `max-height` + `overflow-y: auto` — all current modals have this.
+5. Auto-focusing an input inside a modal must use
+   `input.focus({ preventScroll: true })` — programmatic focus scrolling bypasses
+   `overflow: hidden` and would jump the page behind the modal.
+6. Global keyboard shortcuts (e.g. Cmd+Z undo) must bail early via `isModalOpen()`.
+
+Scrolling *inside* a modal (e.g. day-transition checklist) is unaffected — only the
+page behind it locks.

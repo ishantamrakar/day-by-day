@@ -11,6 +11,9 @@
   const BACKLOG_KEY = 'daybyday_backlog';
   const CATEGORIES_KEY = 'daybyday_categories';
   const SIDEBAR_KEY = 'daybyday_sidebar';
+  // In-progress focus session snapshot — lets a crashed/reloaded tab offer
+  // to resume the session instead of silently losing it.
+  const FOCUS_SNAPSHOT_KEY = 'daybyday_focus_session';
   // Unified store (Phase 3). Built from the legacy keys above by migrateToStore();
   // legacy keys are kept as a one-version backup so migration is reversible.
   const STORE_KEY = 'daybyday_store';
@@ -382,6 +385,10 @@
   function storageSet(key, value) {
     if (!storageAvailable) return;
     try { localStorage.setItem(key, value); } catch (e) {}
+  }
+  function storageRemove(key) {
+    if (!storageAvailable) return;
+    try { localStorage.removeItem(key); } catch (e) {}
   }
 
   // =========================================================
@@ -2383,7 +2390,10 @@
     });
   }
 
-  function openFullFocusMode(goal, index, catColor, catEmoji, cat) {
+  // `resume` (optional): a crash-recovery snapshot from FOCUS_SNAPSHOT_KEY —
+  // { snap, toExit }. Restores session state and boots straight to the
+  // ambient screen (or the exit screen when toExit is set).
+  function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) {
     if (activeFocusOverlay) activeFocusOverlay.remove();
 
     const overlay = document.createElement('div');
@@ -2394,13 +2404,29 @@
     document.body.appendChild(overlay);
 
     // Shared session state — carries through all screens
-    let sessionIntention = '';
-    let sessionEntryTag = null;
-    let sessionEntryNote = '';
-    let sessionNotes = [];
-    let sessionStartTime = null; // set when ambient screen opens
-    let ultraFocus = false;      // user kept going after an idle check-in
+    const snap = resume ? resume.snap : null;
+    let sessionIntention = snap ? (snap.sessionIntention || '') : '';
+    let sessionEntryTag = snap ? (snap.sessionEntryTag || null) : null;
+    let sessionEntryNote = snap ? (snap.sessionEntryNote || '') : '';
+    let sessionNotes = snap ? (snap.sessionNotes || []) : [];
+    let sessionStartTime = snap ? (snap.sessionStartTime || null) : null; // set when ambient screen opens
+    let ultraFocus = snap ? !!snap.ultraFocus : false; // user kept going after an idle check-in
     let overrideTotalMins = null; // set when user logs custom hours from the idle dialog
+
+    // Crash backup: while a session runs, a snapshot lives in localStorage.
+    // Written at ambient start and on every meaningful change; cleared on
+    // every deliberate close so it only survives crashes/reloads.
+    function persistSnapshot() {
+      storageSet(FOCUS_SNAPSHOT_KEY, JSON.stringify({
+        date: getTodayString(),
+        goalName: goal.name,
+        category: goal.category || null,
+        sessionStartTime, sessionIntention, sessionEntryTag, sessionEntryNote,
+        sessionNotes, ultraFocus,
+        savedAt: Date.now(),
+      }));
+    }
+    function clearSnapshot() { storageRemove(FOCUS_SNAPSHOT_KEY); }
 
     // ── helpers ──────────────────────────────────────────────
 
@@ -2475,7 +2501,7 @@
       btn.className = 'focus-fullscreen-close';
       btn.title = 'Close focus mode';
       btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-      btn.addEventListener('click', () => { overlay.remove(); activeFocusOverlay = null; });
+      btn.addEventListener('click', () => { clearSnapshot(); overlay.remove(); activeFocusOverlay = null; });
       return btn;
     }
 
@@ -2572,7 +2598,8 @@
     // ── Screen 3: Ambient (3-column) ─────────────────────────
 
     function buildAmbientScreen() {
-      sessionStartTime = Date.now();
+      if (!sessionStartTime) sessionStartTime = Date.now(); // preserved on crash-resume
+      persistSnapshot();
 
       const screen = document.createElement('div');
       screen.className = 'focus-ambient-screen';
@@ -2631,14 +2658,22 @@
           empty.textContent = 'Notes you add will appear here.';
           notesListEl.appendChild(empty);
         } else {
-          sessionNotes.forEach((n, i) => {
+          sessionNotes.forEach(n => {
+            // Notes are { text, at } — but tolerate plain strings from
+            // snapshots written before timestamps existed.
             const noteEl = document.createElement('div');
             noteEl.className = 'focus-note-item';
             const dot = document.createElement('span');
             dot.className = 'focus-note-dot';
             const txt = document.createElement('span');
-            txt.textContent = n;
+            txt.textContent = typeof n === 'string' ? n : n.text;
             noteEl.append(dot, txt);
+            if (n.at) {
+              const time = document.createElement('span');
+              time.className = 'focus-note-time';
+              time.textContent = new Date(n.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              noteEl.appendChild(time);
+            }
             notesListEl.appendChild(noteEl);
           });
         }
@@ -2683,7 +2718,9 @@
       }
 
       function applyUltraFocus() {
-        if (ultraFocus) return;
+        // Guard on the DOM, not the flag — a crash-resumed ultra session
+        // has ultraFocus=true but still needs its visuals re-applied.
+        if (overlay.classList.contains('focus-ultra')) return;
         ultraFocus = true;
         overlay.classList.add('focus-ultra');
         overlay.style.setProperty('--focus-cat-color', ULTRA_FOCUS_COLOR);
@@ -2692,6 +2729,7 @@
         badge.className = 'focus-ultra-badge';
         badge.textContent = '🔥 Ultra focus';
         clockEl.insertAdjacentElement('afterend', badge);
+        persistSnapshot();
       }
 
       function showIdleDialog() {
@@ -2748,6 +2786,7 @@
         trimBtn.addEventListener('click', () => {
           const gapMs = Date.now() - awayStart;
           sessionStartTime = Math.min(Date.now(), sessionStartTime + gapMs);
+          persistSnapshot();
           closeIdleDialog();
         });
 
@@ -2788,6 +2827,7 @@
         scrapBtn.addEventListener('click', () => {
           stopAmbientIntervals();
           closeIdleDialog();
+          clearSnapshot();
           overlay.remove();
           activeFocusOverlay = null;
         });
@@ -2811,13 +2851,18 @@
       saveNoteBtn.addEventListener('click', () => {
         const text = noteInput.value.trim();
         if (text) {
-          sessionNotes.push(text);
+          sessionNotes.push({ text, at: Date.now() });
           noteInput.value = '';
           renderNotesList();
+          persistSnapshot();
         }
       });
+      // Enter saves the note as a new bullet; Shift+Enter makes a newline.
       noteInput.addEventListener('keydown', e => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveNoteBtn.click();
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          saveNoteBtn.click();
+        }
       });
       noteInputWrapper.append(noteInput, saveNoteBtn);
 
@@ -2905,6 +2950,9 @@
       grid.className = 'focus-ambient-grid';
       grid.append(leftCol, centerCol, rightCol);
       screen.appendChild(grid);
+
+      // Crash-resumed ultra session → re-apply the gold visuals
+      if (ultraFocus) applyUltraFocus();
 
       // Animate in
       screen.style.opacity = '0';
@@ -3080,6 +3128,7 @@
         state.focusSessions.push(session);
 
         saveState();
+        clearSnapshot();
         renderSummary();
         renderJournal();
         render(); // refresh goal card hours pill
@@ -3090,7 +3139,7 @@
       const skipBtn = document.createElement('button');
       skipBtn.className = 'focus-skip-btn';
       skipBtn.textContent = 'Skip — just close';
-      skipBtn.addEventListener('click', () => { overlay.remove(); activeFocusOverlay = null; });
+      skipBtn.addEventListener('click', () => { clearSnapshot(); overlay.remove(); activeFocusOverlay = null; });
 
       const actions = document.createElement('div');
       actions.className = 'focus-exit-actions';
@@ -3105,9 +3154,93 @@
 
     // ── Boot ─────────────────────────────────────────────────
 
-    const firstScreen = buildIntentionScreen();
-    overlay.appendChild(firstScreen);
-    requestAnimationFrame(() => firstScreen.classList.add('focus-screen-enter'));
+    if (resume && resume.toExit) {
+      // Crash recovery, "wrap up": straight to the reflection screen.
+      const exitScreen = buildExitScreen();
+      overlay.appendChild(exitScreen);
+      requestAnimationFrame(() => exitScreen.classList.add('focus-screen-enter'));
+    } else if (resume) {
+      // Crash recovery, "resume": back into the running session.
+      // buildAmbientScreen keeps the snapshot's sessionStartTime and
+      // re-applies ultra visuals; it animates itself in.
+      overlay.appendChild(buildAmbientScreen());
+    } else {
+      const firstScreen = buildIntentionScreen();
+      overlay.appendChild(firstScreen);
+      requestAnimationFrame(() => firstScreen.classList.add('focus-screen-enter'));
+    }
+  }
+
+  // Crash recovery: a snapshot in FOCUS_SNAPSHOT_KEY means the tab crashed
+  // or reloaded mid-session (deliberate closes always clear it). Offer to
+  // pick the session back up. Same-day only — after a day rollover the
+  // snapshot is stale and silently dropped.
+  function checkForCrashedFocusSession() {
+    const raw = storageGet(FOCUS_SNAPSHOT_KEY);
+    if (!raw) return;
+    let snap = null;
+    try { snap = JSON.parse(raw); } catch (e) { snap = null; }
+    if (!snap || snap.date !== getTodayString() || !snap.sessionStartTime) {
+      storageRemove(FOCUS_SNAPSHOT_KEY);
+      return;
+    }
+
+    const catObj = getCategoryById(snap.category || 'general');
+    const catColor = (catObj && catObj.color) || '#2D6A4F';
+    const catEmoji = (catObj && catObj.emoji) || '⚡';
+    const goalIdx = state.goals.findIndex(g => g.name === snap.goalName);
+    // Goal may have been completed/deleted since — a stub still lets the
+    // session be logged (exit save guards state.goals[index] itself).
+    const goalObj = goalIdx !== -1 ? state.goals[goalIdx] : { name: snap.goalName, category: snap.category || null };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay focus-restore-overlay';
+    overlay.style.setProperty('--focus-cat-color-rgb', hexToRgb(catColor));
+
+    const dialog = document.createElement('div');
+    dialog.className = 'focus-idle-dialog';
+
+    const title = document.createElement('p');
+    title.className = 'focus-idle-title';
+    title.textContent = 'Pick up where you left off?';
+
+    const info = document.createElement('p');
+    info.className = 'focus-idle-away';
+    const startedAt = new Date(snap.sessionStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    info.textContent = `A focus session on “${snap.goalName}” has been running since ${startedAt}.`;
+
+    function makeBtn(text, extraClass) {
+      const b = document.createElement('button');
+      b.className = 'focus-idle-btn' + (extraClass ? ' ' + extraClass : '');
+      b.textContent = text;
+      return b;
+    }
+
+    const resumeBtn = makeBtn('Resume the session', 'focus-idle-btn--primary');
+    resumeBtn.addEventListener('click', () => {
+      overlay.remove();
+      openFullFocusMode(goalObj, goalIdx, catColor, catEmoji, catObj, { snap });
+    });
+
+    const wrapBtn = makeBtn('Wrap it up — log the time');
+    wrapBtn.addEventListener('click', () => {
+      overlay.remove();
+      openFullFocusMode(goalObj, goalIdx, catColor, catEmoji, catObj, { snap, toExit: true });
+    });
+
+    const discardBtn = makeBtn('Discard it', 'focus-idle-btn--quiet');
+    discardBtn.addEventListener('click', () => {
+      storageRemove(FOCUS_SNAPSHOT_KEY);
+      overlay.remove();
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'focus-idle-actions';
+    actions.append(resumeBtn, wrapBtn, discardBtn);
+
+    dialog.append(title, info, actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
   }
 
   // =========================================================
@@ -3739,7 +3872,13 @@
       ? session.entryTag + (session.entryNote ? ` — "${session.entryNote}"` : '')
       : null);
     if (session.midNotes && session.midNotes.length > 0) {
-      addDetailBlock('During session', session.midNotes.join(' · '));
+      // midNotes are { text, at } since timestamps were added; older
+      // records hold plain strings.
+      addDetailBlock('During session', session.midNotes.map(n => {
+        if (typeof n === 'string') return n;
+        const time = n.at ? new Date(n.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+        return time ? `${n.text} (${time})` : n.text;
+      }).join(' · '));
     }
     addDetailBlock('Exit note', session.exitTag
       ? session.exitTag + (session.exitNote ? ` — "${session.exitNote}"` : '')
@@ -5135,6 +5274,7 @@
     else showCarryoverIfNeeded();
   } else showCarryoverIfNeeded();
   initCardDragHandles();
+  checkForCrashedFocusSession();
   initSidebar();
 
 })();

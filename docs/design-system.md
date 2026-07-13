@@ -117,3 +117,8 @@ How it's enforced (every new modal must follow this):
 
 Scrolling *inside* a modal (e.g. day-transition checklist) is unaffected — only the
 page behind it locks.
+
+**Sub-dialogs inside a fullscreen overlay** (e.g. the focus-mode idle check): render
+them as an absolutely-positioned scrim *inside* the existing `.modal-overlay`
+(`position: absolute; inset: 0` + blur), not as a second body-level overlay — they
+inherit the modal lock automatically and stack correctly. See `.focus-idle-scrim`.

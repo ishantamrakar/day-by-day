@@ -4435,7 +4435,7 @@ footer {
 }
 
 .focus-note-save-btn {
-  align-self: flex-end;
+  align-self: center;
   background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.25);
   border: 1.5px solid rgba(var(--focus-cat-color-rgb, 64,145,108), 0.45);
   border-radius: 20px;
@@ -4451,6 +4451,193 @@ footer {
 .focus-note-save-btn:hover {
   background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.4);
   border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+/* ============================================================
+   FOCUS IDLE — attention check ("Still working on this?")
+   ============================================================ */
+
+.focus-idle-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15,22,18,0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: focusIdleIn 0.35s ease both;
+}
+
+@keyframes focusIdleIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.focus-idle-dialog {
+  width: min(420px, calc(100vw - 48px));
+  padding: 32px 28px;
+  border-radius: 20px;
+  background: rgba(30,40,34,0.72);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.15),
+    0 24px 64px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+  text-align: center;
+}
+
+.focus-idle-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+  margin-bottom: 6px;
+}
+
+.focus-idle-away {
+  font-size: 0.88rem;
+  color: rgba(255,255,255,0.55);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 22px;
+}
+
+.focus-idle-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.focus-idle-btn {
+  width: 100%;
+  padding: 11px 18px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1.5px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.82);
+  font-family: var(--font);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.focus-idle-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.25);
+}
+
+.focus-idle-btn--primary {
+  background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.25);
+  border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.45);
+  color: rgba(255,255,255,0.92);
+}
+
+.focus-idle-btn--primary:hover {
+  background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.4);
+  border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+.focus-idle-btn--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255,255,255,0.45);
+  font-weight: 500;
+}
+
+.focus-idle-btn--quiet:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: transparent;
+  color: rgba(255,255,255,0.7);
+}
+
+.focus-idle-hours-area {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.focus-idle-hours-area.hidden { display: none; }
+
+.focus-idle-hours-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255,255,255,0.18);
+  color: rgba(255,255,255,0.92);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  transition: border-color var(--transition);
+}
+
+.focus-idle-hours-input:focus {
+  outline: none;
+  border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+.focus-idle-hours-input.focus-idle-input-error {
+  border-color: rgba(230,57,70,0.8);
+  animation: focusIdleShake 0.35s ease;
+}
+
+@keyframes focusIdleShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.focus-idle-hours-area .focus-idle-btn {
+  width: auto;
+  flex-shrink: 0;
+}
+
+/* Ultra focus — the user chose to keep counting after a 1h+ quiet
+   stretch. Accent vars are swapped to gold in JS; the badge sits
+   under the ambient clock. */
+.focus-ultra-badge {
+  align-self: center;
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: rgba(var(--focus-cat-color-rgb, 217,164,65), 0.18);
+  border: 1px solid rgba(var(--focus-cat-color-rgb, 217,164,65), 0.4);
+  color: rgba(255,255,255,0.85);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  animation: focusIdleIn 0.5s ease both;
+}
+
+/* Journal pill marker for ultra sessions */
+.focus-session-ultra {
+  font-size: 0.8rem;
+  margin-left: 2px;
+}
+
+/* Timestamp on saved session notes */
+.focus-note-time {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+/* Crash-recovery prompt — body-level overlay reusing the idle dialog card.
+   (.modal-overlay base supplies position:fixed; inset:0.) */
+.focus-restore-overlay {
+  z-index: 9600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15,22,18,0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: focusIdleIn 0.35s ease both;
 }
 
 /* ============================================================

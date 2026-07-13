@@ -2255,6 +2255,12 @@
 
   let activeFocusOverlay = null;
 
+  // Attention check: after this much time with no interaction during a
+  // running session, ask (gently) whether the user is still working.
+  const FOCUS_IDLE_THRESHOLD_MS = 60 * 60 * 1000;
+  const FOCUS_IDLE_CHECK_MS = 30 * 1000;
+  const ULTRA_FOCUS_COLOR = '#D9A441'; // warm gold — ultra focus accent
+
   function hexToRgb(hex) {
     const r = parseInt(hex.slice(1,3),16);
     const g = parseInt(hex.slice(3,5),16);
@@ -2393,6 +2399,8 @@
     let sessionEntryNote = '';
     let sessionNotes = [];
     let sessionStartTime = null; // set when ambient screen opens
+    let ultraFocus = false;      // user kept going after an idle check-in
+    let overrideTotalMins = null; // set when user logs custom hours from the idle dialog
 
     // ── helpers ──────────────────────────────────────────────
 
@@ -2656,6 +2664,143 @@
       tick();
       const clockInterval = setInterval(tick, 10000);
 
+      // ── Attention check ────────────────────────────────────
+      // No interaction for FOCUS_IDLE_THRESHOLD_MS while the session runs
+      // → gently ask what to do with the away time. Timestamp-based, so a
+      // late tick after machine sleep still sees the full gap. The
+      // isConnected guard self-clears the interval on every teardown path.
+      let idleDialogEl = null;
+      const idleCheckInterval = setInterval(() => {
+        if (!screen.isConnected) { clearInterval(idleCheckInterval); return; }
+        if (idleDialogEl) return;
+        if (getIdleMs() >= FOCUS_IDLE_THRESHOLD_MS) showIdleDialog();
+      }, FOCUS_IDLE_CHECK_MS);
+
+      function stopAmbientIntervals() {
+        clearInterval(idleCheckInterval);
+        clearInterval(clockInterval);
+        if (breatheInterval) clearInterval(breatheInterval);
+      }
+
+      function applyUltraFocus() {
+        if (ultraFocus) return;
+        ultraFocus = true;
+        overlay.classList.add('focus-ultra');
+        overlay.style.setProperty('--focus-cat-color', ULTRA_FOCUS_COLOR);
+        overlay.style.setProperty('--focus-cat-color-rgb', hexToRgb(ULTRA_FOCUS_COLOR));
+        const badge = document.createElement('span');
+        badge.className = 'focus-ultra-badge';
+        badge.textContent = '🔥 Ultra focus';
+        clockEl.insertAdjacentElement('afterend', badge);
+      }
+
+      function showIdleDialog() {
+        // Anchor the away period to the last real interaction. Clicking
+        // the dialog itself marks activity globally, but the away math
+        // stays frozen to this anchor until a choice is made.
+        const awayStart = getLastActivity();
+
+        const scrim = document.createElement('div');
+        scrim.className = 'focus-idle-scrim';
+        idleDialogEl = scrim;
+
+        const dialog = document.createElement('div');
+        dialog.className = 'focus-idle-dialog';
+
+        const title = document.createElement('p');
+        title.className = 'focus-idle-title';
+        title.textContent = 'Still working on this?';
+
+        const away = document.createElement('p');
+        away.className = 'focus-idle-away';
+        const updateAway = () => {
+          away.textContent = `No activity for ${formatHours((Date.now() - awayStart) / 3600000, 'a little while')}.`;
+        };
+        updateAway();
+        const awayInterval = setInterval(() => {
+          if (!scrim.isConnected) { clearInterval(awayInterval); return; }
+          updateAway();
+        }, 10000);
+
+        function closeIdleDialog() {
+          clearInterval(awayInterval);
+          scrim.remove();
+          idleDialogEl = null;
+          markActivity(); // answering means the user is back
+        }
+
+        function makeIdleBtn(text, extraClass) {
+          const b = document.createElement('button');
+          b.className = 'focus-idle-btn' + (extraClass ? ' ' + extraClass : '');
+          b.textContent = text;
+          return b;
+        }
+
+        // 1. Keep counting — this is a marathon. Acknowledge it.
+        const stillBtn = makeIdleBtn('I\'m still focusing — count it all', 'focus-idle-btn--primary');
+        stillBtn.addEventListener('click', () => {
+          applyUltraFocus();
+          closeIdleDialog();
+        });
+
+        // 2. Trim the away time, keep the session going.
+        const trimBtn = makeIdleBtn('I stepped away — trim that time');
+        trimBtn.addEventListener('click', () => {
+          const gapMs = Date.now() - awayStart;
+          sessionStartTime = Math.min(Date.now(), sessionStartTime + gapMs);
+          closeIdleDialog();
+        });
+
+        // 3. End now, logging hours the user chooses.
+        const customBtn = makeIdleBtn('Wrap up — I\'ll log the hours myself');
+        const hoursArea = document.createElement('div');
+        hoursArea.className = 'focus-idle-hours-area hidden';
+        const hoursInput = document.createElement('input');
+        hoursInput.type = 'number';
+        hoursInput.className = 'focus-idle-hours-input';
+        hoursInput.min = '0'; hoursInput.max = '24'; hoursInput.step = '0.25';
+        const hoursConfirm = makeIdleBtn('End session', 'focus-idle-btn--primary');
+        hoursArea.append(hoursInput, hoursConfirm);
+        customBtn.addEventListener('click', () => {
+          hoursArea.classList.remove('hidden');
+          // Prefill with the time before the away gap began.
+          const activeHours = Math.max(0, Math.round((awayStart - sessionStartTime) / 36000) / 100);
+          hoursInput.value = String(activeHours);
+          hoursInput.focus({ preventScroll: true });
+          hoursInput.select();
+        });
+        hoursConfirm.addEventListener('click', () => {
+          const v = parseFloat(hoursInput.value);
+          if (!isFinite(v) || v < 0 || v > 24) {
+            hoursInput.classList.add('focus-idle-input-error');
+            setTimeout(() => hoursInput.classList.remove('focus-idle-input-error'), 600);
+            return;
+          }
+          overrideTotalMins = Math.round(v * 60);
+          stopAmbientIntervals();
+          closeIdleDialog();
+          transition(screen, buildExitScreen);
+        });
+        hoursInput.addEventListener('keydown', e => { if (e.key === 'Enter') hoursConfirm.click(); });
+
+        // 4. Scrap — same discard path as the close button.
+        const scrapBtn = makeIdleBtn('Scrap this session', 'focus-idle-btn--quiet');
+        scrapBtn.addEventListener('click', () => {
+          stopAmbientIntervals();
+          closeIdleDialog();
+          overlay.remove();
+          activeFocusOverlay = null;
+        });
+
+        const actions = document.createElement('div');
+        actions.className = 'focus-idle-actions';
+        actions.append(stillBtn, trimBtn, customBtn, hoursArea, scrapBtn);
+
+        dialog.append(title, away, actions);
+        scrim.appendChild(dialog);
+        overlay.appendChild(scrim);
+      }
+
       // Add note area — always visible in center
       const noteInputWrapper = document.createElement('div');
       noteInputWrapper.className = 'focus-note-input-wrapper';
@@ -2680,7 +2825,7 @@
       doneBtn.className = 'focus-done-btn';
       doneBtn.textContent = 'I\'m done for now';
       doneBtn.addEventListener('click', () => {
-        clearInterval(clockInterval);
+        stopAmbientIntervals();
         transition(screen, buildExitScreen);
       });
 
@@ -2756,10 +2901,6 @@
 
       rightCol.append(rightTitle, wisdomCard, breatheCard, groundCard);
 
-      // Cleanup breathe interval on done
-      const origDone = doneBtn.onclick;
-      doneBtn.addEventListener('click', () => { if (breatheInterval) clearInterval(breatheInterval); });
-
       const grid = document.createElement('div');
       grid.className = 'focus-ambient-grid';
       grid.append(leftCol, centerCol, rightCol);
@@ -2780,9 +2921,9 @@
     function buildExitScreen() {
       const screen = makeScreen('focus-exit-screen');
 
-      // Compute total session minutes
+      // Compute total session minutes (idle dialog may have set an override)
       const sessionMs = sessionStartTime ? (Date.now() - sessionStartTime) : 0;
-      const totalMins = Math.round(sessionMs / 60000);
+      const totalMins = overrideTotalMins !== null ? overrideTotalMins : Math.round(sessionMs / 60000);
 
       const label = makeLabel('How did it go?');
       const sub = makeLabel('No judgment — just honest.', 'focus-entry-sublabel');
@@ -2894,15 +3035,18 @@
           }
         }
 
-        // Log distraction time — add to first existing distraction or create one
+        // Log distraction time — the unfocused share of the session always
+        // lands in the day's distraction hours, exactly once:
+        // a named distraction if one was typed, else the first existing
+        // item, else a generic "Drifted time" entry.
         if (distractHours > 0) {
-          if (state.distractions.length > 0) {
-            state.distractions[0].hours = Math.round(((state.distractions[0].hours || 0) + distractHours) * 100) / 100;
-          }
-          // If distraction text was entered, add as new distraction item
           const distText = distInput.value.trim();
-          if (distText && state.distractions.length < 5) {
+          if (distText && state.distractions.length < MAX_DISTRACTIONS) {
             state.distractions.push({ name: distText, hours: distractHours });
+          } else if (state.distractions.length > 0) {
+            state.distractions[0].hours = Math.round(((state.distractions[0].hours || 0) + distractHours) * 100) / 100;
+          } else {
+            state.distractions.push({ name: 'Drifted time', hours: distractHours });
           }
         }
 
@@ -2925,6 +3069,7 @@
           focusMins,
           distractMins,
           isWin: focusPct >= 70,
+          ultraFocus,
           intention: sessionIntention || null,
           entryTag: sessionEntryTag || null,
           entryNote: sessionEntryNote || null,
@@ -3535,6 +3680,14 @@
     pillName.textContent = (sessCat.emoji || session.catEmoji || '⚡') + ' ' + session.goalName;
 
     pillLeft.append(badge, pillName);
+
+    if (session.ultraFocus) {
+      const ultraMark = document.createElement('span');
+      ultraMark.className = 'focus-session-ultra';
+      ultraMark.textContent = '🔥';
+      ultraMark.title = 'Ultra focus session — kept going past an hour-long stretch';
+      pillLeft.appendChild(ultraMark);
+    }
 
     const pillRight = document.createElement('div');
     pillRight.className = 'focus-session-pill-right';
@@ -4539,6 +4692,32 @@
   }).observe(document.body, { childList: true });
 
   // =========================================================
+  // ACTIVITY MONITOR — app-wide attention tracking.
+  // Keeps a single lastActivityTime timestamp updated from real user
+  // interaction (pointer, keyboard). Consumers ask "how long has the
+  // user been away?" via getIdleMs(). Currently only focus mode's idle
+  // check uses it; later it can feed the notifications/intelligence
+  // systems (exposed on window.DayByDayApp.activity).
+  // =========================================================
+  let lastActivityTime = Date.now();
+  let lastPointerMoveMark = 0;
+  function markActivity() { lastActivityTime = Date.now(); }
+  function getLastActivity() { return lastActivityTime; }
+  function getIdleMs() { return Date.now() - lastActivityTime; }
+  document.addEventListener('pointerdown', markActivity, { capture: true, passive: true });
+  document.addEventListener('keydown', markActivity, { capture: true, passive: true });
+  // pointermove fires constantly — throttle to one mark per second.
+  document.addEventListener('pointermove', () => {
+    const now = Date.now();
+    if (now - lastPointerMoveMark > 1000) {
+      lastPointerMoveMark = now;
+      lastActivityTime = now;
+    }
+  }, { capture: true, passive: true });
+  // Note: returning to the tab (visibilitychange) is deliberately NOT
+  // activity — only a real interaction ends an away period.
+
+  // =========================================================
   // UNDO — Cmd+Z / Ctrl+Z
   // =========================================================
   document.addEventListener('keydown', e => {
@@ -4931,7 +5110,13 @@
     getGoals: () => state.goals,
     getDistractions: () => state.distractions,
     getStore: () => store,
-    storageGet, storageSet
+    storageGet, storageSet,
+    // Attention tracking — for the notifications/intelligence systems (and tests).
+    activity: {
+      getLastActivity,
+      getIdleMs,
+      _setLastActivityForTest: ts => { lastActivityTime = ts; },
+    },
   };
 
   // =========================================================

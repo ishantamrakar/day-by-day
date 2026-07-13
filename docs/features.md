@@ -24,6 +24,8 @@
 - **Repeatable tasks** — flagged goals/backlog items carry forward automatically; ↻ badge in log row
 - **Sidebar** — fixed left rail (52px) + expandable panel (320px); category cards with hours bar, task counts, inline edit
 - **Day Transition Modal** — shown on new day: yesterday summary, category insights, focus area picker (max 3), repeatable task checklist
+- **Focus Mode** — per-goal fullscreen session (`openFullFocusMode` in app.js): intention → mind check-in → ambient screen (notes, wall clock, focus tools) → exit reflection where a focus-% slider splits wall-clock time into goal hours vs distraction hours (the unfocused share is always logged exactly once: to the typed distraction if one was captured, else the first "5 to Avoid" item, else a generic "Drifted time" entry); sessions saved to `state.focusSessions` and shown in the journal
+- **Attention check / Ultra Focus** — a global activity monitor (pointer + keyboard, exposed as `DayByDayApp.activity.getIdleMs()`) watches for interaction app-wide. During a focus session, 60 min without interaction opens a calm "Still working on this?" dialog with a live "no activity for X" counter and four choices: **keep counting** (session becomes 🔥 Ultra Focus — gold accent, badge under the clock, `ultraFocus: true` on the record, 🔥 marker in the journal), **trim that time** (away gap subtracted, session continues), **wrap up with custom hours** (input prefilled with pre-away active time, 0–24h validated, then the normal exit flow), or **scrap the session**. The monitor is designed to later feed the notifications/intelligence systems
 
 ## Day Transition Modal
 

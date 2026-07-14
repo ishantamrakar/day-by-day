@@ -33,6 +33,7 @@ notifications.js — nudge system, browser notifications
 | [docs/features.md](docs/features.md) | All implemented features, how each system works |
 | [docs/drag-drop.md](docs/drag-drop.md) | Drag & drop deep dive — all three systems, known bugs |
 | [docs/roadmap.md](docs/roadmap.md) | Known bugs, backlog, future ideas, product vision |
+| [docs/product-plan.md](docs/product-plan.md) | Product-phase gates and stages: hardening → PWA beta → sync → monetization |
 | [docs/dev-workflow.md](docs/dev-workflow.md) | Branch model (`main`/`develop`/`feature/*`), CI checks, GitHub Pages deploy |
 
 ## Philosophy & Tone
@@ -43,3 +44,4 @@ The app must feel **calm and encouraging** — never stressful or micromanaging.
 - "Hours invested" not "wasted" — encouraging language throughout
 - Spacious layouts, never cramped
 - Guilt-trip messages are reflective questions, not attacks
+- Modals get full attention: the page behind an open modal is inert — no scroll, no clicks, no shortcuts (see [docs/design-system.md](docs/design-system.md) § Modals)

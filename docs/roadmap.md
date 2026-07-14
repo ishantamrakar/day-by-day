@@ -34,6 +34,8 @@
 
 This is not task management. It's **finitude-aware focus** — helping you feel the weight of limited time gently, not anxiously.
 
+> **The concrete how-and-when plan for going product** — gates, stages, and standing rules — lives in [product-plan.md](product-plan.md).
+
 **Phases:**
 1. **Now** — vanilla web app, self-use, rapid iteration. No infra, no accounts.
 2. **PWA** — offline, home screen install, working push notifications. Still no backend.

@@ -197,7 +197,7 @@
     } else if (focus.length > 0) {
       // Pad with non-focus categories
       const used = new Set(focus);
-      const rest = categories.filter(c => !used.has(c.id));
+      const rest = activeCategories().filter(c => !used.has(c.id));
       // Stable daily shuffle for the padding: seed with today's date string
       const dateNum = parseInt(getTodayString().replace(/-/g, ''), 10);
       const shuffled = rest.slice().sort((a, b) => {
@@ -210,7 +210,7 @@
       // No focus set — stable daily shuffle of all categories
       // Prefer non-general categories for visual variety; 'general' (gray) blends into background
       const dateNum = parseInt(getTodayString().replace(/-/g, ''), 10);
-      const pool = categories.filter(c => c.id !== 'general');
+      const pool = activeCategories().filter(c => c.id !== 'general');
       const sorted = (pool.length >= 3 ? pool : categories).slice().sort((a, b) => {
         const ha = Math.sin(dateNum + a.id.length * 7) * 10000;
         const hb = Math.sin(dateNum + b.id.length * 7) * 10000;
@@ -640,7 +640,81 @@
   function saveCategories() { storageSet(CATEGORIES_KEY, JSON.stringify(categories)); }
 
   function getCategoryById(id) {
+    // Archived categories still resolve — past sessions/journal/pills keep
+    // rendering their emoji, name, and color.
     return categories.find(c => c.id === id) || categories.find(c => c.id === 'general');
+  }
+
+  // Categories offered in pickers / shown as sidebar cards. Archiving hides
+  // an area from daily UI but never deletes it: totalHours and history stay,
+  // and it can be restored from the sidebar's Archived section.
+  function activeCategories() {
+    return categories.filter(c => !c.archived && !c.deleted);
+  }
+
+  function archiveCategory(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat || cat.id === 'general') return; // general is the fallback — never archived
+    cat.archived = true;
+    // Drop it from today's focus if it was focused
+    if (state.focusCategoryIds && state.focusCategoryIds.includes(id)) {
+      state.focusCategoryIds = state.focusCategoryIds.filter(c => c !== id);
+      saveState();
+    }
+    saveCategories();
+    renderSidebar();
+    renderBacklog();
+    applyBlobColors();
+  }
+
+  function restoreCategory(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    delete cat.archived;
+    saveCategories();
+    renderSidebar();
+    renderBacklog();
+    applyBlobColors();
+  }
+
+  // Permanent delete — only reachable from the Archived section, behind an
+  // inline confirm. The category becomes a TOMBSTONE (`deleted: true`), never
+  // removed from the array: past sessions, journal entries, and history keep
+  // resolving its real name/emoji/color via getCategoryById, and the
+  // DEFAULT_CATEGORIES merge in loadCategories() can't resurrect it. Only
+  // live, still-actionable references move to General: backlog items (they'd
+  // become unreachable behind a card that no longer renders) and today's
+  // active goals (future logging must not flow into a deleted area).
+  // Completed items and all past records stay untouched.
+  function deleteCategory(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat || cat.id === 'general') return;
+    cat.deleted = true;
+    cat.archived = true;
+
+    let backlogTouched = false;
+    backlog.forEach(b => {
+      if ((b.category || 'general') === id) { b.category = 'general'; backlogTouched = true; }
+    });
+    let stateTouched = false;
+    (state.goals || []).forEach(g => {
+      if ((g.category || 'general') === id && (g.progress || 0) < 100) {
+        g.category = 'general';
+        stateTouched = true;
+      }
+    });
+    if (state.focusCategoryIds && state.focusCategoryIds.includes(id)) {
+      state.focusCategoryIds = state.focusCategoryIds.filter(c => c !== id);
+      stateTouched = true;
+    }
+
+    if (backlogTouched) saveBacklog();
+    if (stateTouched) saveState();
+    saveCategories();
+    renderSidebar();
+    renderBacklog();
+    render();
+    applyBlobColors();
   }
 
   function getCategoryColor(id) {
@@ -733,6 +807,7 @@
     try { const r = storageGet(SIDEBAR_KEY); return r === 'collapsed'; } catch (e) { return false; }
   })();
   let expandedCatId = null; // which sidebar card is currently expanded
+  let archivedSectionOpen = false; // Archived areas list — collapsed by default
 
   // --- State ---
   // Declared before loadState() runs: loadState assigns _prevDayForModal when it
@@ -877,18 +952,21 @@
       todayBacklog[id] = (todayBacklog[id] || 0) + 1;
     });
 
+    const liveCats = activeCategories();
+    const archivedCats = categories.filter(c => c.archived && !c.deleted);
+
     const MAX_SCALE_HOURS = 40;
-    const maxHours = Math.max(...categories.map(c => c.totalHours || 0), MAX_SCALE_HOURS);
+    const maxHours = Math.max(...liveCats.map(c => c.totalHours || 0), MAX_SCALE_HOURS);
 
     // Split into today's focus vs the rest (rest sorted by totalHours asc)
     const focusIds = new Set(state.focusCategoryIds || []);
-    const focusCats = categories.filter(c => focusIds.has(c.id));
-    const restCats = categories
+    const focusCats = liveCats.filter(c => focusIds.has(c.id));
+    const restCats = liveCats
       .filter(c => !focusIds.has(c.id))
       .sort((a, b) => (a.totalHours || 0) - (b.totalHours || 0));
 
     // Rail emoji buttons — keep original order
-    categories.forEach(cat => {
+    liveCats.forEach(cat => {
       if (sidebarCatDots) {
         const emojiBtn = document.createElement('button');
         emojiBtn.className = 'sidebar-emoji-btn';
@@ -1016,6 +1094,20 @@
           detail.appendChild(empty);
         }
 
+        // Quiet archive action — hides the area from daily UI, keeps its
+        // hours and history. Restorable from the Archived section below.
+        if (cat.id !== 'general') {
+          const archiveBtn = document.createElement('button');
+          archiveBtn.className = 'sidebar-archive-btn';
+          archiveBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32A16,16,0,0,0,16,64V88a16,16,0,0,0,16,16v96a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V104a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm-16,152H48V104H208ZM224,88H32V64H224V88ZM96,136a8,8,0,0,1,8-8h48a8,8,0,0,1,0,16H104A8,8,0,0,1,96,136Z"/></svg> Archive this area';
+          archiveBtn.title = 'Hide from daily view — hours and history are kept';
+          archiveBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            archiveCategory(cat.id);
+          });
+          detail.appendChild(archiveBtn);
+        }
+
         card.appendChild(detail);
       }
 
@@ -1029,12 +1121,21 @@
     }
 
     // ── Today's focus section ──
-    if (focusCats.length > 0) {
-      const focusHeader = document.createElement('div');
-      focusHeader.className = 'sidebar-section-header';
-      focusHeader.textContent = "Today's focus";
-      sidebarCategoriesEl.appendChild(focusHeader);
+    // Header always renders, with an edit pencil on the right — set focus
+    // if the day-start modal was skipped, or change it mid-day.
+    const focusHeader = document.createElement('div');
+    focusHeader.className = 'sidebar-section-header sidebar-focus-header';
+    const focusHeaderText = document.createElement('span');
+    focusHeaderText.textContent = "Today's focus";
+    const editFocusBtn = document.createElement('button');
+    editFocusBtn.className = 'sidebar-focus-edit-btn';
+    editFocusBtn.title = "Change today's focus areas";
+    editFocusBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>';
+    editFocusBtn.addEventListener('click', openEditFocusModal);
+    focusHeader.append(focusHeaderText, editFocusBtn);
+    sidebarCategoriesEl.appendChild(focusHeader);
 
+    if (focusCats.length > 0) {
       focusCats.forEach(cat => sidebarCategoriesEl.appendChild(buildCard(cat, true)));
 
       const divider = document.createElement('div');
@@ -1052,9 +1153,76 @@
 
       restCats.forEach(cat => sidebarCategoriesEl.appendChild(buildCard(cat, false)));
     } else {
-      // No focus set — show all sorted by totalHours asc
-      [...categories].sort((a, b) => (a.totalHours || 0) - (b.totalHours || 0))
+      // No focus set — gentle hint under the header, then all cards
+      const noneHint = document.createElement('p');
+      noneHint.className = 'sidebar-focus-none';
+      noneHint.textContent = 'None set — tap the pencil to pick up to 3 areas.';
+      sidebarCategoriesEl.appendChild(noneHint);
+      [...liveCats].sort((a, b) => (a.totalHours || 0) - (b.totalHours || 0))
         .forEach(cat => sidebarCategoriesEl.appendChild(buildCard(cat, false)));
+    }
+
+    // ── Archived areas — collapsed by default; hours kept, one click to restore ──
+    if (archivedCats.length > 0) {
+      const archHeader = document.createElement('button');
+      archHeader.className = 'sidebar-section-header sidebar-section-header--muted sidebar-archived-toggle';
+      archHeader.innerHTML = `<span>Archived (${archivedCats.length})</span><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 256 256" fill="currentColor" style="transform: rotate(${archivedSectionOpen ? 180 : 0}deg)"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>`;
+      archHeader.addEventListener('click', () => {
+        archivedSectionOpen = !archivedSectionOpen;
+        renderSidebar();
+      });
+      sidebarCategoriesEl.appendChild(archHeader);
+
+      if (archivedSectionOpen) archivedCats.forEach(cat => {
+        const row = document.createElement('div');
+        row.className = 'sidebar-archived-row';
+
+        function renderNormal() {
+          row.innerHTML = '';
+          row.classList.remove('sidebar-archived-row--confirm');
+          const label = document.createElement('span');
+          label.className = 'sidebar-archived-label';
+          label.textContent = `${cat.emoji || '●'} ${cat.name}`;
+          const hours = document.createElement('span');
+          hours.className = 'sidebar-archived-hours';
+          hours.textContent = (cat.totalHours || 0) > 0 ? `${(cat.totalHours).toFixed(0)}h` : '';
+          const restoreBtn = document.createElement('button');
+          restoreBtn.className = 'sidebar-restore-btn';
+          restoreBtn.textContent = 'Restore';
+          restoreBtn.title = 'Bring this area back into daily view';
+          restoreBtn.addEventListener('click', () => restoreCategory(cat.id));
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'sidebar-archived-delete-btn';
+          deleteBtn.title = 'Delete forever';
+          deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg>';
+          deleteBtn.addEventListener('click', renderConfirm);
+          row.append(label, hours, restoreBtn, deleteBtn);
+        }
+
+        // Inline confirm — delete is the one destructive action here.
+        function renderConfirm() {
+          row.innerHTML = '';
+          row.classList.add('sidebar-archived-row--confirm');
+          const q = document.createElement('span');
+          q.className = 'sidebar-archived-label';
+          q.textContent = `Delete ${cat.name} forever? Past entries keep its name.`;
+          const yesBtn = document.createElement('button');
+          yesBtn.className = 'sidebar-restore-btn sidebar-delete-confirm-btn';
+          yesBtn.textContent = 'Delete';
+          yesBtn.addEventListener('click', () => deleteCategory(cat.id));
+          const noBtn = document.createElement('button');
+          noBtn.className = 'sidebar-restore-btn';
+          noBtn.textContent = 'Keep';
+          noBtn.addEventListener('click', renderNormal);
+          const btnRow = document.createElement('div');
+          btnRow.className = 'sidebar-archived-confirm-actions';
+          btnRow.append(yesBtn, noBtn);
+          row.append(q, btnRow);
+        }
+
+        renderNormal();
+        sidebarCategoriesEl.appendChild(row);
+      });
     }
   }
 
@@ -1129,7 +1297,8 @@
       if (colorPop) { colorPop.remove(); colorPop = null; return; }
       colorPop = document.createElement('div');
       colorPop.className = 'sidebar-color-pop';
-      const usedByOthers = new Set(categories.filter(c => c.id !== cat.id).map(c => c.color).filter(Boolean));
+      // Deleted areas free their color; archived ones keep holding it
+      const usedByOthers = new Set(categories.filter(c => c.id !== cat.id && !c.deleted).map(c => c.color).filter(Boolean));
       COLOR_SWATCHES.forEach(color => {
         const taken = usedByOthers.has(color);
         const sw = document.createElement('button');
@@ -1480,7 +1649,7 @@
     swatchRow.className = 'cat-modal-swatches';
     let selectedColor = emojiToColor(DEFAULT_EMOJI);
 
-    const usedColors = new Set(categories.map(c => c.color).filter(Boolean));
+    const usedColors = new Set(categories.filter(c => !c.deleted).map(c => c.color).filter(Boolean));
 
     function buildNewCatSwatches() {
       swatchRow.innerHTML = '';
@@ -1671,7 +1840,7 @@
     const list = document.createElement('div');
     list.className = 'cat-picker-list task-context-cat-list';
 
-    categories.forEach(cat => {
+    activeCategories().forEach(cat => {
       const opt = document.createElement('button');
       opt.className = 'cat-picker-option' + (cat.id === selectedCatId ? ' selected' : '');
       opt.dataset.catId = cat.id;
@@ -1799,7 +1968,7 @@
 
     function renderCatGrid() {
       catGrid.innerHTML = '';
-      categories.forEach(cat => {
+      activeCategories().forEach(cat => {
         const chip = document.createElement('button');
         chip.className = 'task-modal-cat-chip' + (cat.id === selectedCatId ? ' selected' : '');
         chip.style.setProperty('--chip-color', cat.color);
@@ -1925,7 +2094,9 @@
               return {
                 name: g.name, hours: 0,
                 progress: done ? 0 : (g.progress || 0), // reset repeatables to fresh
-                prevHours: g.hours || 0,
+                // Cumulative across multi-day carries — earlier days' hours
+                // must not vanish from the "Xh prev" badge on each rollover.
+                prevHours: (g.prevHours || 0) + (g.hours || 0),
                 category: g.category || null, repeatable: g.repeatable || false
               };
             }).filter(Boolean)
@@ -3072,7 +3243,9 @@
         if (focusHours > 0 && state.goals[index]) {
           const prev = state.goals[index].hours || 0;
           state.goals[index].hours = Math.round(Math.min(24, prev + focusHours) * 100) / 100;
-          accumulateCategoryHours(state.goals[index].category || 'general', focusHours);
+          // Accumulate what the goal actually gained (the 24h/day cap may
+          // truncate it) — same rule as the time-add chips.
+          accumulateCategoryHours(state.goals[index].category || 'general', state.goals[index].hours - prev);
           // Sync the pill on the card
           const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
           if (cardPill && !cardPill.querySelector('input')) {
@@ -3397,6 +3570,14 @@
     // Category pill — clickable to assign/change the life area (reuses the same
     // unified picker as distractions/backlog), so quick tasks can be categorized.
     const catPill = createCategoryPill(item.category, newId => {
+      // Logged hours follow the item to its new category — otherwise they
+      // stay counted under the old one and totals drift.
+      const prevCat = item.category || 'general';
+      const nextCat = newId || 'general';
+      if (prevCat !== nextCat && item.hours > 0) {
+        accumulateCategoryHours(prevCat, -item.hours);
+        accumulateCategoryHours(nextCat, item.hours);
+      }
       state.quickDone[index].category = newId;
       item.category = newId;
       saveState();
@@ -3423,10 +3604,13 @@
 
     makeInlineHoursEditor(hoursBadge, {
       getValue: () => item.hours,
-      onCommit: v => {
+      onCommit: (v, prev, delta) => {
         state.quickDone[index].hours = v;
         item.hours = v;
         saveState();
+        // Keep category totals in sync with the edit (creation already
+        // accumulated the original hours).
+        accumulateCategoryHours(item.category || 'general', delta);
         renderSummary();
       },
       render: renderHoursBadge,
@@ -3502,7 +3686,7 @@
     const catRow = document.createElement('div');
     catRow.className = 'quick-add-dest-row';
 
-    categories.forEach(cat => {
+    activeCategories().forEach(cat => {
       const chip = document.createElement('button');
       chip.className = 'quick-add-dest-chip' + (cat.id === selectedCatId ? ' active' : '');
       chip.innerHTML = `${cat.emoji} ${cat.name}`;
@@ -4814,6 +4998,295 @@
   }
 
   // =========================================================
+  // SETTINGS — gear at the bottom of the sidebar rail.
+  // One organized home for app-level options. Future settings (theme
+  // color, blob animation behavior, notification frequency…) each get
+  // their own cat-modal-section block inside openSettingsModal().
+  // =========================================================
+  const APP_VERSION = '0.9.0'; // keep in sync with package.json
+  const EXPORT_FORMAT_VERSION = 1;
+
+  // Complete backup: every daybyday_* localStorage key, verbatim. Restoring
+  // is a byte-for-byte round trip regardless of future schema changes.
+  function collectExportPayload() {
+    const keys = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf('daybyday_') === 0) keys[k] = localStorage.getItem(k);
+      }
+    } catch (e) {}
+    return {
+      app: 'day-by-day',
+      formatVersion: EXPORT_FORMAT_VERSION,
+      appVersion: APP_VERSION,
+      exportedAt: new Date().toISOString(),
+      keys,
+    };
+  }
+
+  function downloadExport() {
+    const blob = new Blob([JSON.stringify(collectExportPayload(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `day-by-day-backup-${getTodayString()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Replaces all app data with the backup. Returns an error string, or
+  // null on success (caller reloads the page so the app boots fresh).
+  function applyImportPayload(payload) {
+    if (!payload || payload.app !== 'day-by-day' || typeof payload.keys !== 'object' || payload.keys === null) {
+      return 'That file isn\'t a Day by Day backup.';
+    }
+    if (!payload.keys.daybyday_store && !payload.keys.daybyday_data) {
+      return 'This backup contains no app data.';
+    }
+    try {
+      const stale = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf('daybyday_') === 0) stale.push(k);
+      }
+      stale.forEach(k => localStorage.removeItem(k));
+      Object.keys(payload.keys).forEach(k => {
+        if (k.indexOf('daybyday_') === 0 && typeof payload.keys[k] === 'string') {
+          localStorage.setItem(k, payload.keys[k]);
+        }
+      });
+    } catch (e) {
+      return 'Import failed — the browser blocked storage access.';
+    }
+    return null;
+  }
+
+  // Short human summary for the import confirmation.
+  function describeBackup(payload) {
+    try {
+      const store = JSON.parse(payload.keys.daybyday_store || 'null');
+      if (store && store.entities) {
+        const tasks = Object.keys(store.entities).length;
+        const sessions = (store.sessions || []).length;
+        const cats = (store.categories || []).length;
+        return `${tasks} tasks · ${sessions} focus sessions · ${cats} life areas`;
+      }
+    } catch (e) {}
+    return 'summary unavailable';
+  }
+
+  function openSettingsModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay cat-modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'cat-modal settings-modal';
+
+    const header = document.createElement('div');
+    header.className = 'cat-modal-header';
+    const title = document.createElement('h3');
+    title.className = 'cat-modal-title';
+    title.textContent = 'Settings';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'cat-modal-close';
+    closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.append(title, closeBtn);
+
+    // ── Data ─────────────────────────────────────────────────
+    const dataSection = document.createElement('div');
+    dataSection.className = 'cat-modal-section';
+    const dataLabel = document.createElement('p');
+    dataLabel.className = 'cat-modal-label';
+    dataLabel.textContent = 'Data';
+    const dataHint = document.createElement('p');
+    dataHint.className = 'settings-hint';
+    dataHint.textContent = 'Everything lives in this browser. Export a backup now and then — clearing browser data would erase the app.';
+
+    const dataRow = document.createElement('div');
+    dataRow.className = 'settings-row';
+    const dataStatus = document.createElement('p');
+    dataStatus.className = 'settings-hint settings-status';
+
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'btn btn-primary';
+    exportBtn.textContent = 'Export backup';
+    exportBtn.addEventListener('click', () => {
+      downloadExport();
+      dataStatus.textContent = 'Backup downloaded.';
+    });
+
+    const importBtn = document.createElement('button');
+    importBtn.className = 'btn btn-ghost';
+    importBtn.textContent = 'Import backup…';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'application/json,.json';
+    fileInput.className = 'hidden';
+    importBtn.addEventListener('click', () => fileInput.click());
+
+    // Import confirmation — shown once a file parses as a backup.
+    const confirmArea = document.createElement('div');
+    confirmArea.className = 'settings-confirm hidden';
+    const confirmText = document.createElement('p');
+    confirmText.className = 'settings-hint';
+    const confirmRow = document.createElement('div');
+    confirmRow.className = 'settings-row';
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-primary settings-danger-btn';
+    confirmBtn.textContent = 'Replace & reload';
+    const cancelImportBtn = document.createElement('button');
+    cancelImportBtn.className = 'btn btn-ghost';
+    cancelImportBtn.textContent = 'Cancel';
+    confirmRow.append(confirmBtn, cancelImportBtn);
+    confirmArea.append(confirmText, confirmRow);
+
+    let pendingImport = null;
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        let payload = null;
+        try { payload = JSON.parse(reader.result); } catch (e) {}
+        if (!payload || payload.app !== 'day-by-day' || !payload.keys) {
+          dataStatus.textContent = 'That file isn\'t a Day by Day backup.';
+          confirmArea.classList.add('hidden');
+          return;
+        }
+        pendingImport = payload;
+        const when = payload.exportedAt ? new Date(payload.exportedAt).toLocaleDateString() : 'an unknown date';
+        confirmText.textContent = `Backup from ${when} — ${describeBackup(payload)}. Importing replaces everything currently in the app.`;
+        dataStatus.textContent = '';
+        confirmArea.classList.remove('hidden');
+      };
+      reader.readAsText(file);
+    });
+
+    confirmBtn.addEventListener('click', () => {
+      if (!pendingImport) return;
+      const err = applyImportPayload(pendingImport);
+      if (err) {
+        dataStatus.textContent = err;
+        confirmArea.classList.add('hidden');
+        pendingImport = null;
+        return;
+      }
+      location.reload();
+    });
+    cancelImportBtn.addEventListener('click', () => {
+      pendingImport = null;
+      confirmArea.classList.add('hidden');
+    });
+
+    dataRow.append(exportBtn, importBtn);
+    dataSection.append(dataLabel, dataHint, dataRow, confirmArea, dataStatus, fileInput);
+
+    // ── About ────────────────────────────────────────────────
+    const aboutSection = document.createElement('div');
+    aboutSection.className = 'cat-modal-section';
+    const aboutLabel = document.createElement('p');
+    aboutLabel.className = 'cat-modal-label';
+    aboutLabel.textContent = 'About';
+    const aboutText = document.createElement('p');
+    aboutText.className = 'settings-hint';
+    aboutText.textContent = `Day by Day v${APP_VERSION} — a finitude-aware daily focus app. Your data never leaves this browser.`;
+    aboutSection.append(aboutLabel, aboutText);
+
+    modal.append(header, dataSection, aboutSection);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('pointerdown', e => { if (e.target === overlay) overlay.remove(); });
+  }
+
+  const settingsBtn = document.getElementById('settings-btn');
+  if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+
+  // =========================================================
+  // TODAY'S FOCUS EDITOR — sidebar row → picker modal.
+  // Set focus areas if the day-start modal was skipped, or change them
+  // mid-day when the plan isn't working out. Same chips + up-to-3 rule
+  // as the day-transition modal; zero selected = no filter.
+  // =========================================================
+  function openEditFocusModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay cat-modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'cat-modal focus-edit-modal';
+
+    const header = document.createElement('div');
+    header.className = 'cat-modal-header';
+    const title = document.createElement('h3');
+    title.className = 'cat-modal-title';
+    title.textContent = 'Today\'s focus';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'cat-modal-close';
+    closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.append(title, closeBtn);
+
+    const hint = document.createElement('p');
+    hint.className = 'settings-hint';
+    hint.textContent = 'Pick up to 3 life areas for today — the backlog card and sidebar follow along. Plans change; that\'s allowed.';
+
+    // Same chip grid + selection rule as the day-transition modal.
+    const catGrid = document.createElement('div');
+    catGrid.className = 'day-modal-cat-grid';
+    const selectedCats = new Set(state.focusCategoryIds || []);
+
+    activeCategories().forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'day-modal-cat-btn' + (selectedCats.has(cat.id) ? ' selected' : '');
+      btn.dataset.catId = cat.id;
+      const allTimeHours = cat.totalHours || 0;
+      btn.innerHTML = `<span class="dmc-emoji">${cat.emoji}</span><span class="dmc-name">${cat.name}</span>${allTimeHours > 0 ? `<span class="dmc-hours">${allTimeHours.toFixed(0)}h</span>` : ''}`;
+      btn.addEventListener('click', () => {
+        if (selectedCats.has(cat.id)) {
+          selectedCats.delete(cat.id);
+          btn.classList.remove('selected');
+        } else {
+          if (selectedCats.size >= 3) {
+            const first = catGrid.querySelector('.day-modal-cat-btn.selected');
+            if (first) { selectedCats.delete(first.dataset.catId); first.classList.remove('selected'); }
+          }
+          selectedCats.add(cat.id);
+          btn.classList.add('selected');
+        }
+      });
+      catGrid.appendChild(btn);
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'cat-modal-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.textContent = 'Set focus';
+    saveBtn.addEventListener('click', () => {
+      state.focusCategoryIds = Array.from(selectedCats);
+      saveState();
+      renderSidebar();
+      renderBacklog(); // backlog card filters by focus categories
+      applyBlobColors();
+      overlay.remove();
+    });
+    actions.append(cancelBtn, saveBtn);
+
+    modal.append(header, hint, catGrid, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('pointerdown', e => { if (e.target === overlay) overlay.remove(); });
+  }
+
+  // =========================================================
   // MODAL LOCK — design rule: while any modal overlay is open,
   // the page behind it is inert. Every overlay carries the shared
   // `modal-overlay` class; this observer toggles `modal-open` on
@@ -4918,7 +5391,7 @@
 
     // Suggest focus categories: ones with least all-time hours that have backlog or repeatable tasks
     function getSuggestedCats() {
-      const catsWithWork = categories.filter(cat => {
+      const catsWithWork = activeCategories().filter(cat => {
         const hasBacklog = backlog.some(b => (b.category || 'general') === cat.id);
         const hasRepeatable = prevGoals.some(g => g.repeatable && (g.category || 'general') === cat.id);
         return hasBacklog || hasRepeatable || (cat.totalHours || 0) === 0;
@@ -5002,7 +5475,7 @@
     insights.className = 'day-modal-insights';
 
     // Find lagging categories (have totalHours < average, and not zero because new)
-    const activeCats = categories.filter(c => (c.totalHours || 0) > 0 || backlog.some(b => (b.category || 'general') === c.id));
+    const activeCats = activeCategories().filter(c => (c.totalHours || 0) > 0 || backlog.some(b => (b.category || 'general') === c.id));
     if (activeCats.length > 1) {
       const avgHours = activeCats.reduce((s, c) => s + (c.totalHours || 0), 0) / activeCats.length;
       const lagging = activeCats.filter(c => (c.totalHours || 0) < avgHours * 0.5);
@@ -5029,7 +5502,7 @@
     catGrid.className = 'day-modal-cat-grid';
     const selectedCats = new Set(getSuggestedCats().map(c => c.id));
 
-    categories.forEach(cat => {
+    activeCategories().forEach(cat => {
       const btn = document.createElement('button');
       btn.className = 'day-modal-cat-btn' + (selectedCats.has(cat.id) ? ' selected' : '');
       btn.dataset.catId = cat.id;
@@ -5224,7 +5697,7 @@
             return {
               name: g.name, hours: 0,
               progress: done ? 0 : (g.progress || 0),
-              prevHours: g.hours || 0,
+              prevHours: (g.prevHours || 0) + (g.hours || 0), // cumulative, matches loadState
               category: g.category || null, repeatable: g.repeatable || false
             };
           }).filter(Boolean)

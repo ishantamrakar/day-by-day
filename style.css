@@ -11,6 +11,10 @@
   --text: #1B4332;             /* Dark Evergreen */
   --text-muted: #6C757D;       /* Slate Gray */
 
+  /* Semantic danger (destructive confirms) — rgba derivations use 201,80,76 */
+  --danger: #C9504C;
+  --danger-deep: #B34440;
+
   /* Derived */
   --primary-light: #e8f5ee;
   --primary-glow: rgba(45, 106, 79, 0.08);
@@ -1743,6 +1747,40 @@ footer {
 }
 
 /* Hamburger stays visible always — it toggles open/close */
+
+/* Settings gear — pinned to the bottom of the rail */
+.sidebar-settings-btn {
+  margin-top: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.7);
+  border-bottom-color: rgba(0,0,0,0.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,0.9);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.sidebar-settings-btn svg {
+  transition: transform var(--transition);
+}
+
+.sidebar-settings-btn:hover {
+  color: var(--primary);
+  background: rgba(255,255,255,0.85);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(45,106,79,0.12), inset 0 1px 0 rgba(255,255,255,1);
+}
+
+.sidebar-settings-btn:hover svg {
+  transform: rotate(20deg);
+}
 
 /* Emoji button in rail */
 .sidebar-emoji-btn {
@@ -4451,6 +4489,233 @@ footer {
 .focus-note-save-btn:hover {
   background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.4);
   border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+/* ============================================================
+   TODAY'S FOCUS ROW (sidebar) + focus editor modal
+   ============================================================ */
+
+/* The "Today's focus" section header carries the edit pencil */
+.sidebar-focus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-focus-edit-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.55;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition);
+}
+
+.sidebar-focus-edit-btn:hover {
+  opacity: 1;
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.sidebar-focus-none {
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--text-muted);
+  padding: 0 2px 6px;
+}
+
+/* ── Archive a life area (expanded card detail) + Archived section ── */
+
+.sidebar-archive-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.65;
+  transition: all var(--transition);
+}
+
+.sidebar-archive-btn:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+/* Collapsed-by-default toggle header for the archived list */
+.sidebar-archived-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.sidebar-archived-toggle svg {
+  opacity: 0.5;
+  transition: transform var(--transition);
+}
+
+.sidebar-archived-toggle:hover svg {
+  opacity: 1;
+}
+
+.sidebar-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  background: rgba(0,0,0,0.045);
+  opacity: 0.8;
+}
+
+.sidebar-archived-label {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-archived-hours {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-restore-btn {
+  background: rgba(255,255,255,0.6);
+  border: 1px solid rgba(45,106,79,0.2);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.sidebar-restore-btn:hover {
+  background: rgba(255,255,255,0.95);
+  border-color: rgba(45,106,79,0.45);
+}
+
+.sidebar-archived-delete-btn {
+  background: none;
+  border: none;
+  padding: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition);
+}
+
+.sidebar-archived-delete-btn:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.sidebar-archived-row--confirm {
+  background: rgba(201,80,76,0.09);
+  opacity: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.sidebar-archived-row--confirm .sidebar-archived-label {
+  white-space: normal;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.sidebar-archived-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sidebar-delete-confirm-btn {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.sidebar-delete-confirm-btn:hover {
+  background: var(--danger-deep);
+  border-color: var(--danger-deep);
+}
+
+.focus-edit-modal {
+  max-width: 400px;
+}
+
+.focus-edit-modal .day-modal-cat-grid {
+  margin: 14px 0 18px;
+}
+
+/* ============================================================
+   SETTINGS MODAL — reuses cat-modal shell; sections stack
+   ============================================================ */
+
+.settings-modal {
+  max-width: 420px;
+}
+
+.settings-hint {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.settings-status {
+  margin: 8px 0 0;
+  min-height: 1em;
+}
+
+.settings-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-confirm {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-xs);
+  background: rgba(201,80,76,0.06);
+  border: 1px solid rgba(201,80,76,0.2);
+}
+
+.settings-confirm .settings-hint {
+  color: var(--text);
+}
+
+.settings-danger-btn {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.settings-danger-btn:hover {
+  background: var(--danger-deep);
+  border-color: var(--danger-deep);
 }
 
 /* ============================================================

@@ -60,6 +60,16 @@ The store is the **source of truth**; `state.goals` / `state.distractions` / `st
 - `hydrateDayType(day, type)` / `hydrateBacklogFromStore()` / `hydrateSessionsFromStore()` — build views from the store.
 - `syncDayToStore(day)` / `syncBacklogToStore()` / `syncSessionsToStore()` — reconcile views back into the store (update by `_eid`, mint new, drop removed). Called from `saveState()` / `saveBacklog()`.
 
+## Backup format (Settings → Data)
+
+Export writes every `daybyday_*` localStorage key **verbatim** into one JSON file:
+
+```js
+{ app: 'day-by-day', formatVersion: 1, appVersion, exportedAt, keys: { 'daybyday_store': '…', … } }
+```
+
+Import validates `app` + presence of `daybyday_store`/`daybyday_data`, clears all existing `daybyday_*` keys, writes the backup's keys, and reloads. Byte-for-byte round trip — schema-agnostic by design, so old backups keep working across store versions (the store's own `migrateToStore` handles any upgrade on next boot).
+
 ## Legacy keys (still written as backup)
 
 `daybyday_data`, `daybyday_backlog`, `daybyday_categories`, `daybyday_history` are still written on every save, so the migration is reversible for one version. They can be retired once the store has proven stable.

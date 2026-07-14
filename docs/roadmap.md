@@ -7,7 +7,8 @@
 - **Cross-card drag broken** — goal→backlog drop unreliable, ghost trail. Full diagnosis in [drag-drop.md](drag-drop.md).
 - **Browser notifications** — permission flow works but notifications don't appear in some browsers. In-app nudge is the reliable fallback.
 - **`totalHours` not retroactive** — only reflects hours logged after categories feature was added. No backfill.
-- **Category hours on carryover** — if a carried-over goal's hours are edited, `totalHours` may double-count. `archiveDay()` doesn't touch `totalHours`.
+
+**Fixed (2026-07):** the "category hours on carryover" double-count family. Audit found and fixed four accumulator leaks: quick-done hour edits didn't accumulate their delta; changing a quick-done's category left its hours in the old category's total; the focus-session save accumulated uncapped hours when the 24h/day goal cap truncated the gain; and `prevHours` reset each rollover instead of accumulating across multi-day carries. Goal-card hour edits were already correct (delta-based).
 
 ## Backlog
 
@@ -21,9 +22,9 @@
 **Larger**
 - Task snowball visualization — compounding progress shown as a growing metaphor (fire, sun)
 - Weekly/monthly views from archive history
-- Export data as JSON/CSV
+- ~~Export data as JSON~~ — shipped 2026-07 (Settings → Data); CSV still open
 - Streak tracking per life area
-- Dark mode
+- Dark mode — will live in Settings → Appearance
 - Custom notification frequency
 
 **Big swings (separate projects)**
@@ -33,6 +34,8 @@
 ## Product Vision
 
 This is not task management. It's **finitude-aware focus** — helping you feel the weight of limited time gently, not anxiously.
+
+> **The concrete how-and-when plan for going product** — gates, stages, and standing rules — lives in [product-plan.md](product-plan.md).
 
 **Phases:**
 1. **Now** — vanilla web app, self-use, rapid iteration. No infra, no accounts.

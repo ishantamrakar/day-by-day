@@ -14,6 +14,7 @@
 | `daybyday_categories` | Categories with all-time `totalHours` |
 | `daybyday_sidebar` | `'collapsed'` or `'open'` |
 | `daybyday_prefs` | Notification dismissed flag |
+| `daybyday_focus_session` | In-progress focus session snapshot (crash recovery) — written while a session runs, cleared on every deliberate close; same-day snapshots trigger a resume prompt on load |
 
 ## Data model
 
@@ -83,7 +84,9 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - Clock syncs to minute boundary via `msUntilNextMinute`, no seconds.
 - Undo: `undoStack`, Cmd/Ctrl+Z. Covers goals, distractions, journal, backlog, quickDone.
 - Progress rings: SVG, `stroke-dasharray: 213.63`. Four rings: progress (green), goal hours (mint, max 8h), distraction (rose, max 4h), quick wins (orange, max 4h).
-- Public API: `window.DayByDayApp = { getState, getGoals, getDistractions, storageGet, storageSet }`
+- Public API: `window.DayByDayApp = { getState, getGoals, getDistractions, getStore, storageGet, storageSet, activity }`
+- Activity monitor: document-level `pointerdown`/`keydown`/throttled `pointermove` listeners (capture phase) keep `lastActivityTime` fresh; `DayByDayApp.activity.getIdleMs()` / `.getLastActivity()` expose it. Consumed today by focus mode's idle check (60 min → "Still working on this?" dialog, `FOCUS_IDLE_THRESHOLD_MS`); intended to feed notifications/intelligence later. Returning to the tab is deliberately not activity — only real interaction is.
+- Focus session records (`state.focusSessions[]`, mirrored to `store.sessions`): `{ timestamp, goalName, goalIndex, category, totalMins, focusPct, focusMins, distractMins, isWin, ultraFocus, intention, entryTag, entryNote, midNotes[], exitTag, exitNote }`. `ultraFocus` is true when the user chose to keep counting after an hour-plus idle stretch; the idle dialog can also override `totalMins` (custom hours) or advance `sessionStartTime` (trim). `midNotes` entries are `{ text, at }` (epoch ms) — records saved before timestamps hold plain strings, and all renderers tolerate both. In-progress sessions snapshot to `daybyday_focus_session` (`persistSnapshot`/`clearSnapshot` in `openFullFocusMode`); `checkForCrashedFocusSession()` at boot offers Resume / Wrap up / Discard for same-day snapshots and drops stale ones.
 
 ## index.html structure
 

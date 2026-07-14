@@ -11,6 +11,10 @@
   --text: #1B4332;             /* Dark Evergreen */
   --text-muted: #6C757D;       /* Slate Gray */
 
+  /* Semantic danger (destructive confirms) — rgba derivations use 201,80,76 */
+  --danger: #C9504C;
+  --danger-deep: #B34440;
+
   /* Derived */
   --primary-light: #e8f5ee;
   --primary-glow: rgba(45, 106, 79, 0.08);
@@ -62,6 +66,26 @@ body {
   line-height: 1.65;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Modal lock — design rule: the page behind a modal is inert.
+   Every modal overlay carries .modal-overlay; a MutationObserver in app.js
+   toggles html.modal-open while any is in the DOM. The full-viewport fixed
+   backdrop swallows clicks; overflow:hidden on the root stops background
+   scroll (on body alone Chromium still wheel-scrolls the viewport). */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  /* Scroll container + contain: wheel/touch over the modal never chains
+     to the page behind it (modals scroll internally via their own
+     overflow-y: auto). */
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+html.modal-open,
+html.modal-open body {
+  overflow: hidden;
 }
 
 /* Animated background blobs — real divs, all identical base rules */
@@ -1525,6 +1549,14 @@ footer {
   margin-bottom: 4px;
 }
 
+/* Note shown when backlog items outside today's focus categories are hidden */
+.backlog-hidden-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 4px 14px 2px;
+  font-style: italic;
+}
+
 .backlog-item {
   display: flex;
   align-items: center;
@@ -1715,6 +1747,40 @@ footer {
 }
 
 /* Hamburger stays visible always — it toggles open/close */
+
+/* Settings gear — pinned to the bottom of the rail */
+.sidebar-settings-btn {
+  margin-top: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.7);
+  border-bottom-color: rgba(0,0,0,0.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,0.9);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.sidebar-settings-btn svg {
+  transition: transform var(--transition);
+}
+
+.sidebar-settings-btn:hover {
+  color: var(--primary);
+  background: rgba(255,255,255,0.85);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(45,106,79,0.12), inset 0 1px 0 rgba(255,255,255,1);
+}
+
+.sidebar-settings-btn:hover svg {
+  transform: rotate(20deg);
+}
 
 /* Emoji button in rail */
 .sidebar-emoji-btn {
@@ -3603,6 +3669,11 @@ footer {
   opacity: 0.85;
 }
 
+/* Clickable life-area pill on a quick-done item — sits where the badge did. */
+.done-item-cat-pill {
+  flex-shrink: 0;
+}
+
 /* ============================================================
    GOAL HOURS PILL — replaces the number input on Top 5 rows
    ============================================================ */
@@ -4402,7 +4473,7 @@ footer {
 }
 
 .focus-note-save-btn {
-  align-self: flex-end;
+  align-self: center;
   background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.25);
   border: 1.5px solid rgba(var(--focus-cat-color-rgb, 64,145,108), 0.45);
   border-radius: 20px;
@@ -4418,6 +4489,420 @@ footer {
 .focus-note-save-btn:hover {
   background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.4);
   border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+/* ============================================================
+   TODAY'S FOCUS ROW (sidebar) + focus editor modal
+   ============================================================ */
+
+/* The "Today's focus" section header carries the edit pencil */
+.sidebar-focus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-focus-edit-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.55;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition);
+}
+
+.sidebar-focus-edit-btn:hover {
+  opacity: 1;
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.sidebar-focus-none {
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--text-muted);
+  padding: 0 2px 6px;
+}
+
+/* ── Archive a life area (expanded card detail) + Archived section ── */
+
+.sidebar-archive-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.65;
+  transition: all var(--transition);
+}
+
+.sidebar-archive-btn:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+/* Collapsed-by-default toggle header for the archived list */
+.sidebar-archived-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.sidebar-archived-toggle svg {
+  opacity: 0.5;
+  transition: transform var(--transition);
+}
+
+.sidebar-archived-toggle:hover svg {
+  opacity: 1;
+}
+
+.sidebar-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  background: rgba(0,0,0,0.045);
+  opacity: 0.8;
+}
+
+.sidebar-archived-label {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-archived-hours {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-restore-btn {
+  background: rgba(255,255,255,0.6);
+  border: 1px solid rgba(45,106,79,0.2);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.sidebar-restore-btn:hover {
+  background: rgba(255,255,255,0.95);
+  border-color: rgba(45,106,79,0.45);
+}
+
+.sidebar-archived-delete-btn {
+  background: none;
+  border: none;
+  padding: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition);
+}
+
+.sidebar-archived-delete-btn:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.sidebar-archived-row--confirm {
+  background: rgba(201,80,76,0.09);
+  opacity: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.sidebar-archived-row--confirm .sidebar-archived-label {
+  white-space: normal;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.sidebar-archived-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sidebar-delete-confirm-btn {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.sidebar-delete-confirm-btn:hover {
+  background: var(--danger-deep);
+  border-color: var(--danger-deep);
+}
+
+.focus-edit-modal {
+  max-width: 400px;
+}
+
+.focus-edit-modal .day-modal-cat-grid {
+  margin: 14px 0 18px;
+}
+
+/* ============================================================
+   SETTINGS MODAL — reuses cat-modal shell; sections stack
+   ============================================================ */
+
+.settings-modal {
+  max-width: 420px;
+}
+
+.settings-hint {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.settings-status {
+  margin: 8px 0 0;
+  min-height: 1em;
+}
+
+.settings-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-confirm {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-xs);
+  background: rgba(201,80,76,0.06);
+  border: 1px solid rgba(201,80,76,0.2);
+}
+
+.settings-confirm .settings-hint {
+  color: var(--text);
+}
+
+.settings-danger-btn {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.settings-danger-btn:hover {
+  background: var(--danger-deep);
+  border-color: var(--danger-deep);
+}
+
+/* ============================================================
+   FOCUS IDLE — attention check ("Still working on this?")
+   ============================================================ */
+
+.focus-idle-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15,22,18,0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: focusIdleIn 0.35s ease both;
+}
+
+@keyframes focusIdleIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.focus-idle-dialog {
+  width: min(420px, calc(100vw - 48px));
+  padding: 32px 28px;
+  border-radius: 20px;
+  background: rgba(30,40,34,0.72);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.15),
+    0 24px 64px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+  text-align: center;
+}
+
+.focus-idle-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+  margin-bottom: 6px;
+}
+
+.focus-idle-away {
+  font-size: 0.88rem;
+  color: rgba(255,255,255,0.55);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 22px;
+}
+
+.focus-idle-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.focus-idle-btn {
+  width: 100%;
+  padding: 11px 18px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1.5px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.82);
+  font-family: var(--font);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.focus-idle-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.25);
+}
+
+.focus-idle-btn--primary {
+  background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.25);
+  border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.45);
+  color: rgba(255,255,255,0.92);
+}
+
+.focus-idle-btn--primary:hover {
+  background: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.4);
+  border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+.focus-idle-btn--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255,255,255,0.45);
+  font-weight: 500;
+}
+
+.focus-idle-btn--quiet:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: transparent;
+  color: rgba(255,255,255,0.7);
+}
+
+.focus-idle-hours-area {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.focus-idle-hours-area.hidden { display: none; }
+
+.focus-idle-hours-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255,255,255,0.18);
+  color: rgba(255,255,255,0.92);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  transition: border-color var(--transition);
+}
+
+.focus-idle-hours-input:focus {
+  outline: none;
+  border-color: rgba(var(--focus-cat-color-rgb, 64,145,108), 0.7);
+}
+
+.focus-idle-hours-input.focus-idle-input-error {
+  border-color: rgba(230,57,70,0.8);
+  animation: focusIdleShake 0.35s ease;
+}
+
+@keyframes focusIdleShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.focus-idle-hours-area .focus-idle-btn {
+  width: auto;
+  flex-shrink: 0;
+}
+
+/* Ultra focus — the user chose to keep counting after a 1h+ quiet
+   stretch. Accent vars are swapped to gold in JS; the badge sits
+   under the ambient clock. */
+.focus-ultra-badge {
+  align-self: center;
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: rgba(var(--focus-cat-color-rgb, 217,164,65), 0.18);
+  border: 1px solid rgba(var(--focus-cat-color-rgb, 217,164,65), 0.4);
+  color: rgba(255,255,255,0.85);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  animation: focusIdleIn 0.5s ease both;
+}
+
+/* Journal pill marker for ultra sessions */
+.focus-session-ultra {
+  font-size: 0.8rem;
+  margin-left: 2px;
+}
+
+/* Timestamp on saved session notes */
+.focus-note-time {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+/* Crash-recovery prompt — body-level overlay reusing the idle dialog card.
+   (.modal-overlay base supplies position:fixed; inset:0.) */
+.focus-restore-overlay {
+  z-index: 9600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15,22,18,0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: focusIdleIn 0.35s ease both;
 }
 
 /* ============================================================

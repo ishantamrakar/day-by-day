@@ -88,13 +88,44 @@ html.modal-open body {
   overflow: hidden;
 }
 
-/* Animated background blobs — real divs, all identical base rules */
-.blob {
+/* Animated background blobs — real divs, all identical base rules.
+   Three-layer split so drift and swirl never fight over `transform`:
+     .blob-layer  — fixed full-viewport container, single hide/show switch
+     .blob-drift  — zero-size wrapper; JS writes ONLY translate3d() here
+     .blob        — the painted blob; static blur + CSS swirl transform
+   Because the blur never changes, the blob rasterizes once into a texture
+   and the compositor just moves it. */
+.blob-layer {
   position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* Drift wrapper — never painted, so moving it is one compositor matrix. */
+.blob-drift {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+
+.blob {
+  position: absolute;
+  top: 0;
+  left: 0;
   border-radius: 50%;
   filter: blur(60px);
   pointer-events: none;
-  z-index: 0;
+  /* Resting opacity — swirl keyframes ramp this to 1 for the "brighten"
+     beat that used to be filter: brightness(). */
+  opacity: 0.88;
+  /* Own texture so the static blur is rasterized once, not per frame. */
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 #blob1 {
@@ -136,76 +167,90 @@ html.modal-open body {
 
 /* Blob 1 — starts top-left (~27vw,27vh center), sweeps to screen center then orbits */
 @keyframes blobSwirl1Complete {
-  0%   { transform: translate(0, 0) scale(1);       filter: blur(60px) brightness(1);    }
-  18%  { transform: translate(15vw, 14vh) scale(1.08);  filter: blur(52px) brightness(1.10); }
-  28%  { transform: translate(23vw, 23vh) scale(1.12);  filter: blur(46px) brightness(1.20); }
-  40%  { transform: translate(33vw, 23vh) scale(1.12);  filter: blur(44px) brightness(1.22); }
-  52%  { transform: translate(23vw, 31vh) scale(1.10);  filter: blur(46px) brightness(1.18); }
-  64%  { transform: translate(13vw, 23vh) scale(1.08);  filter: blur(50px) brightness(1.12); }
-  76%  { transform: translate(23vw, 15vh) scale(1.05);  filter: blur(54px) brightness(1.06); }
-  88%  { transform: translate(12vw, 10vh) scale(1.02);  filter: blur(58px) brightness(1.02); }
-  100% { transform: translate(0, 0) scale(1);       filter: blur(60px) brightness(1);    }
+  0%   { transform: translate(0, 0) scale(1);          opacity: 0.88; }
+  18%  { transform: translate(15vw, 14vh) scale(1.08); opacity: 0.94; }
+  28%  { transform: translate(23vw, 23vh) scale(1.12); opacity: 0.99; }
+  40%  { transform: translate(33vw, 23vh) scale(1.12); opacity: 1;    }
+  52%  { transform: translate(23vw, 31vh) scale(1.10); opacity: 0.98; }
+  64%  { transform: translate(13vw, 23vh) scale(1.08); opacity: 0.95; }
+  76%  { transform: translate(23vw, 15vh) scale(1.05); opacity: 0.91; }
+  88%  { transform: translate(12vw, 10vh) scale(1.02); opacity: 0.89; }
+  100% { transform: translate(0, 0) scale(1);          opacity: 0.88; }
 }
 
 /* Blob 2 — starts bottom-right, sweeps to center then orbits 120° offset */
 @keyframes blobSwirl2Complete {
-  0%   { transform: translate(0, 0) scale(1);          filter: blur(60px) brightness(1);    }
-  18%  { transform: translate(-15vw, -17vh) scale(1.08); filter: blur(52px) brightness(1.10); }
-  28%  { transform: translate(-23vw, -28vh) scale(1.12); filter: blur(46px) brightness(1.20); }
-  40%  { transform: translate(-33vw, -28vh) scale(1.12); filter: blur(44px) brightness(1.22); }
-  52%  { transform: translate(-23vw, -20vh) scale(1.10); filter: blur(46px) brightness(1.18); }
-  64%  { transform: translate(-13vw, -28vh) scale(1.08); filter: blur(50px) brightness(1.12); }
-  76%  { transform: translate(-23vw, -36vh) scale(1.05); filter: blur(54px) brightness(1.06); }
-  88%  { transform: translate(-12vw, -18vh) scale(1.02); filter: blur(58px) brightness(1.02); }
-  100% { transform: translate(0, 0) scale(1);          filter: blur(60px) brightness(1);    }
+  0%   { transform: translate(0, 0) scale(1);            opacity: 0.88; }
+  18%  { transform: translate(-15vw, -17vh) scale(1.08); opacity: 0.94; }
+  28%  { transform: translate(-23vw, -28vh) scale(1.12); opacity: 0.99; }
+  40%  { transform: translate(-33vw, -28vh) scale(1.12); opacity: 1;    }
+  52%  { transform: translate(-23vw, -20vh) scale(1.10); opacity: 0.98; }
+  64%  { transform: translate(-13vw, -28vh) scale(1.08); opacity: 0.95; }
+  76%  { transform: translate(-23vw, -36vh) scale(1.05); opacity: 0.91; }
+  88%  { transform: translate(-12vw, -18vh) scale(1.02); opacity: 0.89; }
+  100% { transform: translate(0, 0) scale(1);            opacity: 0.88; }
 }
 
 /* Blob 3 — near center, tight orbit, 240° offset */
 @keyframes blobSwirl3Complete {
-  0%   { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);    }
-  18%  { transform: translate(2vw, -4vh) scale(1.08);  filter: blur(52px) brightness(1.10); }
-  28%  { transform: translate(0, -10vh) scale(1.12);   filter: blur(46px) brightness(1.20); }
-  40%  { transform: translate(-10vw, -4vh) scale(1.12);filter: blur(44px) brightness(1.22); }
-  52%  { transform: translate(0, 4vh) scale(1.10);     filter: blur(46px) brightness(1.18); }
-  64%  { transform: translate(10vw, -4vh) scale(1.08); filter: blur(50px) brightness(1.12); }
-  76%  { transform: translate(0, -10vh) scale(1.05);   filter: blur(54px) brightness(1.06); }
-  88%  { transform: translate(2vw, -4vh) scale(1.02);  filter: blur(58px) brightness(1.02); }
-  100% { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);    }
+  0%   { transform: translate(0, 0) scale(1);           opacity: 0.88; }
+  18%  { transform: translate(2vw, -4vh) scale(1.08);   opacity: 0.94; }
+  28%  { transform: translate(0, -10vh) scale(1.12);    opacity: 0.99; }
+  40%  { transform: translate(-10vw, -4vh) scale(1.12); opacity: 1;    }
+  52%  { transform: translate(0, 4vh) scale(1.10);      opacity: 0.98; }
+  64%  { transform: translate(10vw, -4vh) scale(1.08);  opacity: 0.95; }
+  76%  { transform: translate(0, -10vh) scale(1.05);    opacity: 0.91; }
+  88%  { transform: translate(2vw, -4vh) scale(1.02);   opacity: 0.89; }
+  100% { transform: translate(0, 0) scale(1);           opacity: 0.88; }
 }
 
 /* Add swirl — quick sweep toward center, half-orbit, back */
 @keyframes blobSwirl1Add {
-  0%   { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);   }
-  25%  { transform: translate(16vw, 17vh) scale(1.08); filter: blur(52px) brightness(1.12); }
-  50%  { transform: translate(26vw, 23vh) scale(1.09); filter: blur(50px) brightness(1.14); }
-  75%  { transform: translate(16vw, 30vh) scale(1.05); filter: blur(55px) brightness(1.06); }
-  100% { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);   }
+  0%   { transform: translate(0, 0) scale(1);          opacity: 0.88; }
+  25%  { transform: translate(16vw, 17vh) scale(1.08); opacity: 0.95; }
+  50%  { transform: translate(26vw, 23vh) scale(1.09); opacity: 0.97; }
+  75%  { transform: translate(16vw, 30vh) scale(1.05); opacity: 0.91; }
+  100% { transform: translate(0, 0) scale(1);          opacity: 0.88; }
 }
 @keyframes blobSwirl2Add {
-  0%   { transform: translate(0, 0) scale(1);           filter: blur(60px) brightness(1);   }
-  25%  { transform: translate(-16vw, -16vh) scale(1.08); filter: blur(52px) brightness(1.12); }
-  50%  { transform: translate(-26vw, -23vh) scale(1.09); filter: blur(50px) brightness(1.14); }
-  75%  { transform: translate(-16vw, -30vh) scale(1.05); filter: blur(55px) brightness(1.06); }
-  100% { transform: translate(0, 0) scale(1);           filter: blur(60px) brightness(1);   }
+  0%   { transform: translate(0, 0) scale(1);            opacity: 0.88; }
+  25%  { transform: translate(-16vw, -16vh) scale(1.08); opacity: 0.95; }
+  50%  { transform: translate(-26vw, -23vh) scale(1.09); opacity: 0.97; }
+  75%  { transform: translate(-16vw, -30vh) scale(1.05); opacity: 0.91; }
+  100% { transform: translate(0, 0) scale(1);            opacity: 0.88; }
 }
 @keyframes blobSwirl3Add {
-  0%   { transform: translate(0, 0) scale(1);      filter: blur(60px) brightness(1);   }
-  25%  { transform: translate(0, -6vh) scale(1.08); filter: blur(52px) brightness(1.12); }
-  50%  { transform: translate(-7vw, 0) scale(1.09); filter: blur(50px) brightness(1.14); }
-  75%  { transform: translate(0, 6vh) scale(1.05);  filter: blur(55px) brightness(1.06); }
-  100% { transform: translate(0, 0) scale(1);      filter: blur(60px) brightness(1);   }
+  0%   { transform: translate(0, 0) scale(1);       opacity: 0.88; }
+  25%  { transform: translate(0, -6vh) scale(1.08); opacity: 0.95; }
+  50%  { transform: translate(-7vw, 0) scale(1.09); opacity: 0.97; }
+  75%  { transform: translate(0, 6vh) scale(1.05);  opacity: 0.91; }
+  100% { transform: translate(0, 0) scale(1);       opacity: 0.88; }
 }
 
 /* Applied via data attributes.
    No fill-mode — animation ends, element returns to base (no transform).
-   The ambient drift keyframes also start at translate(var(--bx),var(--by))
-   which equals the fixed rest position + time offset, so handoff is smooth. */
+   The swirl lives on the inner .blob and is a purely relative offset that
+   returns to translate(0,0); the .blob-drift wrapper keeps the absolute
+   position, so drift and swirl compose without any handoff maths. */
 #blob1[data-swirl="complete"] { animation: blobSwirl1Complete 2.2s ease-in-out; }
 #blob2[data-swirl="complete"] { animation: blobSwirl2Complete 2.2s ease-in-out; }
 #blob3[data-swirl="complete"] { animation: blobSwirl3Complete 2.2s ease-in-out; }
 #blob1[data-swirl="add"]      { animation: blobSwirl1Add      1.4s ease-in-out; }
 #blob2[data-swirl="add"]      { animation: blobSwirl2Add      1.4s ease-in-out; }
 #blob3[data-swirl="add"]      { animation: blobSwirl3Add      1.4s ease-in-out; }
+
+/* Focus fullscreen paints an opaque #1e2420 over everything, so the blobs
+   are invisible behind it — take them out of the compositor entirely.
+   visibility (not display) keeps the blurred textures warm, so closing
+   focus mode doesn't re-rasterize three half-viewport blurs. */
+html.focus-fullscreen-open .blob-layer { visibility: hidden; }
+
+/* Reduced motion — blobs stay visible and static; the drift rAF loop is
+   stopped in JS, and event swirls are suppressed here. */
+@media (prefers-reduced-motion: reduce) {
+  #blob1[data-swirl], #blob2[data-swirl], #blob3[data-swirl] { animation: none; }
+  .blob-drift { will-change: auto; }
+}
 
 /* === App Container — Sidebar is fixed overlay, main content takes full width === */
 #app {
@@ -3952,7 +3997,8 @@ footer {
     radial-gradient(ellipse at 25% 45%, rgba(var(--focus-cat-color-rgb, 45,106,79), 0.14) 0%, transparent 60%),
     radial-gradient(ellipse at 78% 65%, rgba(var(--focus-cat-color-rgb, 45,106,79), 0.08) 0%, transparent 50%),
     #1e2420;
-  backdrop-filter: blur(24px) saturate(1.2);
+  /* No backdrop-filter: the #1e2420 base layer is opaque, so blurring the
+     backdrop was invisible work re-run every frame the blobs moved. */
   display: flex;
   align-items: center;
   justify-content: center;

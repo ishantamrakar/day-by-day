@@ -80,6 +80,14 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - Completed goals go to Done Today card, not the goals list. This matters for drag index math — see [drag-drop.md](drag-drop.md).
 - `renderGoals()` iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
 
+**Background blobs (performance-critical — see [design-system.md](design-system.md) § Depth & Glass):**
+- Markup is `.blob-layer > .blob-drift > .blob`. JS owns the wrapper's `transform`; CSS swirl keyframes own the inner blob's. Splitting them keeps `filter: blur(60px)` **static**, so it rasterizes once instead of every frame.
+- `_driftStep(s)` advances one blob's physics; `_writeBlob(i)` writes `translate3d()` to its wrapper. Never write `left`/`top` here — they trigger layout and force a full-screen blur re-raster.
+- `_startDrift()` / `_stopDrift()` are the **only** owners of `_rafId`; the `_rafId !== null` guard in `_startDrift` makes a duplicated (uncancellable) rAF chain impossible. Call these, never `_driftTick()` directly.
+- Three gates stop the loop: `_driftPaused` (swirl playing), `_driftHidden` (`document.hidden` or focus fullscreen open, via `_refreshDriftGate`), and `_reduceMotion` (`prefers-reduced-motion`).
+- Physics runs at `DRIFT_FPS = 24`, not per frame. Per-step constants are scaled by `_STEP_SCALE = 60 / DRIFT_FPS` so motion matches the original 60fps feel — change `DRIFT_FPS` and the scaling follows automatically.
+- `window.DayByDayBlobs.setOccluded(bool)` is called from the body `MutationObserver` when a `.focus-fullscreen-overlay` is added/removed, covering every `overlay.remove()` path without touching them.
+
 **Other:**
 - Clock syncs to minute boundary via `msUntilNextMinute`, no seconds.
 - Undo: `undoStack`, Cmd/Ctrl+Z. Covers goals, distractions, journal, backlog, quickDone.
@@ -90,6 +98,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 
 ## index.html structure
 
+- `<body>` opens with `#blob-layer`, holding the three `.blob-drift > .blob` pairs, before `#app`
 - `#app` → `<aside id="life-sidebar">` + `<div id="main-content">`
 - Sidebar is `position: fixed` — not in the grid
 - `#main-content` padding-left: `calc(52px + 40px)` → `calc(320px + 40px)` when `.sidebar-open`

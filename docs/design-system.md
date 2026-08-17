@@ -28,7 +28,21 @@ Do not use Claude's default purples/ambers. Every color must come from this pale
 
 ## Depth & Glass System
 
-**Background:** `#EEF2EE` base + three `position: fixed` blob divs (`body::before`, `body::after`, `#blob3`). Blobs use `radial-gradient` + `filter: blur(60px)`, animated on 22s/28s/34s cycles. No `background-attachment: fixed`.
+**Background:** `#EEF2EE` base + three blob divs inside a fixed `.blob-layer` container. Blobs use `radial-gradient` + a **static** `filter: blur(60px)`. No `background-attachment: fixed`.
+
+Motion is split across two nested elements so drift and swirl never contend for `transform` — and so the expensive blur is rasterized once instead of every frame:
+
+| Element | Owns | Notes |
+|---|---|---|
+| `.blob-layer` | visibility | Fixed, full-viewport. Single switch — hidden via `html.focus-fullscreen-open` |
+| `.blob-drift` | JS drift `transform` | Zero-size, never painted. `_driftTick` writes `translate3d()` here |
+| `.blob` | CSS swirl `transform` + `opacity` | The painted blob; static blur, resting `opacity: 0.88` |
+
+**Performance rules (do not regress):**
+- Never animate `left`/`top`/`filter` on a blob — only `transform` and `opacity` are compositor-only. Animating the blur re-rasterizes three half-viewport gaussian blurs per frame.
+- The drift loop runs at ~24fps (`DRIFT_FPS`) and pauses on `document.hidden`, during focus fullscreen, and under `prefers-reduced-motion`.
+- Swirl keyframes express their "brighten" beat with `opacity` (0.88 → 1), replacing the old `filter: brightness()`.
+- Don't add `will-change` to the other `backdrop-filter` elements — layer promotion is deliberately limited to the blobs.
 
 **Cards (`.card`):**
 - `rgba(255,255,255,0.72)` + `backdrop-filter: blur(20px) saturate(1.6)`

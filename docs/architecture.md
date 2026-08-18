@@ -74,6 +74,8 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `loadState()` — detects new day on boot → `archiveDay()` → sets `_prevDayForModal` → builds fresh state with `_carryover`.
 - `checkForNewDay()` — runs every 60s at the minute boundary. Same logic for mid-session day change.
 - `archiveDay()` — pushes snapshot to history (max 30). Does not touch `totalHours`.
+- `dayHasWork(d)` — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
+- `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
 
 **Rendering:**
 - `getActiveGoals()` → `progress < 100`; `getCompletedGoals()` → `progress === 100`

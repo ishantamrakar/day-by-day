@@ -2201,6 +2201,44 @@
     try { const r = storageGet(HISTORY_KEY); return r ? JSON.parse(r) : []; } catch (e) { return []; }
   }
 
+  // Did anything actually happen on this day? Used to tell a real working day
+  // apart from one where the app was merely opened (which still gets saved and
+  // archived, and would otherwise masquerade as "the previous day").
+  function dayHasWork(d) {
+    if (!d) return false;
+    const goals = d.goals || [];
+    return goals.some(g => (g.hours || 0) > 0 || (g.progress || 0) > 0) ||
+           (d.quickDone || []).length > 0 ||
+           (d.distractions || []).some(x => (x.hours || 0) > 0) ||
+           (d.successes || []).length > 0;
+  }
+
+  // The summary modal should reflect the last day you actually WORKED, not
+  // simply the last day the app was open. Skipping days (or opening the app
+  // and doing nothing) leaves empty days in between; walk back through history
+  // to find the most recent real one, falling back to `fallback` when there is
+  // no such day. Returns { day, gapDays, idleDays }.
+  function findLastActiveDay(fallback) {
+    const today = getTodayString();
+    const candidates = loadHistory().filter(d => d && d.date && d.date < today);
+    if (fallback && fallback.date && !candidates.find(d => d.date === fallback.date)) {
+      candidates.push(fallback);
+    }
+    candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    const active = candidates.filter(dayHasWork);
+    const day = active.length ? active[active.length - 1] : fallback;
+    if (!day || !day.date) return { day: fallback, gapDays: 0, idleDays: 0 };
+
+    const dayMs = 1000 * 60 * 60 * 24;
+    const gapDays = Math.round(
+      (new Date(today + 'T12:00:00') - new Date(day.date + 'T12:00:00')) / dayMs
+    );
+    // Days between that last active day and today where nothing was logged.
+    const idleDays = Math.max(0, gapDays - 1);
+    return { day, gapDays, idleDays };
+  }
+
   function saveState() {
     // Sync today's goals/distractions/quickDone views back into the store
     // (source of truth), then persist both. Legacy key is still written so the
@@ -5494,14 +5532,23 @@
     const dateLabel = prevDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     const today = new Date(getTodayString() + 'T12:00:00');
     const dayGap = Math.round((today - prevDate) / (1000 * 60 * 60 * 24));
+    const missedDays = Math.max(0, dayGap - 1);
     const greeting = dayGap === 1 ? 'Good morning.' : `Welcome back.`;
     const subline = dayGap === 1
       ? `Here's how ${dateLabel} went`
-      : `Last session: ${dateLabel}`;
+      : `Here's how ${dateLabel} went — your last day of work`;
     header.innerHTML = `
       <div class="day-modal-greeting">${greeting}</div>
       <div class="day-modal-date">${subline}</div>
     `;
+    if (missedDays > 0) {
+      const gapNote = document.createElement('div');
+      gapNote.className = 'day-modal-gap-note';
+      gapNote.textContent = missedDays === 1
+        ? 'That was a day ago. One day away — the thread is still here.'
+        : `That was ${missedDays} days ago. ${missedDays} days away, and today is still yours to use.`;
+      header.appendChild(gapNote);
+    }
 
     // ── Yesterday's summary ──
     const summary = document.createElement('div');
@@ -5554,6 +5601,24 @@
     // ── Category insights ──
     const insights = document.createElement('div');
     insights.className = 'day-modal-insights';
+
+    // Returning after a gap — a reflective nudge, never a scolding.
+    // Burkeman's point: you can't do everything, so the missed days aren't a
+    // debt to repay. Pick a few things today and let the rest go.
+    if (missedDays > 0) {
+      const RETURN_NOTES = [
+        'Missing days isn\'t falling behind — there was never a schedule to fall behind on. There\'s only what you choose to do with today.',
+        'You can\'t do everything, and the days away don\'t change that. Pick two or three things that matter and let the rest go.',
+        'Nothing needs making up for. A finite day holds only a few things well — choose those, and count today a good one.',
+        'The backlog will always outgrow the time. That\'s not failure, it\'s arithmetic. Choose a little, do it properly.',
+      ];
+      // Stable per-day pick, so reopening the modal doesn't reshuffle the text.
+      const seed = getTodayString().split('-').reduce((s, n) => s + parseInt(n, 10), 0);
+      const note = document.createElement('div');
+      note.className = 'day-modal-insight-row day-modal-return-note';
+      note.innerHTML = `<strong>Good luck today.</strong> ${RETURN_NOTES[seed % RETURN_NOTES.length]}`;
+      insights.appendChild(note);
+    }
 
     // Find lagging categories (have totalHours < average, and not zero because new)
     const activeCats = activeCategories().filter(c => (c.totalHours || 0) > 0 || backlog.some(b => (b.category || 'general') === c.id));
@@ -5787,7 +5852,10 @@
       saveState();
       render();
       updateClock();
-      showDayTransitionModal(prev);
+      // Same rule as boot: if `prev` was an idle day (tab left open overnight,
+      // nothing logged), summarise the last day that actually had work.
+      const { day: lastActive } = findLastActiveDay(prev);
+      showDayTransitionModal(dayHasWork(prev) ? prev : (lastActive || prev));
     }
   }
   (function scheduleNewDayCheck() {
@@ -5818,13 +5886,13 @@
   restoreCardLayout();
   render();
   if (_prevDayForModal) {
-    const prevDate = new Date(_prevDayForModal.date + 'T12:00:00');
-    const todayDate = new Date(getTodayString() + 'T12:00:00');
-    const gap = Math.round((todayDate - prevDate) / (1000 * 60 * 60 * 24));
-    const hasData = (_prevDayForModal.goals && _prevDayForModal.goals.length > 0) ||
-                    (_prevDayForModal.quickDone && _prevDayForModal.quickDone.length > 0) ||
-                    (_prevDayForModal.successes && _prevDayForModal.successes.length > 0);
-    if (gap === 1 || hasData) showDayTransitionModal(_prevDayForModal);
+    // Show the last day real work happened, not merely the last day the app
+    // was opened — skipped (or idle) days would otherwise summarise as blank.
+    const { day: lastActive, gapDays } = findLastActiveDay(_prevDayForModal);
+    const summaryDay = lastActive || _prevDayForModal;
+    const hasData = dayHasWork(summaryDay) ||
+                    (summaryDay.goals && summaryDay.goals.length > 0);
+    if (gapDays === 1 || hasData) showDayTransitionModal(summaryDay);
     else showCarryoverIfNeeded();
   } else showCarryoverIfNeeded();
   initCardDragHandles();

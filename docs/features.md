@@ -42,10 +42,17 @@ Shown on first load after a new day (or at midnight mid-session). Source data is
 4. **Category insights** — shown when 2+ categories have data. Flags lagging (<50% of avg) and thriving (>150%) areas.
 5. **Focus picker** — all categories shown; up to 3 selectable; pre-selects least-hours cats that have backlog/repeatable work. Selecting a 4th auto-deselects the first.
 6. **Repeatable checklist** — repeatable items from `_carryover` + backlog, filtered to selected categories. All pre-checked.
-7. **"Start my day →"** — adds checked repeatables to goals, carries non-repeatable carryover in selected cats (up to MAX_GOALS), clears `_carryover`, saves, renders.
-8. **"Skip, start fresh"** — clears `_carryover`, closes.
+7. **Left unfinished** — lists yesterday's incomplete tasks by name (emoji, name, `%` progress, carried hours), with a note that any not started today wait in the backlog. Completed tasks are excluded; the whole section is hidden when nothing was left over. This is the only place leftover work is surfaced — the app has no time-of-day / end-of-day awareness by design.
+8. **"Start my day →"** — adds checked repeatables to goals, carries non-repeatable carryover in selected cats (up to MAX_GOALS), then `rescueCarryoverToBacklog()` sweeps the remainder into the backlog, saves, renders.
+9. **"Start fresh"** — carries nothing into Top 5, but still rescues every unfinished task to the backlog before closing. (Renamed from "Skip, start fresh" — it no longer discards anything.)
 
-**Invariant:** Modal reads `_carryover`, writes to `state.goals` + `backlog`, then deletes `_carryover`. After close, `_carryover` is gone.
+**Invariant:** Modal reads `_carryover`, writes to `state.goals` + `backlog`, then clears `_carryover` **via `rescueCarryoverToBacklog()`**. After close, `_carryover` is gone and every unfinished task is either in Top 5 or the backlog — never dropped.
+
+### Unfinished task rollover
+
+Unfinished Top 5 tasks used to be lost on three paths: "Skip, start fresh" discarded them outright; "Start my day" silently dropped any task whose category wasn't in today's focus; and Top 5 overflow had nowhere to go. `rescueCarryoverToBacklog()` is now the **single** exit for `_carryover` — every path routes through it, and anything not already live in Top 5 (and not already in the backlog) is appended there.
+
+Deliberately **not** filtered by focus categories: the focus picker decides what gets pre-loaded into Top 5, not what is allowed to survive the day. A task now disappears only when the user explicitly deletes it.
 
 ## Categories System
 

@@ -3113,6 +3113,63 @@ footer {
   border-top: 1px solid rgba(45,106,79,0.08);
 }
 
+/* Leftover tasks — what was left unfinished, shown by name so the
+   carryover is visible rather than implied. Amber, matching the
+   "attention, not alarm" register used elsewhere. */
+.day-modal-leftover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-modal-leftover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255,159,28,0.06);
+  border: 1px solid rgba(255,159,28,0.18);
+  border-radius: 12px;
+}
+
+.day-modal-leftover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text);
+  padding: 3px 0;
+}
+
+.day-leftover-emoji {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.day-leftover-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-leftover-prog,
+.day-leftover-hours {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.day-modal-leftover-note {
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+
 /* Return note — the encouragement shown after a gap. Slightly warmer than
    the analytical insight rows it sits beside. */
 .day-modal-return-note strong {

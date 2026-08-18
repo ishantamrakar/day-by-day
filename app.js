@@ -2252,6 +2252,37 @@
   // =========================================================
   // CARRYOVER
   // =========================================================
+
+  // Nothing unfinished may be silently discarded. Every path that clears
+  // `_carryover` routes through here first: anything not already live in
+  // Top 5 lands in the backlog, so a task survives until the user
+  // deliberately deletes it. Returns the number of tasks rescued.
+  //
+  // Note this is deliberately NOT filtered by today's focus categories —
+  // the focus picker decides what gets pre-loaded into Top 5, not what is
+  // allowed to survive the day.
+  function rescueCarryoverToBacklog() {
+    const leftovers = state._carryover || [];
+    if (leftovers.length === 0) { delete state._carryover; return 0; }
+    let rescued = 0;
+    leftovers.forEach(g => {
+      if (!g || !g.name) return;
+      // Already carried into today's Top 5 — nothing to rescue.
+      if (state.goals.find(eg => eg.name === g.name)) return;
+      // Already sitting in the backlog — don't duplicate it.
+      if (backlog.find(b => b.name === g.name)) return;
+      backlog.push({
+        name: g.name,
+        category: g.category || null,
+        repeatable: g.repeatable || false,
+      });
+      rescued++;
+    });
+    delete state._carryover;
+    if (rescued > 0) saveBacklog();
+    return rescued;
+  }
+
   function showCarryoverIfNeeded() {
     if (!state._carryover || state._carryover.length === 0) {
       if (carryoverBanner) carryoverBanner.classList.add('hidden');
@@ -2272,15 +2303,17 @@
       if (state.goals.length < MAX_GOALS)
         state.goals.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0, category: g.category || null, repeatable: g.repeatable || false });
     });
-    delete state._carryover;
+    rescueCarryoverToBacklog();
     saveState();
     carryoverBanner.classList.add('hidden');
     render();
   });
 
   if (carryoverDismiss) carryoverDismiss.addEventListener('click', () => {
-    delete state._carryover;
+    rescueCarryoverToBacklog();
+    saveState();
     carryoverBanner.classList.add('hidden');
+    render();
   });
 
   if (storageWarning && !storageAvailable) storageWarning.classList.remove('hidden');
@@ -5760,16 +5793,62 @@
 
     updateRepeatableChecklist();
 
+    // ── Leftover tasks ──
+    // Show what was actually left unfinished, by name, so the carryover is
+    // visible rather than implied. Nothing here is lost: whatever isn't
+    // pre-loaded into Top 5 lands in the backlog.
+    const leftovers = (state._carryover || []).filter(g => g && g.name);
+    let leftoverSection = null;
+    if (leftovers.length > 0) {
+      leftoverSection = document.createElement('div');
+      leftoverSection.className = 'day-modal-leftover-section';
+
+      const leftoverLabel = document.createElement('div');
+      leftoverLabel.className = 'day-modal-section-label';
+      leftoverLabel.textContent = leftovers.length === 1
+        ? 'Left unfinished'
+        : `Left unfinished (${leftovers.length})`;
+      leftoverSection.appendChild(leftoverLabel);
+
+      const leftoverList = document.createElement('div');
+      leftoverList.className = 'day-modal-leftover-list';
+      leftovers.forEach(g => {
+        const cat = getCategoryById(g.category || 'general');
+        const row = document.createElement('div');
+        row.className = 'day-modal-leftover-item';
+        const prog = g.progress || 0;
+        const prevH = g.prevHours || 0;
+        row.innerHTML =
+          `<span class="day-leftover-emoji">${cat.emoji}</span>` +
+          `<span class="day-leftover-name">${g.name}</span>` +
+          (prog > 0 ? `<span class="day-leftover-prog">${prog}%</span>` : '') +
+          (prevH > 0 ? `<span class="day-leftover-hours">${formatHours(prevH, '')}</span>` : '');
+        leftoverList.appendChild(row);
+      });
+      leftoverSection.appendChild(leftoverList);
+
+      const leftoverNote = document.createElement('div');
+      leftoverNote.className = 'day-modal-leftover-note';
+      leftoverNote.textContent = leftovers.length === 1
+        ? 'Not started today? It waits in your backlog — nothing is lost.'
+        : 'Any you don\'t start today wait in your backlog — nothing is lost.';
+      leftoverSection.appendChild(leftoverNote);
+    }
+
     // ── Actions ──
     const actions = document.createElement('div');
     actions.className = 'day-modal-actions';
 
     const skipBtn = document.createElement('button');
     skipBtn.className = 'btn btn-ghost';
-    skipBtn.textContent = 'Skip, start fresh';
+    skipBtn.textContent = 'Start fresh';
     skipBtn.addEventListener('click', () => {
-      delete state._carryover;
+      // "Start fresh" clears today's board — it must not destroy yesterday's
+      // unfinished work. Everything left over drops into the backlog.
+      rescueCarryoverToBacklog();
       saveState();
+      render();
+      renderSidebar();
       overlay.remove();
     });
 
@@ -5812,7 +5891,9 @@
       // Persist today's focus categories so the sidebar can show them all day
       state.focusCategoryIds = Array.from(selectedCats);
 
-      delete state._carryover;
+      // Anything still unfinished (wrong focus category, or Top 5 was full)
+      // goes to the backlog rather than disappearing.
+      rescueCarryoverToBacklog();
       saveBacklog();
       saveState();
       render();
@@ -5825,7 +5906,9 @@
 
     modal.append(header, summary);
     if (insights.children.length > 0) modal.appendChild(insights);
-    modal.append(focusSection, repeatSection, actions);
+    if (leftoverSection) modal.appendChild(leftoverSection);
+    modal.append(focusSection, repeatSection);
+    modal.appendChild(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
   }

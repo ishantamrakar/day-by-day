@@ -247,11 +247,18 @@
     ];
   }
 
-  // Cache blob elements — all three are real divs now
+  // Cache blob elements — all three are real divs now.
+  // _blobs are the painted blobs (CSS swirl owns their transform);
+  // _blobDrifts are their zero-size wrappers (JS drift owns those).
   const _blobs = [
     document.getElementById('blob1'),
     document.getElementById('blob2'),
     document.getElementById('blob3'),
+  ];
+  const _blobDrifts = [
+    document.getElementById('blob1-drift'),
+    document.getElementById('blob2-drift'),
+    document.getElementById('blob3-drift'),
   ];
 
   let _lastBlobColorKey = '';
@@ -274,79 +281,145 @@
   // When a swirl triggers, the rAF loop pauses and the CSS swirl animation plays.
   // When swirl ends, the loop resumes from the blob's current rendered position.
 
+  // Physics runs at DRIFT_FPS, not per animation frame. The per-step
+  // constants below are scaled by (60 / DRIFT_FPS) against the old
+  // per-frame values so the motion looks exactly as it always has.
+  const DRIFT_FPS = 24;
+  const DRIFT_INTERVAL = 1000 / DRIFT_FPS;
+  const _STEP_SCALE = 60 / DRIFT_FPS; // 2.5
+
   const _blobState = _blobs.map((b, i) => {
     const w = [0.55, 0.50, 0.48][i];
     const h = [0.55, 0.60, 0.48][i];
     const px = Math.random() * (1 - w);
     const py = Math.random() * (1 - h);
     const angle = Math.random() * Math.PI * 2;
-    const speed = 0.0004; // vw-fraction per frame
-    // turnRate: how many radians the direction rotates per frame — creates arcs.
+    const speed = 0.0004 * _STEP_SCALE; // vw-fraction per step
+    // turnRate: how many radians the direction rotates per step — creates arcs.
     // Each blob gets a different rate so they trace different curve radii.
     // Sign alternates so they curve in different directions.
     // turnRate oscillates via a per-blob phase so arcs curve both ways over time,
     // preventing inward spiraling. Each blob has a different oscillation period.
-    const turnPeriods = [380, 520, 290]; // frames per full oscillation
-    const turnAmps   = [0.012, 0.009, 0.014];
+    const turnPeriods = [380, 520, 290].map(p => p / _STEP_SCALE); // steps per oscillation
+    const turnAmps    = [0.012, 0.009, 0.014].map(a => a * _STEP_SCALE);
     return { px, py, angle, speed, w, h, frame: Math.floor(Math.random() * turnPeriods[i]), turnPeriod: turnPeriods[i], turnAmp: turnAmps[i] };
   });
 
-  let _driftPaused = false;
+  let _driftPaused = false;   // a swirl is playing
+  let _driftHidden = false;   // tab hidden, or focus fullscreen is covering us
+  let _reduceMotion = false;  // user asked the OS for reduced motion
+  let _focusModeOpen = false;
   let _rafId = null;
+  let _lastStep = 0;
 
-  function _driftTick() {
-    if (_driftPaused) return;
-    _blobState.forEach((s, i) => {
-      const b = _blobs[i];
-      if (!b) return;
-      // Oscillating turn rate — curves left then right over time, no inward spiral
-      s.frame++;
-      const turnRate = s.turnAmp * Math.sin((s.frame / s.turnPeriod) * Math.PI * 2);
-      s.angle += turnRate;
-      // Edge repulsion — only kick in very close to boundary, low strength
-      const margin = 0.03;
-      if (s.px < margin)           s.angle += 0.12 * Math.pow(1 - s.px / margin, 2);
-      if (s.px > 1 - s.w - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.w - s.px) / margin, 2);
-      if (s.py < margin)           s.angle += 0.12 * Math.pow(1 - s.py / margin, 2);
-      if (s.py > 1 - s.h - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.h - s.py) / margin, 2);
-      s.px += Math.cos(s.angle) * s.speed;
-      s.py += Math.sin(s.angle) * s.speed;
-      // Last-resort clamp + flip angle inward if a blob somehow escapes
-      if (s.px < 0)       { s.px = 0;       s.angle =  Math.abs(Math.cos(s.angle)) > 0.1 ? Math.PI - s.angle : s.angle; }
-      if (s.px > 1 - s.w) { s.px = 1 - s.w; s.angle = -Math.PI - s.angle; }
-      if (s.py < 0)       { s.py = 0;       s.angle = -s.angle; }
-      if (s.py > 1 - s.h) { s.py = 1 - s.h; s.angle = -s.angle; }
-      b.style.left = (s.px * 100).toFixed(3) + 'vw';
-      b.style.top  = (s.py * 100).toFixed(3) + 'vh';
-    });
+  // Advance one blob by a single physics step. Unchanged from the original
+  // per-frame maths — only the write target moved to the wrapper.
+  function _driftStep(s) {
+    // Oscillating turn rate — curves left then right over time, no inward spiral
+    s.frame++;
+    const turnRate = s.turnAmp * Math.sin((s.frame / s.turnPeriod) * Math.PI * 2);
+    s.angle += turnRate;
+    // Edge repulsion — only kick in very close to boundary, low strength
+    const margin = 0.03;
+    if (s.px < margin)           s.angle += 0.12 * Math.pow(1 - s.px / margin, 2);
+    if (s.px > 1 - s.w - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.w - s.px) / margin, 2);
+    if (s.py < margin)           s.angle += 0.12 * Math.pow(1 - s.py / margin, 2);
+    if (s.py > 1 - s.h - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.h - s.py) / margin, 2);
+    s.px += Math.cos(s.angle) * s.speed;
+    s.py += Math.sin(s.angle) * s.speed;
+    // Last-resort clamp + flip angle inward if a blob somehow escapes
+    if (s.px < 0)       { s.px = 0;       s.angle =  Math.abs(Math.cos(s.angle)) > 0.1 ? Math.PI - s.angle : s.angle; }
+    if (s.px > 1 - s.w) { s.px = 1 - s.w; s.angle = -Math.PI - s.angle; }
+    if (s.py < 0)       { s.py = 0;       s.angle = -s.angle; }
+    if (s.py > 1 - s.h) { s.py = 1 - s.h; s.angle = -s.angle; }
+  }
+
+  // Compositor-only write: translate3d on an unpainted wrapper means no
+  // layout, no repaint, and no re-blur of the (static) blur underneath.
+  function _writeBlob(i) {
+    const s = _blobState[i], d = _blobDrifts[i];
+    if (!d) return;
+    d.style.transform = 'translate3d(' + (s.px * 100).toFixed(3) + 'vw,' +
+                                         (s.py * 100).toFixed(3) + 'vh,0)';
+  }
+
+  function _driftTick(now) {
+    _rafId = null;
+    if (_driftPaused || _driftHidden || _reduceMotion) return;
+    if (!_lastStep || now - _lastStep >= DRIFT_INTERVAL) {
+      // Cap catch-up so a long stall can't teleport the blobs.
+      const steps = _lastStep ? Math.min(2, Math.max(1, Math.round((now - _lastStep) / DRIFT_INTERVAL))) : 1;
+      _lastStep = now;
+      for (let i = 0; i < _blobState.length; i++) {
+        for (let n = 0; n < steps; n++) _driftStep(_blobState[i]);
+        _writeBlob(i);
+      }
+    }
     _rafId = requestAnimationFrame(_driftTick);
   }
 
+  // _startDrift/_stopDrift are the ONLY owners of _rafId. The null-check
+  // makes a duplicated (and therefore uncancellable) rAF chain impossible.
+  function _startDrift() {
+    if (_rafId !== null) return;
+    if (_driftPaused || _driftHidden || _reduceMotion) return;
+    _lastStep = 0; // resume takes exactly one step — no positional jump
+    _rafId = requestAnimationFrame(_driftTick);
+  }
+  function _stopDrift() {
+    if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+  }
+
+  function _refreshDriftGate() {
+    _driftHidden = document.hidden || _focusModeOpen;
+    if (_driftHidden) _stopDrift(); else _startDrift();
+  }
+
+  document.addEventListener('visibilitychange', _refreshDriftGate);
+
+  // Focus fullscreen fully occludes the blobs — stop the loop while it's up.
+  window.DayByDayBlobs = {
+    setOccluded(on) {
+      if (_focusModeOpen === on) return;
+      _focusModeOpen = on;
+      _refreshDriftGate();
+    }
+  };
+
+  const _rmQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  _reduceMotion = _rmQuery.matches;
+  _rmQuery.addEventListener('change', e => {
+    _reduceMotion = e.matches;
+    if (_reduceMotion) _stopDrift(); else _startDrift();
+  });
+
   // Strip CSS drift animations — motion is now fully JS-driven
-  _blobs.forEach(b => { if (b) { b.style.animation = 'none'; b.style.bottom = ''; b.style.right = ''; } });
-  _driftTick();
+  _blobs.forEach(b => { if (b) { b.style.animation = 'none'; } });
+  _blobState.forEach((s, i) => _writeBlob(i)); // paint initial positions
+  _startDrift();
 
   let _swirlTimer = null;
   function pulseBlobEvent(type) {
+    if (_reduceMotion) return;
     if (_swirlTimer) { clearTimeout(_swirlTimer); _swirlTimer = null; }
 
     const dur = type === 'complete' ? 2200 : 1400;
     const swirlType = (type === 'distraction') ? 'add' : type;
     const targets = (type === 'distraction') ? [_blobs[2]] : _blobs;
 
-    // Pause drift loop, freeze each blob at current position so swirl starts from here
+    // Pause the drift loop for the duration of the swirl. The wrapper keeps
+    // the absolute position; the swirl is a relative offset on the inner blob.
     _driftPaused = true;
-    if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+    _stopDrift();
 
-    _blobs.forEach((b, i) => {
+    _blobs.forEach(b => {
       if (!b) return;
       b.removeAttribute('data-swirl');
-      // Position already set by drift loop — just clear any animation so swirl CSS takes over
       b.style.animation = 'none';
     });
     void document.body.offsetWidth;
 
-    targets.forEach((b, i) => {
+    targets.forEach(b => {
       if (!b) return;
       b.style.animation = '';  // re-enable CSS animations for swirl
       b.style.animationDelay = '0s';
@@ -354,23 +427,15 @@
     });
 
     _swirlTimer = setTimeout(() => {
-      // Swirl ended — read each blob's final rendered position back into _blobState
-      // so the drift loop resumes seamlessly from exactly where the swirl landed.
-      _blobs.forEach((b, i) => {
+      // Swirl keyframes end back at translate(0,0), and they never touched the
+      // drift wrapper — so there is no position to reconcile. Just clear and go.
+      _blobs.forEach(b => {
         if (!b) return;
-        const vw = window.innerWidth, vh = window.innerHeight;
-        const rect = b.getBoundingClientRect();
-        _blobState[i].px = rect.left / vw;
-        _blobState[i].py = rect.top  / vh;
-        // Keep current angle so arc continues in the same direction it was heading
         b.removeAttribute('data-swirl');
         b.style.animation = 'none';
-        b.style.left = (rect.left / vw * 100).toFixed(3) + 'vw';
-        b.style.top  = (rect.top  / vh * 100).toFixed(3) + 'vh';
       });
-      void document.body.offsetWidth;
       _driftPaused = false;
-      _driftTick();
+      _startDrift();
       _swirlTimer = null;
     }, dur);
   }
@@ -2136,6 +2201,44 @@
     try { const r = storageGet(HISTORY_KEY); return r ? JSON.parse(r) : []; } catch (e) { return []; }
   }
 
+  // Did anything actually happen on this day? Used to tell a real working day
+  // apart from one where the app was merely opened (which still gets saved and
+  // archived, and would otherwise masquerade as "the previous day").
+  function dayHasWork(d) {
+    if (!d) return false;
+    const goals = d.goals || [];
+    return goals.some(g => (g.hours || 0) > 0 || (g.progress || 0) > 0) ||
+           (d.quickDone || []).length > 0 ||
+           (d.distractions || []).some(x => (x.hours || 0) > 0) ||
+           (d.successes || []).length > 0;
+  }
+
+  // The summary modal should reflect the last day you actually WORKED, not
+  // simply the last day the app was open. Skipping days (or opening the app
+  // and doing nothing) leaves empty days in between; walk back through history
+  // to find the most recent real one, falling back to `fallback` when there is
+  // no such day. Returns { day, gapDays, idleDays }.
+  function findLastActiveDay(fallback) {
+    const today = getTodayString();
+    const candidates = loadHistory().filter(d => d && d.date && d.date < today);
+    if (fallback && fallback.date && !candidates.find(d => d.date === fallback.date)) {
+      candidates.push(fallback);
+    }
+    candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    const active = candidates.filter(dayHasWork);
+    const day = active.length ? active[active.length - 1] : fallback;
+    if (!day || !day.date) return { day: fallback, gapDays: 0, idleDays: 0 };
+
+    const dayMs = 1000 * 60 * 60 * 24;
+    const gapDays = Math.round(
+      (new Date(today + 'T12:00:00') - new Date(day.date + 'T12:00:00')) / dayMs
+    );
+    // Days between that last active day and today where nothing was logged.
+    const idleDays = Math.max(0, gapDays - 1);
+    return { day, gapDays, idleDays };
+  }
+
   function saveState() {
     // Sync today's goals/distractions/quickDone views back into the store
     // (source of truth), then persist both. Legacy key is still written so the
@@ -2149,6 +2252,37 @@
   // =========================================================
   // CARRYOVER
   // =========================================================
+
+  // Nothing unfinished may be silently discarded. Every path that clears
+  // `_carryover` routes through here first: anything not already live in
+  // Top 5 lands in the backlog, so a task survives until the user
+  // deliberately deletes it. Returns the number of tasks rescued.
+  //
+  // Note this is deliberately NOT filtered by today's focus categories —
+  // the focus picker decides what gets pre-loaded into Top 5, not what is
+  // allowed to survive the day.
+  function rescueCarryoverToBacklog() {
+    const leftovers = state._carryover || [];
+    if (leftovers.length === 0) { delete state._carryover; return 0; }
+    let rescued = 0;
+    leftovers.forEach(g => {
+      if (!g || !g.name) return;
+      // Already carried into today's Top 5 — nothing to rescue.
+      if (state.goals.find(eg => eg.name === g.name)) return;
+      // Already sitting in the backlog — don't duplicate it.
+      if (backlog.find(b => b.name === g.name)) return;
+      backlog.push({
+        name: g.name,
+        category: g.category || null,
+        repeatable: g.repeatable || false,
+      });
+      rescued++;
+    });
+    delete state._carryover;
+    if (rescued > 0) saveBacklog();
+    return rescued;
+  }
+
   function showCarryoverIfNeeded() {
     if (!state._carryover || state._carryover.length === 0) {
       if (carryoverBanner) carryoverBanner.classList.add('hidden');
@@ -2169,15 +2303,17 @@
       if (state.goals.length < MAX_GOALS)
         state.goals.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0, category: g.category || null, repeatable: g.repeatable || false });
     });
-    delete state._carryover;
+    rescueCarryoverToBacklog();
     saveState();
     carryoverBanner.classList.add('hidden');
     render();
   });
 
   if (carryoverDismiss) carryoverDismiss.addEventListener('click', () => {
-    delete state._carryover;
+    rescueCarryoverToBacklog();
+    saveState();
     carryoverBanner.classList.add('hidden');
+    render();
   });
 
   if (storageWarning && !storageAvailable) storageWarning.classList.remove('hidden');
@@ -2667,12 +2803,18 @@
       return grid;
     }
 
-    function makeCloseBtn() {
+    // `teardown` lets a screen clean up its own timers before the overlay
+    // goes away. Only the ambient screen has any (clock/idle/breathe); without
+    // it those intervals outlive the closed session forever.
+    function makeCloseBtn(teardown) {
       const btn = document.createElement('button');
       btn.className = 'focus-fullscreen-close';
       btn.title = 'Close focus mode';
       btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-      btn.addEventListener('click', () => { clearSnapshot(); overlay.remove(); activeFocusOverlay = null; });
+      btn.addEventListener('click', () => {
+        if (teardown) teardown();
+        clearSnapshot(); overlay.remove(); activeFocusOverlay = null;
+      });
       return btn;
     }
 
@@ -2776,7 +2918,9 @@
       screen.className = 'focus-ambient-screen';
       screen.style.setProperty('--cat-color', catColor);
 
-      const closeBtn = makeCloseBtn();
+      // Wrapped in an arrow fn: stopAmbientIntervals is hoisted but its
+      // interval handles aren't assigned until further down this function.
+      const closeBtn = makeCloseBtn(() => stopAmbientIntervals());
       closeBtn.classList.add('focus-ambient-close');
       screen.appendChild(closeBtn);
 
@@ -5297,10 +5441,18 @@
   function isModalOpen() {
     return !!document.querySelector('body > .modal-overlay');
   }
+  function isFocusFullscreenOpen() {
+    return !!document.querySelector('body > .focus-fullscreen-overlay');
+  }
   new MutationObserver(() => {
     // Class goes on <html>: overflow:hidden on body alone doesn't reliably
     // stop viewport wheel scrolling in Chromium.
     document.documentElement.classList.toggle('modal-open', isModalOpen());
+    // Focus fullscreen hides the blob layer and pauses its drift loop.
+    // Driven from here so every overlay.remove() path is covered for free.
+    const focusOpen = isFocusFullscreenOpen();
+    document.documentElement.classList.toggle('focus-fullscreen-open', focusOpen);
+    if (window.DayByDayBlobs) window.DayByDayBlobs.setOccluded(focusOpen);
   }).observe(document.body, { childList: true });
 
   // =========================================================
@@ -5413,14 +5565,23 @@
     const dateLabel = prevDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     const today = new Date(getTodayString() + 'T12:00:00');
     const dayGap = Math.round((today - prevDate) / (1000 * 60 * 60 * 24));
+    const missedDays = Math.max(0, dayGap - 1);
     const greeting = dayGap === 1 ? 'Good morning.' : `Welcome back.`;
     const subline = dayGap === 1
       ? `Here's how ${dateLabel} went`
-      : `Last session: ${dateLabel}`;
+      : `Here's how ${dateLabel} went — your last day of work`;
     header.innerHTML = `
       <div class="day-modal-greeting">${greeting}</div>
       <div class="day-modal-date">${subline}</div>
     `;
+    if (missedDays > 0) {
+      const gapNote = document.createElement('div');
+      gapNote.className = 'day-modal-gap-note';
+      gapNote.textContent = missedDays === 1
+        ? 'That was a day ago. One day away — the thread is still here.'
+        : `That was ${missedDays} days ago. ${missedDays} days away, and today is still yours to use.`;
+      header.appendChild(gapNote);
+    }
 
     // ── Yesterday's summary ──
     const summary = document.createElement('div');
@@ -5473,6 +5634,24 @@
     // ── Category insights ──
     const insights = document.createElement('div');
     insights.className = 'day-modal-insights';
+
+    // Returning after a gap — a reflective nudge, never a scolding.
+    // Burkeman's point: you can't do everything, so the missed days aren't a
+    // debt to repay. Pick a few things today and let the rest go.
+    if (missedDays > 0) {
+      const RETURN_NOTES = [
+        'Missing days isn\'t falling behind — there was never a schedule to fall behind on. There\'s only what you choose to do with today.',
+        'You can\'t do everything, and the days away don\'t change that. Pick two or three things that matter and let the rest go.',
+        'Nothing needs making up for. A finite day holds only a few things well — choose those, and count today a good one.',
+        'The backlog will always outgrow the time. That\'s not failure, it\'s arithmetic. Choose a little, do it properly.',
+      ];
+      // Stable per-day pick, so reopening the modal doesn't reshuffle the text.
+      const seed = getTodayString().split('-').reduce((s, n) => s + parseInt(n, 10), 0);
+      const note = document.createElement('div');
+      note.className = 'day-modal-insight-row day-modal-return-note';
+      note.innerHTML = `<strong>Good luck today.</strong> ${RETURN_NOTES[seed % RETURN_NOTES.length]}`;
+      insights.appendChild(note);
+    }
 
     // Find lagging categories (have totalHours < average, and not zero because new)
     const activeCats = activeCategories().filter(c => (c.totalHours || 0) > 0 || backlog.some(b => (b.category || 'general') === c.id));
@@ -5614,16 +5793,62 @@
 
     updateRepeatableChecklist();
 
+    // ── Leftover tasks ──
+    // Show what was actually left unfinished, by name, so the carryover is
+    // visible rather than implied. Nothing here is lost: whatever isn't
+    // pre-loaded into Top 5 lands in the backlog.
+    const leftovers = (state._carryover || []).filter(g => g && g.name);
+    let leftoverSection = null;
+    if (leftovers.length > 0) {
+      leftoverSection = document.createElement('div');
+      leftoverSection.className = 'day-modal-leftover-section';
+
+      const leftoverLabel = document.createElement('div');
+      leftoverLabel.className = 'day-modal-section-label';
+      leftoverLabel.textContent = leftovers.length === 1
+        ? 'Left unfinished'
+        : `Left unfinished (${leftovers.length})`;
+      leftoverSection.appendChild(leftoverLabel);
+
+      const leftoverList = document.createElement('div');
+      leftoverList.className = 'day-modal-leftover-list';
+      leftovers.forEach(g => {
+        const cat = getCategoryById(g.category || 'general');
+        const row = document.createElement('div');
+        row.className = 'day-modal-leftover-item';
+        const prog = g.progress || 0;
+        const prevH = g.prevHours || 0;
+        row.innerHTML =
+          `<span class="day-leftover-emoji">${cat.emoji}</span>` +
+          `<span class="day-leftover-name">${g.name}</span>` +
+          (prog > 0 ? `<span class="day-leftover-prog">${prog}%</span>` : '') +
+          (prevH > 0 ? `<span class="day-leftover-hours">${formatHours(prevH, '')}</span>` : '');
+        leftoverList.appendChild(row);
+      });
+      leftoverSection.appendChild(leftoverList);
+
+      const leftoverNote = document.createElement('div');
+      leftoverNote.className = 'day-modal-leftover-note';
+      leftoverNote.textContent = leftovers.length === 1
+        ? 'Not started today? It waits in your backlog — nothing is lost.'
+        : 'Any you don\'t start today wait in your backlog — nothing is lost.';
+      leftoverSection.appendChild(leftoverNote);
+    }
+
     // ── Actions ──
     const actions = document.createElement('div');
     actions.className = 'day-modal-actions';
 
     const skipBtn = document.createElement('button');
     skipBtn.className = 'btn btn-ghost';
-    skipBtn.textContent = 'Skip, start fresh';
+    skipBtn.textContent = 'Start fresh';
     skipBtn.addEventListener('click', () => {
-      delete state._carryover;
+      // "Start fresh" clears today's board — it must not destroy yesterday's
+      // unfinished work. Everything left over drops into the backlog.
+      rescueCarryoverToBacklog();
       saveState();
+      render();
+      renderSidebar();
       overlay.remove();
     });
 
@@ -5666,7 +5891,9 @@
       // Persist today's focus categories so the sidebar can show them all day
       state.focusCategoryIds = Array.from(selectedCats);
 
-      delete state._carryover;
+      // Anything still unfinished (wrong focus category, or Top 5 was full)
+      // goes to the backlog rather than disappearing.
+      rescueCarryoverToBacklog();
       saveBacklog();
       saveState();
       render();
@@ -5679,7 +5906,9 @@
 
     modal.append(header, summary);
     if (insights.children.length > 0) modal.appendChild(insights);
-    modal.append(focusSection, repeatSection, actions);
+    if (leftoverSection) modal.appendChild(leftoverSection);
+    modal.append(focusSection, repeatSection);
+    modal.appendChild(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
   }
@@ -5706,7 +5935,10 @@
       saveState();
       render();
       updateClock();
-      showDayTransitionModal(prev);
+      // Same rule as boot: if `prev` was an idle day (tab left open overnight,
+      // nothing logged), summarise the last day that actually had work.
+      const { day: lastActive } = findLastActiveDay(prev);
+      showDayTransitionModal(dayHasWork(prev) ? prev : (lastActive || prev));
     }
   }
   (function scheduleNewDayCheck() {
@@ -5737,13 +5969,13 @@
   restoreCardLayout();
   render();
   if (_prevDayForModal) {
-    const prevDate = new Date(_prevDayForModal.date + 'T12:00:00');
-    const todayDate = new Date(getTodayString() + 'T12:00:00');
-    const gap = Math.round((todayDate - prevDate) / (1000 * 60 * 60 * 24));
-    const hasData = (_prevDayForModal.goals && _prevDayForModal.goals.length > 0) ||
-                    (_prevDayForModal.quickDone && _prevDayForModal.quickDone.length > 0) ||
-                    (_prevDayForModal.successes && _prevDayForModal.successes.length > 0);
-    if (gap === 1 || hasData) showDayTransitionModal(_prevDayForModal);
+    // Show the last day real work happened, not merely the last day the app
+    // was opened — skipped (or idle) days would otherwise summarise as blank.
+    const { day: lastActive, gapDays } = findLastActiveDay(_prevDayForModal);
+    const summaryDay = lastActive || _prevDayForModal;
+    const hasData = dayHasWork(summaryDay) ||
+                    (summaryDay.goals && summaryDay.goals.length > 0);
+    if (gapDays === 1 || hasData) showDayTransitionModal(summaryDay);
     else showCarryoverIfNeeded();
   } else showCarryoverIfNeeded();
   initCardDragHandles();

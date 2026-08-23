@@ -77,6 +77,20 @@ Every **24h** invested in a life area (`HOURS_PER_STAGE`) advances its plant one
 - **Milestone toast** — crossing a stage shows a quiet toast at the top of the sidebar panel *the next time it's open*. Never interrupts: growth reached while collapsed waits, unacknowledged, until the user looks. Collapsing removes it. Shown once, then `cat.seenStage` is set.
 - `cat.seenStage` (persisted with the category) is the last stage acknowledged. `baselineGrowthStages()` runs at boot — after `store.categories` is wired, so it sees real totals — and initializes `seenStage` for any category missing it, so **pre-existing hours never fire a toast** on first run.
 - Card click → expand detail (Active / Done Today / Backlog sections)
+- Backlog rows in the detail carry a **↑ promote** and **× delete** button (fade in on hover; always semi-visible on touch). Dragging to Top 5 still works but is undiscoverable on its own, so both actions are now explicit. Promote respects `MAX_GOALS` — disabled with a tooltip when Top 5 is full — and carries hours/progress like every other promote path. Delete pushes to `undoStack` (Cmd/Ctrl+Z restores it, and undo now re-renders the sidebar too). `setupSidebarBacklogDrag` ignores pointerdown originating in `.sidebar-detail-actions`, or its pointer capture would swallow the button clicks.
 - Pencil edit (fades in on hover) → inline form: emoji picker + name input
 - `sidebarCollapsed` persisted to localStorage; `expandedCatId` is session-only
+
+### Mobile (≤800px)
+
+The sidebar stops being a column beside the content and becomes a **drawer over it** — at 390px the old always-on rail plus open panel left ~90px for the app.
+
+- The 52px rail is hidden entirely; `#main-content` gets the full width back (no left padding reservation).
+- A round **FAB** (bottom-right, thumb-reachable, clears the iOS home indicator via `env(safe-area-inset-bottom)`) opens the drawer. It fades out while open, since the scrim and × take over.
+- The panel slides in via `transform` at 300px / `max-width: 88vw`, over a dimmed **scrim**. Closes on: scrim tap, the panel's ×, or Escape. The × is display:none on desktop and only appears here.
+- The panel gets a **solid** `--bg` background on mobile — the desktop glass gradient is designed to sit on the app background and is unreadable floating over content.
+- Collapsed state is `visibility: hidden` + `pointer-events: none`, so nothing in the off-canvas drawer is tabbable or tappable.
+- **The drawer always starts closed on a phone**, ignoring a saved `open` preference — restoring it would bury the app behind a drawer on load. Mobile drawer toggles pass `persist: false`, so opening the drawer on a phone never rewrites the desktop preference.
+- `setSidebarOpen(open, { persist })` is the single path for every open/close (rail button, FAB, scrim, ×, Escape, resize), so the scrim, the FAB's `aria-expanded`, and the growth toast can't drift apart. A resize across the breakpoint closes the drawer and clears the scrim.
+- Quick-add lives inside the drawer: tap a category card there (the rail's one-tap emoji buttons are a desktop affordance).
 - Opening sidebar: `#main-content` gets `.sidebar-open` → padding-left transitions, content slides right

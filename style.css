@@ -1737,6 +1737,13 @@ footer {
   /* Subtle shadow only when expanded */
 }
 
+/* Mobile drawer chrome — the FAB and its scrim exist only below 800px
+   (see the mobile block); above it the rail is the way in. */
+.sidebar-fab,
+.sidebar-scrim {
+  display: none;
+}
+
 .life-sidebar.collapsed { width: 52px; }
 .life-sidebar:not(.collapsed) {
   width: 320px;
@@ -2323,6 +2330,63 @@ footer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Row actions on sidebar backlog items — an explicit path to Top 5 and delete,
+   since dragging is undiscoverable. Fade in on hover like the drag handle so
+   the rail stays quiet at rest, but remain reachable on touch (no hover). */
+.sidebar-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sidebar-detail-backlog:hover .sidebar-detail-actions,
+.sidebar-detail-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .sidebar-detail-actions { opacity: 0.55; }
+}
+
+.sidebar-detail-promote,
+.sidebar-detail-delete {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-detail-promote:hover:not(:disabled) {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.sidebar-detail-delete {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.sidebar-detail-delete:hover {
+  color: var(--danger, #e63946);
+  background: rgba(230,57,70,0.1);
+}
+
+.sidebar-detail-promote:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 /* Dragging ghost — card style */
@@ -2935,20 +2999,117 @@ footer {
 
 /* === Responsive — stack on narrow screens === */
 @media (max-width: 800px) {
-  #main-content {
-    padding: 16px 20px 16px calc(52px + 20px);
-    transition: padding-left 0.3s cubic-bezier(0.4,0,0.2,1);
-  }
-
+  /* The sidebar stops being furniture on mobile and becomes a drawer.
+     The rail is hidden entirely and content gets the full width back;
+     the FAB opens the panel as an overlay above the page. */
+  #main-content,
   #main-content.sidebar-open {
-    padding-left: calc(280px + 20px);
+    padding: 16px 20px;
   }
 
-  .life-sidebar.collapsed { width: 52px; }
+  .sidebar-rail { display: none; }
+
+  .life-sidebar {
+    width: 300px;
+    max-width: 88vw;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 4px 0 32px rgba(0,0,0,0.18);
+  }
+
+  /* Collapsed is the resting state on mobile: fully off-canvas, and inert
+     so nothing inside it is tabbable or tappable while hidden. */
+  .life-sidebar.collapsed {
+    width: 300px;
+    transform: translateX(-100%);
+    pointer-events: none;
+    visibility: hidden;
+  }
 
   .life-sidebar:not(.collapsed) {
-    width: 280px !important;
-    box-shadow: 4px 0 32px rgba(0,0,0,0.18);
+    width: 300px !important;
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  /* The panel is opacity:0 when .collapsed at desktop widths; on mobile the
+     transform does the hiding, so keep it painted. As a drawer floating over
+     the page it also needs a solid ground — the desktop glass gradient is
+     designed to sit on the app background and turns unreadable here. */
+  .life-sidebar .sidebar-panel {
+    opacity: 1;
+    pointer-events: auto;
+    width: 100%;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg, #eef2ee);
+    backdrop-filter: none;
+    /* Scrolling a long category list must not chain to the page behind. */
+    overscroll-behavior: contain;
+  }
+
+  /* The scrim swallows touch-scroll on the page underneath. */
+  .sidebar-scrim:not([hidden]) {
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  /* Only present while the drawer is open — app.js toggles [hidden]. */
+  .sidebar-scrim:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(20,30,26,0.42);
+    backdrop-filter: blur(2px);
+    animation: sidebar-scrim-in 0.25s ease;
+  }
+
+  @keyframes sidebar-scrim-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* The × inside the panel is the drawer's close affordance on mobile
+     (hidden at desktop widths, where the rail hamburger does the job). */
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    margin: -6px -6px -6px 0;
+    border-radius: 8px;
+  }
+
+  .sidebar-fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    right: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    z-index: 98;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.5);
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(45,106,79,0.34), 0 2px 6px rgba(0,0,0,0.14);
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.18s;
+  }
+
+  .sidebar-fab:active { transform: scale(0.94); }
+
+  /* Out of the way while the drawer is open — the scrim and × take over. */
+  .sidebar-fab[aria-expanded="true"] {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.85);
   }
 
   .two-col {

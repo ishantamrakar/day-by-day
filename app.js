@@ -1039,6 +1039,8 @@
   const sidebarCategoriesEl = document.getElementById('sidebar-categories');
   const sidebarCatDots = document.getElementById('sidebar-cat-dots');
   const addCategoryBtn = document.getElementById('add-category-btn');
+  const sidebarScrim = document.getElementById('sidebar-scrim');
+  const sidebarFab = document.getElementById('sidebar-fab');
 
   // =========================================================
   // CLOCK
@@ -1058,22 +1060,64 @@
   // =========================================================
   // SIDEBAR
   // =========================================================
-  function initSidebar() {
-    if (sidebarCollapsed) lifeSidebar.classList.add('collapsed');
-    else document.getElementById('main-content').classList.add('sidebar-open');
+  // Below this width the sidebar is a drawer over the content, not a column
+  // beside it. Must match the max-width in style.css's mobile block.
+  const MOBILE_BREAKPOINT = 800;
+  function isMobileLayout() {
+    return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+  }
+
+  // Single path for every way the sidebar opens or closes, so the drawer's
+  // scrim, the FAB's state, and the growth toast can never drift apart.
+  // `persist: false` for mobile drawer toggles — a drawer opened on a phone
+  // shouldn't decide how the sidebar sits next time on a desktop.
+  function setSidebarOpen(open, { persist = true } = {}) {
+    sidebarCollapsed = !open;
+    lifeSidebar.classList.toggle('collapsed', sidebarCollapsed);
+    document.getElementById('main-content').classList.toggle('sidebar-open', open);
+    if (sidebarScrim) sidebarScrim.hidden = !(open && isMobileLayout());
+    if (sidebarFab) sidebarFab.setAttribute('aria-expanded', String(open));
+    if (persist) storageSet(SIDEBAR_KEY, open ? 'open' : 'collapsed');
+    // Opening is what surfaces a pending growth toast; closing must clear it.
     renderSidebar();
+  }
+
+  function initSidebar() {
+    // On a phone the sidebar always starts closed: it covers the content, so
+    // restoring a saved "open" would bury the app behind a drawer on load.
+    if (isMobileLayout()) sidebarCollapsed = true;
+    setSidebarOpen(!sidebarCollapsed, { persist: false });
 
     if (sidebarExpandBtn) {
       sidebarExpandBtn.addEventListener('click', () => {
-        sidebarCollapsed = !sidebarCollapsed;
-        lifeSidebar.classList.toggle('collapsed', sidebarCollapsed);
-        document.getElementById('main-content').classList.toggle('sidebar-open', !sidebarCollapsed);
-        storageSet(SIDEBAR_KEY, sidebarCollapsed ? 'collapsed' : 'open');
-        // Re-render on toggle: opening the panel is what surfaces a pending
-        // growth toast, and collapsing must clear it.
-        renderSidebar();
+        setSidebarOpen(sidebarCollapsed, { persist: !isMobileLayout() });
       });
     }
+
+    // ── Mobile drawer ──
+    if (sidebarFab) {
+      sidebarFab.addEventListener('click', () => setSidebarOpen(true, { persist: false }));
+    }
+    if (sidebarScrim) {
+      sidebarScrim.addEventListener('click', () => setSidebarOpen(false, { persist: false }));
+    }
+    if (sidebarCloseBtn) {
+      sidebarCloseBtn.addEventListener('click', () => setSidebarOpen(false, { persist: false }));
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      // Modals own Escape while they're up.
+      if (isModalOpen() || isFocusFullscreenOpen()) return;
+      if (isMobileLayout() && !sidebarCollapsed) setSidebarOpen(false, { persist: false });
+    });
+
+    // Crossing the breakpoint (rotation, resize) leaves the drawer's scrim
+    // stranded over a desktop layout — close it and start clean.
+    window.addEventListener('resize', () => {
+      const mobile = isMobileLayout();
+      if (mobile && !sidebarCollapsed) setSidebarOpen(false, { persist: false });
+      if (!mobile && sidebarScrim) sidebarScrim.hidden = true;
+    });
 
     addCategoryBtn.addEventListener('click', () => openNewCategoryModal(null));
   }
@@ -1279,7 +1323,50 @@
               const nameSpan = document.createElement('span');
               nameSpan.className = 'sidebar-backlog-item-name';
               nameSpan.textContent = item.name;
-              row.append(handle, nameSpan);
+
+              // Explicit buttons beside the drag handle — dragging to Top 5 is
+              // invisible unless you already know it's there.
+              const rowActions = document.createElement('span');
+              rowActions.className = 'sidebar-detail-actions';
+
+              const topFull = getActiveGoals().length >= MAX_GOALS;
+              const upBtn = document.createElement('button');
+              upBtn.className = 'sidebar-detail-promote';
+              upBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,106.34l-96-96a8,8,0,0,0-11.32,0l-96,96a8,8,0,0,0,11.32,11.32L120,29.31V216a8,8,0,0,0,16,0V29.31l82.34,88.35a8,8,0,0,0,11.32-11.32Z"/></svg>';
+              upBtn.disabled = topFull;
+              upBtn.title = topFull
+                ? `Top 5 is full (${MAX_GOALS} tasks) — finish or demote one first`
+                : 'Move to Top 5';
+              upBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                if (getActiveGoals().length >= MAX_GOALS) return;
+                const i = backlog.indexOf(item);
+                if (i === -1) return;
+                state.goals.push({
+                  name: item.name, hours: item.hours || 0, progress: item.progress || 0,
+                  category: item.category || null, repeatable: item.repeatable || false,
+                  fromBacklog: true,
+                });
+                backlog.splice(i, 1);
+                saveState(); saveBacklog(); render(); renderSidebar();
+                if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
+              });
+
+              const delBtn = document.createElement('button');
+              delBtn.className = 'sidebar-detail-delete';
+              delBtn.textContent = '×';
+              delBtn.title = 'Delete';
+              delBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                const i = backlog.indexOf(item);
+                if (i === -1) return;
+                undoStack.push({ type: 'backlog', item: backlog[i], index: i });
+                backlog.splice(i, 1);
+                saveBacklog(); renderBacklog(); renderSidebar();
+              });
+
+              rowActions.append(upBtn, delBtn);
+              row.append(handle, nameSpan, rowActions);
               setupSidebarBacklogDrag(row, item);
             } else {
               row.textContent = item.name;
@@ -5036,6 +5123,9 @@
   // =========================================================
   function setupSidebarBacklogDrag(dragEl, backlogItem) {
     dragEl.addEventListener('pointerdown', e => {
+      // The row's own buttons must stay clickable: capturing the pointer here
+      // would swallow their click entirely.
+      if (e.target.closest('.sidebar-detail-actions')) return;
       e.preventDefault();
       e.stopPropagation();
       dragEl.setPointerCapture(e.pointerId);
@@ -5656,7 +5746,9 @@
         saveState(); renderJournal();
       } else if (type === 'backlog') {
         backlog.splice(Math.min(index, backlog.length), 0, item);
-        saveBacklog(); renderBacklog();
+        // Sidebar too: backlog items are also listed under their life area,
+        // and deleting from there is now possible.
+        saveBacklog(); renderBacklog(); renderSidebar();
       } else if (type === 'quickDone') {
         state.quickDone.splice(Math.min(index, state.quickDone.length), 0, item);
         saveState(); renderDone();

@@ -45,6 +45,13 @@
       </div>
     </aside>
 
+    <!-- Mobile-only: scrim behind the sidebar drawer, and the button that
+         opens it. Both are display:none above the mobile breakpoint. -->
+    <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
+    <button id="sidebar-fab" class="sidebar-fab" aria-label="Open life areas" aria-expanded="false" aria-controls="life-sidebar">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM40,72H216a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16ZM216,184H40a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Z"/></svg>
+    </button>
+
     <!-- Main content area (beside sidebar) -->
     <div id="main-content">
 

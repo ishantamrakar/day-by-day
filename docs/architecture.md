@@ -45,9 +45,10 @@ day-rollover detection in `loadState()`.
 
 **Categories** (`daybyday_categories`):
 ```js
-[{ id, name, emoji, color, totalHours, vision? }]
+[{ id, name, emoji, color, totalHours, vision?, seenStage? }]
 ```
 - 5 defaults: fitness, career, relationships, chores, general
+- `seenStage` — last growth stage acknowledged by the milestone toast (see [features.md](features.md) § Growth stages). Baselined at boot by `baselineGrowthStages()` so existing hours never toast.
 - Custom ids start with `custom_`
 - `totalHours` is a **running accumulator** — never recomputed from history, only `+= delta` via `accumulateCategoryHours()`. This is intentional for performance; preserve this when porting to a backend.
 

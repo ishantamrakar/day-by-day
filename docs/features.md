@@ -66,7 +66,16 @@ Deliberately **not** filtered by focus categories: the focus picker decides what
 
 - Two zones: **rail** (52px, always visible) + **panel** (268px, toggle via hamburger)
 - Rail: hamburger + one emoji button per category → opens quick-add modal
-- Panel: category cards showing all-time hours bar, `N active · N done · N backlog`
+- Panel: category cards showing the growth marker, progress-to-next-stage bar, `N active · N done · N backlog`
+
+### Growth stages
+
+Every **24h** invested in a life area (`HOURS_PER_STAGE`) advances its plant one stage: `·` bare soil → 🌱 → 🌿 → ☘️ → 🪴 → 🌳 → 🌲. Past the last stage the art holds and a `×N` day count appears beside it, so long-running areas keep visibly climbing.
+
+- **The bar measures the climb to the next stage (0→24h), not size against other areas.** Absolute by design: a category's bar never shrinks because a different one grew. Relative standing is carried by the stage art instead — a 🌲 beside a 🌱 reads at a glance. (`MAX_SCALE_HOURS` and the old relative scale are gone.)
+- `getGrowthStage(totalHours)` → `{ daysDone, art, label, isMaxArt, intoStage, pctToNext, hoursToNext }`. Bar container gets a tooltip with time into the stage and time to the next.
+- **Milestone toast** — crossing a stage shows a quiet toast at the top of the sidebar panel *the next time it's open*. Never interrupts: growth reached while collapsed waits, unacknowledged, until the user looks. Collapsing removes it. Shown once, then `cat.seenStage` is set.
+- `cat.seenStage` (persisted with the category) is the last stage acknowledged. `baselineGrowthStages()` runs at boot — after `store.categories` is wired, so it sees real totals — and initializes `seenStage` for any category missing it, so **pre-existing hours never fire a toast** on first run.
 - Card click → expand detail (Active / Done Today / Backlog sections)
 - Pencil edit (fades in on hover) → inline form: emoji picker + name input
 - `sidebarCollapsed` persisted to localStorage; `expandedCatId` is session-only

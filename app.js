@@ -685,6 +685,17 @@
 
   function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
 
+  const HOURS_PER_STAGE = 24;
+  const GROWTH_STAGES = [
+    { art: '·',  label: 'Bare soil' },
+    { art: '🌱', label: 'Seedling' },
+    { art: '🌿', label: 'Sprout' },
+    { art: '☘️', label: 'Growing' },
+    { art: '🪴', label: 'Potted' },
+    { art: '🌳', label: 'Tree' },
+    { art: '🌲', label: 'Evergreen' },
+  ];
+
   // --- Categories ---
   let categories = loadCategories();
 
@@ -708,6 +719,21 @@
   }
 
   function saveCategories() { storageSet(CATEGORIES_KEY, JSON.stringify(categories)); }
+
+  // Existing hours are not a milestone the user just earned. On the first run
+  // after this feature ships (and for any category that predates it), baseline
+  // seenStage to where the plant already stands so the toast only ever fires
+  // for growth that happens from here on.
+  function baselineGrowthStages() {
+    let touched = false;
+    categories.forEach(cat => {
+      if (cat.seenStage == null) {
+        cat.seenStage = Math.floor(Math.max(0, cat.totalHours || 0) / HOURS_PER_STAGE);
+        touched = true;
+      }
+    });
+    if (touched) saveCategories();
+  }
 
   function getCategoryById(id) {
     // Archived categories still resolve — past sessions/journal/pills keep
@@ -795,6 +821,53 @@
   // Format a duration in hours as a calm h/m pill (no seconds). Shared by every
   // hours pill in the app. `emptyLabel` is shown when the value is zero/falsy.
   // For a duration in whole minutes, pass formatHours(mins / 60, '0m').
+  // =========================================================
+  // GROWTH STAGES
+  // =========================================================
+  // Every 24h invested in a life area — one full day of your life — advances
+  // its plant one stage. Absolute, not relative: a category never regresses
+  // because another one grew, which is the point. Comparison between areas
+  // still reads at a glance from the stage art itself.
+  // A category records the stage it was last *shown* at (`seenStage`). When
+  // the plant has grown past it, the sidebar owes the user a quiet toast the
+  // next time it's opened. Persisted with the category, so crossing 24h with
+  // the sidebar collapsed still gets acknowledged later.
+  function pendingGrowthMilestones() {
+    return activeCategories()
+      .map(cat => {
+        const st = getGrowthStage(cat.totalHours);
+        const seen = cat.seenStage || 0;
+        return st.daysDone > seen ? { cat, stage: st } : null;
+      })
+      .filter(Boolean);
+  }
+
+  // Called once the toast has actually been shown.
+  function acknowledgeGrowthMilestones(items) {
+    if (!items.length) return;
+    items.forEach(({ cat, stage }) => { cat.seenStage = stage.daysDone; });
+    saveCategories();
+  }
+
+  function getGrowthStage(totalHours) {
+    const h = Math.max(0, totalHours || 0);
+    const daysDone = Math.floor(h / HOURS_PER_STAGE);
+    // Past the last art stage the plant stops changing but the count keeps
+    // climbing, so long-term areas still show progress without new artwork.
+    const idx = Math.min(daysDone, GROWTH_STAGES.length - 1);
+    const stage = GROWTH_STAGES[idx];
+    const intoStage = h - daysDone * HOURS_PER_STAGE;
+    return {
+      daysDone,
+      art: stage.art,
+      label: stage.label,
+      isMaxArt: daysDone >= GROWTH_STAGES.length - 1,
+      intoStage,
+      pctToNext: Math.min(100, (intoStage / HOURS_PER_STAGE) * 100),
+      hoursToNext: Math.max(0, HOURS_PER_STAGE - intoStage),
+    };
+  }
+
   function formatHours(h, emptyLabel = '+ hrs') {
     if (!h || h <= 0) return emptyLabel;
     if (h < 1) return `${Math.round(h * 60)}m`;
@@ -897,6 +970,11 @@
   // updates (via accumulateCategoryHours) stay reflected in the store.
   store.categories = categories;
 
+  // Now that categories are the live, store-backed array, baseline the growth
+  // stages: pre-existing hours must not fire a milestone toast the first time
+  // this feature runs.
+  baselineGrowthStages();
+
   // Make the view arrays live over the store for the active day. If the store
   // already has this day (normal same-day boot), the store wins; otherwise (e.g.
   // a fresh new-day state with _carryover) keep the loaded data and let the
@@ -991,6 +1069,9 @@
         lifeSidebar.classList.toggle('collapsed', sidebarCollapsed);
         document.getElementById('main-content').classList.toggle('sidebar-open', !sidebarCollapsed);
         storageSet(SIDEBAR_KEY, sidebarCollapsed ? 'collapsed' : 'open');
+        // Re-render on toggle: opening the panel is what surfaces a pending
+        // growth toast, and collapsing must clear it.
+        renderSidebar();
       });
     }
 
@@ -1001,6 +1082,36 @@
     if (!sidebarCategoriesEl) return;
     sidebarCategoriesEl.innerHTML = '';
     if (sidebarCatDots) sidebarCatDots.innerHTML = '';
+
+    // ── Growth milestone toast ──
+    // Only while the panel is actually open: collapsing the sidebar takes the
+    // toast with it, and the milestone waits (unacknowledged) for the next
+    // time the user looks. Shown once, then marked seen.
+    const milestones = sidebarCollapsed ? [] : pendingGrowthMilestones();
+    if (milestones.length > 0) {
+      const toast = document.createElement('div');
+      toast.className = 'sidebar-growth-toast';
+      const first = milestones[0];
+      const art = document.createElement('span');
+      art.className = 'sidebar-growth-toast-art';
+      art.textContent = first.stage.art;
+      const text = document.createElement('div');
+      text.className = 'sidebar-growth-toast-text';
+      if (milestones.length === 1) {
+        const days = first.stage.daysDone;
+        text.innerHTML =
+          `<strong></strong> reached ${days} full ${days === 1 ? 'day' : 'days'} invested.`;
+        text.querySelector('strong').textContent = first.cat.name;
+      } else {
+        text.textContent = `${milestones.length} life areas grew a stage.`;
+      }
+      toast.append(art, text);
+      sidebarCategoriesEl.appendChild(toast);
+    }
+    // Plants that advanced in this render get the pop. Acknowledge immediately
+    // (not on a later frame) so a re-render can't show the same toast twice.
+    const justGrew = new Set(milestones.map(m => m.cat.id));
+    acknowledgeGrowthMilestones(milestones);
 
     // Count active, completed, and backlogged goals per category today
     const todayActive = {};
@@ -1024,9 +1135,6 @@
 
     const liveCats = activeCategories();
     const archivedCats = categories.filter(c => c.archived && !c.deleted);
-
-    const MAX_SCALE_HOURS = 40;
-    const maxHours = Math.max(...liveCats.map(c => c.totalHours || 0), MAX_SCALE_HOURS);
 
     // Split into today's focus vs the rest (rest sorted by totalHours asc)
     const focusIds = new Set(state.focusCategoryIds || []);
@@ -1063,6 +1171,26 @@
       nameEl.className = 'sidebar-cat-name';
       nameEl.textContent = cat.name;
 
+      // Growth marker: the plant, plus a ×N count once past the last art stage
+      // so long-running areas keep visibly climbing.
+      const stage = getGrowthStage(cat.totalHours);
+      const growthEl = document.createElement('span');
+      growthEl.className = 'sidebar-cat-growth'
+        + (stage.daysDone === 0 ? ' sidebar-cat-growth-empty' : '');
+      growthEl.textContent = stage.art;
+      if (justGrew.has(cat.id)) growthEl.classList.add('sidebar-cat-growth-new');
+      growthEl.title = stage.daysDone === 0
+        ? `${formatHours(cat.totalHours || 0, '0m')} invested — 24h grows a seedling`
+        : `${stage.label} · ${stage.daysDone} full ${stage.daysDone === 1 ? 'day' : 'days'} invested`;
+      // Once the art tops out, the ×N count is the only thing still moving —
+      // show it from the final stage on, not just past it.
+      if (stage.isMaxArt) {
+        const mult = document.createElement('span');
+        mult.className = 'sidebar-cat-growth-mult';
+        mult.textContent = `×${stage.daysDone}`;
+        growthEl.appendChild(mult);
+      }
+
       const hoursEl = document.createElement('span');
       hoursEl.className = 'sidebar-cat-hours';
       const todayH = todayHours[cat.id] || 0;
@@ -1084,7 +1212,7 @@
         openCatInlineEdit(cat, card, top, editBtn);
       });
 
-      top.append(emojiEl, nameEl, hoursEl);
+      top.append(emojiEl, nameEl, growthEl, hoursEl);
 
       const completed = todayCompleted[cat.id] || 0;
       if (completed > 0) {
@@ -1095,12 +1223,20 @@
       }
       top.appendChild(editBtn);
 
+      // The bar now tracks the climb to the next growth stage (0→24h) rather
+      // than this category's size against the others — absolute progress that
+      // can't shrink when a different area pulls ahead. Relative standing is
+      // carried by the stage art instead.
+      const growth = getGrowthStage(cat.totalHours);
       const barContainer = document.createElement('div');
       barContainer.className = 'sidebar-cat-bar-container';
+      barContainer.title = growth.isMaxArt
+        ? `${growth.daysDone} full days invested`
+        : `${formatHours(growth.intoStage, '0m')} into this stage — ${formatHours(growth.hoursToNext, '0m')} to ${GROWTH_STAGES[growth.daysDone + 1].label}`;
       const bar = document.createElement('div');
       bar.className = 'sidebar-cat-bar';
       bar.style.background = `linear-gradient(90deg, ${cat.color}cc, ${cat.color}88)`;
-      bar.style.width = Math.min(100, ((cat.totalHours || 0) / maxHours) * 100) + '%';
+      bar.style.width = growth.pctToNext + '%';
       barContainer.appendChild(bar);
 
       const active = todayActive[cat.id] || 0;

@@ -503,6 +503,9 @@
       if ((src.progress || 0) >= 100) e.completedAt = now;
     } else if (type === 'backlog') {
       e.repeatable = src.repeatable || false;
+      // Progress survives a trip through the backlog so a part-done task can be
+      // shelved and resumed where it left off (hours are carried generically).
+      e.progress = src.progress || 0;
     }
     return e;
   }
@@ -582,6 +585,7 @@
       if (e.fromBacklog) v.fromBacklog = true;
     } else if (e.type === 'backlog') {
       v.repeatable = e.repeatable || false;
+      v.progress = e.progress || 0;
     }
     return v;
   }
@@ -599,6 +603,7 @@
       if ((v.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; } else delete e.completedAt;
     } else if (type === 'backlog') {
       e.repeatable = v.repeatable || false;
+      e.progress = v.progress || 0;
     }
     e.updatedAt = now;
   }
@@ -2275,6 +2280,8 @@
         name: g.name,
         category: g.category || null,
         repeatable: g.repeatable || false,
+        hours: g.hours || 0,
+        progress: g.progress || 0,
       });
       rescued++;
     });
@@ -2441,7 +2448,10 @@
     demoteBtn.title = 'Move to backlog';
     demoteBtn.addEventListener('click', () => {
       const g = state.goals[index];
-      backlog.push({ name: g.name, category: g.category || null, repeatable: g.repeatable || false });
+      backlog.push({
+        name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+        hours: g.hours || 0, progress: g.progress || 0,
+      });
       state.goals.splice(index, 1);
       saveState(); saveBacklog(); render(); renderSidebar();
     });
@@ -4045,7 +4055,7 @@
       promoteBtn.title = 'Move to active goals';
       promoteBtn.addEventListener('click', () => {
         if (getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: item.name, hours: 0, progress: 0, fromBacklog: true, category: item.category || null });
+        state.goals.push({ name: item.name, hours: item.hours || 0, progress: item.progress || 0, fromBacklog: true, category: item.category || null, repeatable: item.repeatable || false });
         backlog.splice(index, 1);
         saveState(); saveBacklog(); render();
         if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
@@ -4822,7 +4832,10 @@
         // ── Drop onto backlog ──
         const g = state.goals[goalIndex];
         if (g) {
-          const newItem = { name: g.name, category: g.category || null, repeatable: g.repeatable || false };
+          const newItem = {
+            name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+            hours: g.hours || 0, progress: g.progress || 0,
+          };
           const slot = activeDrag.crossSlot >= 0 ? backlogVisibleSlotToIndex(activeDrag.crossSlot) : backlog.length;
           backlog.splice(Math.min(slot, backlog.length), 0, newItem);
           state.goals.splice(goalIndex, 1);
@@ -4988,7 +5001,7 @@
             const activeGoals = getActiveGoals();
             const clampedSlot = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
             // Find the real state.goals index to insert before
-            const newGoal = { name: backlogItem.name, hours: 0, progress: 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
+            const newGoal = { name: backlogItem.name, hours: backlogItem.hours || 0, progress: backlogItem.progress || 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
             if (clampedSlot >= activeGoals.length) {
               // Append after last active goal — find the real index of the last active goal
               const lastActive = activeGoals[activeGoals.length - 1];
@@ -5098,7 +5111,7 @@
             backlog.splice(index, 1);
             const activeGoals = getActiveGoals();
             const clamped = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
-            const newGoal = { name: item.name, hours: 0, progress: 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
+            const newGoal = { name: item.name, hours: item.hours || 0, progress: item.progress || 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
             if (clamped >= activeGoals.length) {
               const last = activeGoals[activeGoals.length - 1];
               state.goals.splice(last ? state.goals.indexOf(last) + 1 : state.goals.length, 0, newGoal);

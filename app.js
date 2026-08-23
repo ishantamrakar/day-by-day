@@ -503,6 +503,9 @@
       if ((src.progress || 0) >= 100) e.completedAt = now;
     } else if (type === 'backlog') {
       e.repeatable = src.repeatable || false;
+      // Progress survives a trip through the backlog so a part-done task can be
+      // shelved and resumed where it left off (hours are carried generically).
+      e.progress = src.progress || 0;
     }
     return e;
   }
@@ -582,6 +585,7 @@
       if (e.fromBacklog) v.fromBacklog = true;
     } else if (e.type === 'backlog') {
       v.repeatable = e.repeatable || false;
+      v.progress = e.progress || 0;
     }
     return v;
   }
@@ -599,6 +603,7 @@
       if ((v.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; } else delete e.completedAt;
     } else if (type === 'backlog') {
       e.repeatable = v.repeatable || false;
+      e.progress = v.progress || 0;
     }
     e.updatedAt = now;
   }
@@ -2275,6 +2280,8 @@
         name: g.name,
         category: g.category || null,
         repeatable: g.repeatable || false,
+        hours: g.hours || 0,
+        progress: g.progress || 0,
       });
       rescued++;
     });
@@ -2441,7 +2448,10 @@
     demoteBtn.title = 'Move to backlog';
     demoteBtn.addEventListener('click', () => {
       const g = state.goals[index];
-      backlog.push({ name: g.name, category: g.category || null, repeatable: g.repeatable || false });
+      backlog.push({
+        name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+        hours: g.hours || 0, progress: g.progress || 0,
+      });
       state.goals.splice(index, 1);
       saveState(); saveBacklog(); render(); renderSidebar();
     });
@@ -3969,9 +3979,12 @@
   // The backlog card only shows items from today's focus categories (picked in
   // the day-start modal). With no focus set (e.g. modal skipped) it shows all.
   // Hidden items stay reachable via the sidebar category expansions.
+  // General is the backlog's inbox — items land there before they're filed into
+  // a life area, so today's focus filter must never hide them.
   function isBacklogItemVisible(item) {
     const focusIds = state.focusCategoryIds || [];
-    return focusIds.length === 0 || focusIds.includes(item.category || 'general');
+    const cat = item.category || 'general';
+    return cat === 'general' || focusIds.length === 0 || focusIds.includes(cat);
   }
 
   // Map a slot among the *visible* backlog rows to an index in the full
@@ -4042,7 +4055,7 @@
       promoteBtn.title = 'Move to active goals';
       promoteBtn.addEventListener('click', () => {
         if (getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: item.name, hours: 0, progress: 0, fromBacklog: true, category: item.category || null });
+        state.goals.push({ name: item.name, hours: item.hours || 0, progress: item.progress || 0, fromBacklog: true, category: item.category || null, repeatable: item.repeatable || false });
         backlog.splice(index, 1);
         saveState(); saveBacklog(); render();
         if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
@@ -4068,7 +4081,10 @@
     if (!backlogInputEl) return;
     const n = backlogInputEl.value.trim();
     if (!n) return;
-    backlog.push({ name: n });
+    // Stamp 'general' explicitly: an undefined category defaults to General in
+    // isBacklogItemVisible, and General items are always shown, so a freshly
+    // typed task can never be filtered out of the card the instant it's added.
+    backlog.push({ name: n, category: 'general' });
     backlogInputEl.value = '';
     saveBacklog(); renderBacklog();
   }
@@ -4816,7 +4832,10 @@
         // ── Drop onto backlog ──
         const g = state.goals[goalIndex];
         if (g) {
-          const newItem = { name: g.name, category: g.category || null, repeatable: g.repeatable || false };
+          const newItem = {
+            name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+            hours: g.hours || 0, progress: g.progress || 0,
+          };
           const slot = activeDrag.crossSlot >= 0 ? backlogVisibleSlotToIndex(activeDrag.crossSlot) : backlog.length;
           backlog.splice(Math.min(slot, backlog.length), 0, newItem);
           state.goals.splice(goalIndex, 1);
@@ -4982,7 +5001,7 @@
             const activeGoals = getActiveGoals();
             const clampedSlot = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
             // Find the real state.goals index to insert before
-            const newGoal = { name: backlogItem.name, hours: 0, progress: 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
+            const newGoal = { name: backlogItem.name, hours: backlogItem.hours || 0, progress: backlogItem.progress || 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
             if (clampedSlot >= activeGoals.length) {
               // Append after last active goal — find the real index of the last active goal
               const lastActive = activeGoals[activeGoals.length - 1];
@@ -5092,7 +5111,7 @@
             backlog.splice(index, 1);
             const activeGoals = getActiveGoals();
             const clamped = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
-            const newGoal = { name: item.name, hours: 0, progress: 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
+            const newGoal = { name: item.name, hours: item.hours || 0, progress: item.progress || 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
             if (clamped >= activeGoals.length) {
               const last = activeGoals[activeGoals.length - 1];
               state.goals.splice(last ? state.goals.indexOf(last) + 1 : state.goals.length, 0, newGoal);
@@ -5701,6 +5720,7 @@
           btn.classList.add('selected');
         }
         updateRepeatableChecklist();
+        updateBacklogWaiting();
       });
       catGrid.appendChild(btn);
     });
@@ -5835,6 +5855,53 @@
       leftoverSection.appendChild(leftoverNote);
     }
 
+    // ── Waiting in backlog ──
+    // Shelved work is unfinished work too, so the morning view shouldn't
+    // pretend the backlog isn't there. Filtered to today's selected focus
+    // areas (re-rendered on every chip click, like the repeatable checklist)
+    // so it stays a short, relevant nudge rather than a guilt-pile.
+    const waitingSection = document.createElement('div');
+    waitingSection.className = 'day-modal-waiting-section';
+    const waitingLabel = document.createElement('div');
+    waitingLabel.className = 'day-modal-section-label';
+    waitingSection.appendChild(waitingLabel);
+    const waitingList = document.createElement('div');
+    waitingList.className = 'day-modal-waiting-list';
+    waitingSection.appendChild(waitingList);
+
+    function updateBacklogWaiting() {
+      // Skip anything already surfaced above: repeatables have their own
+      // checklist, and leftovers their own list.
+      const shownAbove = new Set(leftovers.map(g => g.name));
+      const items = backlog.filter(b =>
+        b && b.name &&
+        !b.repeatable &&
+        !shownAbove.has(b.name) &&
+        selectedCats.has(b.category || 'general')
+      );
+      waitingList.innerHTML = '';
+      if (items.length === 0) { waitingSection.classList.add('hidden'); return; }
+      waitingSection.classList.remove('hidden');
+      waitingLabel.textContent = items.length === 1
+        ? 'Waiting in backlog'
+        : `Waiting in backlog (${items.length})`;
+      items.forEach(b => {
+        const cat = getCategoryById(b.category || 'general');
+        const row = document.createElement('div');
+        row.className = 'day-modal-waiting-item';
+        const prog = b.progress || 0;
+        const hrs = b.hours || 0;
+        row.innerHTML =
+          `<span class="day-leftover-emoji">${cat.emoji}</span>` +
+          `<span class="day-leftover-name"></span>` +
+          (prog > 0 ? `<span class="day-leftover-prog">${prog}%</span>` : '') +
+          (hrs > 0 ? `<span class="day-leftover-hours">${formatHours(hrs, '')}</span>` : '');
+        row.querySelector('.day-leftover-name').textContent = b.name;
+        waitingList.appendChild(row);
+      });
+    }
+    updateBacklogWaiting();
+
     // ── Actions ──
     const actions = document.createElement('div');
     actions.className = 'day-modal-actions';
@@ -5907,7 +5974,10 @@
     modal.append(header, summary);
     if (insights.children.length > 0) modal.appendChild(insights);
     if (leftoverSection) modal.appendChild(leftoverSection);
-    modal.append(focusSection, repeatSection);
+    // Sits *after* the focus picker: its list is filtered by the selected
+    // areas, so it only makes sense once that choice is visible — same
+    // placement logic as the repeatable checklist beside it.
+    modal.append(focusSection, repeatSection, waitingSection);
     modal.appendChild(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);

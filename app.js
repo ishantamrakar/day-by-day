@@ -3969,9 +3969,12 @@
   // The backlog card only shows items from today's focus categories (picked in
   // the day-start modal). With no focus set (e.g. modal skipped) it shows all.
   // Hidden items stay reachable via the sidebar category expansions.
+  // General is the backlog's inbox — items land there before they're filed into
+  // a life area, so today's focus filter must never hide them.
   function isBacklogItemVisible(item) {
     const focusIds = state.focusCategoryIds || [];
-    return focusIds.length === 0 || focusIds.includes(item.category || 'general');
+    const cat = item.category || 'general';
+    return cat === 'general' || focusIds.length === 0 || focusIds.includes(cat);
   }
 
   // Map a slot among the *visible* backlog rows to an index in the full
@@ -4068,7 +4071,10 @@
     if (!backlogInputEl) return;
     const n = backlogInputEl.value.trim();
     if (!n) return;
-    backlog.push({ name: n });
+    // Stamp 'general' explicitly: an undefined category defaults to General in
+    // isBacklogItemVisible, and General items are always shown, so a freshly
+    // typed task can never be filtered out of the card the instant it's added.
+    backlog.push({ name: n, category: 'general' });
     backlogInputEl.value = '';
     saveBacklog(); renderBacklog();
   }

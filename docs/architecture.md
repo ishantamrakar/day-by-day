@@ -41,7 +41,7 @@ day-rollover detection in `loadState()`.
 }
 ```
 
-**Backlog** (`daybyday_backlog`): `[{ name, category?, repeatable? }]`
+**Backlog** (`daybyday_backlog`): `[{ name, category?, repeatable? }]` — `addBacklogItem()` stamps `category: 'general'` on entry; a missing `category` is also treated as General. General items bypass the focus filter (see [features.md](features.md) § Backlog).
 
 **Categories** (`daybyday_categories`):
 ```js

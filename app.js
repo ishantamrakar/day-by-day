@@ -5720,6 +5720,7 @@
           btn.classList.add('selected');
         }
         updateRepeatableChecklist();
+        updateBacklogWaiting();
       });
       catGrid.appendChild(btn);
     });
@@ -5854,6 +5855,53 @@
       leftoverSection.appendChild(leftoverNote);
     }
 
+    // ── Waiting in backlog ──
+    // Shelved work is unfinished work too, so the morning view shouldn't
+    // pretend the backlog isn't there. Filtered to today's selected focus
+    // areas (re-rendered on every chip click, like the repeatable checklist)
+    // so it stays a short, relevant nudge rather than a guilt-pile.
+    const waitingSection = document.createElement('div');
+    waitingSection.className = 'day-modal-waiting-section';
+    const waitingLabel = document.createElement('div');
+    waitingLabel.className = 'day-modal-section-label';
+    waitingSection.appendChild(waitingLabel);
+    const waitingList = document.createElement('div');
+    waitingList.className = 'day-modal-waiting-list';
+    waitingSection.appendChild(waitingList);
+
+    function updateBacklogWaiting() {
+      // Skip anything already surfaced above: repeatables have their own
+      // checklist, and leftovers their own list.
+      const shownAbove = new Set(leftovers.map(g => g.name));
+      const items = backlog.filter(b =>
+        b && b.name &&
+        !b.repeatable &&
+        !shownAbove.has(b.name) &&
+        selectedCats.has(b.category || 'general')
+      );
+      waitingList.innerHTML = '';
+      if (items.length === 0) { waitingSection.classList.add('hidden'); return; }
+      waitingSection.classList.remove('hidden');
+      waitingLabel.textContent = items.length === 1
+        ? 'Waiting in backlog'
+        : `Waiting in backlog (${items.length})`;
+      items.forEach(b => {
+        const cat = getCategoryById(b.category || 'general');
+        const row = document.createElement('div');
+        row.className = 'day-modal-waiting-item';
+        const prog = b.progress || 0;
+        const hrs = b.hours || 0;
+        row.innerHTML =
+          `<span class="day-leftover-emoji">${cat.emoji}</span>` +
+          `<span class="day-leftover-name"></span>` +
+          (prog > 0 ? `<span class="day-leftover-prog">${prog}%</span>` : '') +
+          (hrs > 0 ? `<span class="day-leftover-hours">${formatHours(hrs, '')}</span>` : '');
+        row.querySelector('.day-leftover-name').textContent = b.name;
+        waitingList.appendChild(row);
+      });
+    }
+    updateBacklogWaiting();
+
     // ── Actions ──
     const actions = document.createElement('div');
     actions.className = 'day-modal-actions';
@@ -5926,7 +5974,10 @@
     modal.append(header, summary);
     if (insights.children.length > 0) modal.appendChild(insights);
     if (leftoverSection) modal.appendChild(leftoverSection);
-    modal.append(focusSection, repeatSection);
+    // Sits *after* the focus picker: its list is filtered by the selected
+    // areas, so it only makes sense once that choice is visible — same
+    // placement logic as the repeatable checklist beside it.
+    modal.append(focusSection, repeatSection, waitingSection);
     modal.appendChild(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);

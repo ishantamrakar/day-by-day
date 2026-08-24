@@ -27,6 +27,12 @@
 - **Sidebar** — fixed left rail (52px) + expandable panel (320px); category cards with hours bar, task counts, inline edit
 - **Today's focus editor** — pencil button on the sidebar's "Today's focus" section header (header always renders; with no focus set it shows a muted "None set" hint) opens a picker (`openEditFocusModal`, same chips + up-to-3 rule as the day-transition modal). Covers a skipped day-start modal or a mid-day change of plan; saving updates `state.focusCategoryIds`, the backlog card filter, sidebar focus split, and blob colors. Zero selected = no filter
 - **Day Transition Modal** — shown on new day: yesterday summary, category insights, focus area picker (max 3), repeatable task checklist
+- **Time-add ring** (`makeTimeAddRing` in app.js) — the goal's ⚡ opens a modal whose centrepiece is a dial showing **only what this interaction is about to log**, starting at zero. **Staged, not live:** nothing reaches the task until "Add" is pressed, so dismissing the modal (×, Escape, backdrop) adds nothing.
+  - **One full turn = 1 hour.** Whole hours collect as pips beneath the ring, so a 3h log doesn't read as a bare circle. The centre shows the running total (`1h 30m`), the footer button spells out the commit (`Add 1h 30m`) and is disabled at zero.
+  - **Preset chips carry mini dials** filled to their fraction of an hour — `15m` is a quarter-filled circle. Multi-hour presets draw one extra inner ring per hour, so `+2h` doesn't render identically to `+1h`.
+  - **Drag the ring to scrub**, forwards or back, snapped to 5-minute steps; crossing the top boundary steps a whole hour either way. Drag accumulates into an unsnapped `dragRaw` — snapping each pointermove would round every sub-step delta to zero and the drag would never move. Keyboard: arrows ±5m, Shift+arrow ±1h, Home to zero.
+  - **Two actions:** "Focus Mode" (secondary) and "Add *N*" (primary). Entering focus mode commits any staged time first, so choosing to focus never silently discards taps.
+  - The pill above reads `2h logged today` — the task's existing total, deliberately worded to not compete with the ring's "to add".
 - **Focus Mode** — per-goal fullscreen session (`openFullFocusMode` in app.js): intention → mind check-in → ambient screen (notes, wall clock, focus tools) → exit reflection where a focus-% slider splits wall-clock time into goal hours vs distraction hours (the unfocused share is always logged exactly once: to the typed distraction if one was captured, else the first "5 to Avoid" item, else a generic "Drifted time" entry); sessions saved to `state.focusSessions` and shown in the journal. Mid-session notes save on Enter (Shift+Enter for a newline) as timestamped bullets. A running session is snapshotted to localStorage (`daybyday_focus_session`) — if the tab crashes or reloads, a same-day prompt offers to resume it (notes, ultra state, and start time intact), wrap it up on the reflection screen, or discard it
 - **Settings** — gear pinned to the bottom of the sidebar rail → glass modal (`openSettingsModal` in app.js, reuses cat-modal shell). Sections: **Data** (export backup = all `daybyday_*` localStorage keys verbatim as JSON, import with an in-modal confirm showing backup date + contents summary, then reload) and **About**. Future app-level options (theme color, blob animation, notification frequency) each get their own section block here — settings never scatter elsewhere
 - **Category hours integrity** — `totalHours` is a running accumulator kept honest everywhere hours change: goal/quick-done hour edits accumulate deltas, changing a quick-done's category moves its hours between category totals, focus-session saves accumulate the capped goal-hours gain, and `prevHours` accumulates across multi-day carryovers
@@ -66,8 +72,31 @@ Deliberately **not** filtered by focus categories: the focus picker decides what
 
 - Two zones: **rail** (52px, always visible) + **panel** (268px, toggle via hamburger)
 - Rail: hamburger + one emoji button per category → opens quick-add modal
-- Panel: category cards showing all-time hours bar, `N active · N done · N backlog`
+- Panel: category cards showing the growth marker, progress-to-next-stage bar, `N active · N done · N backlog`
+
+### Growth stages
+
+Every **24h** invested in a life area (`HOURS_PER_STAGE`) advances its plant one stage: `·` bare soil → 🌱 → 🌿 → ☘️ → 🪴 → 🌳 → 🌲. Past the last stage the art holds and a `×N` day count appears beside it, so long-running areas keep visibly climbing.
+
+- **The bar measures the climb to the next stage (0→24h), not size against other areas.** Absolute by design: a category's bar never shrinks because a different one grew. Relative standing is carried by the stage art instead — a 🌲 beside a 🌱 reads at a glance. (`MAX_SCALE_HOURS` and the old relative scale are gone.)
+- `getGrowthStage(totalHours)` → `{ daysDone, art, label, isMaxArt, intoStage, pctToNext, hoursToNext }`. Bar container gets a tooltip with time into the stage and time to the next.
+- **Milestone toast** — crossing a stage shows a quiet toast at the top of the sidebar panel *the next time it's open*. Never interrupts: growth reached while collapsed waits, unacknowledged, until the user looks. Collapsing removes it. Shown once, then `cat.seenStage` is set.
+- `cat.seenStage` (persisted with the category) is the last stage acknowledged. `baselineGrowthStages()` runs at boot — after `store.categories` is wired, so it sees real totals — and initializes `seenStage` for any category missing it, so **pre-existing hours never fire a toast** on first run.
 - Card click → expand detail (Active / Done Today / Backlog sections)
+- Backlog rows in the detail carry a **↑ promote** and **× delete** button (fade in on hover; always semi-visible on touch). Dragging to Top 5 still works but is undiscoverable on its own, so both actions are now explicit. Promote respects `MAX_GOALS` — disabled with a tooltip when Top 5 is full — and carries hours/progress like every other promote path. Delete pushes to `undoStack` (Cmd/Ctrl+Z restores it, and undo now re-renders the sidebar too). `setupSidebarBacklogDrag` ignores pointerdown originating in `.sidebar-detail-actions`, or its pointer capture would swallow the button clicks.
 - Pencil edit (fades in on hover) → inline form: emoji picker + name input
 - `sidebarCollapsed` persisted to localStorage; `expandedCatId` is session-only
+
+### Mobile (≤800px)
+
+The sidebar stops being a column beside the content and becomes a **drawer over it** — at 390px the old always-on rail plus open panel left ~90px for the app.
+
+- The 52px rail is hidden entirely; `#main-content` gets the full width back (no left padding reservation).
+- A round **FAB** (bottom-right, thumb-reachable, clears the iOS home indicator via `env(safe-area-inset-bottom)`) opens the drawer. It fades out while open, since the scrim and × take over.
+- The panel slides in via `transform` at 300px / `max-width: 88vw`, over a dimmed **scrim**. Closes on: scrim tap, the panel's ×, or Escape. The × is display:none on desktop and only appears here.
+- The panel gets a **solid** `--bg` background on mobile — the desktop glass gradient is designed to sit on the app background and is unreadable floating over content.
+- Collapsed state is `visibility: hidden` + `pointer-events: none`, so nothing in the off-canvas drawer is tabbable or tappable.
+- **The drawer always starts closed on a phone**, ignoring a saved `open` preference — restoring it would bury the app behind a drawer on load. Mobile drawer toggles pass `persist: false`, so opening the drawer on a phone never rewrites the desktop preference.
+- `setSidebarOpen(open, { persist })` is the single path for every open/close (rail button, FAB, scrim, ×, Escape, resize), so the scrim, the FAB's `aria-expanded`, and the growth toast can't drift apart. A resize across the breakpoint closes the drawer and clears the scrim.
+- Quick-add lives inside the drawer: tap a category card there (the rail's one-tap emoji buttons are a desktop affordance).
 - Opening sidebar: `#main-content` gets `.sidebar-open` → padding-left transitions, content slides right

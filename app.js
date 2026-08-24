@@ -884,24 +884,237 @@
     { label: '+2h',  hours: 2 },
   ];
 
-  // Build a row of preset time-add chips (+10m, +15m, …). Each click calls
-  // onAdd(deltaHours) — the caller owns the clamp/save/accumulate/sync — then
-  // the chip flashes. Returns the container element.
-  function makeTimeAddPills(onAdd, presets = DEFAULT_TIME_PRESETS) {
+  // =========================================================
+  // TIME ADD RING
+  // =========================================================
+  // A staged time picker: the ring shows ONLY what this interaction is about
+  // to add, starting at zero. Chips feed it, dragging the ring scrubs it
+  // (down as well as up), and nothing reaches the task until the caller
+  // commits. One full turn = 1 hour; whole hours collect as pips beneath.
+  const TIME_RING_R = 52;
+  const TIME_RING_C = 2 * Math.PI * TIME_RING_R;
+  const TIME_RING_MAX = 12;      // hours — a sane ceiling for one logging pass
+  const TIME_RING_STEP = 1 / 60; // drag snaps to 1-minute increments
+
+  // Preset chips render a mini dial filled to their fraction of an hour, so
+  // "+15m" reads as a quarter-filled circle at a glance.
+  function makeChipDial(hours) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'time-chip-dial');
+    svg.setAttribute('viewBox', '0 0 18 18');
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
+
+    // Sub-hour presets fill a single dial to their fraction. Whole hours fill
+    // it completely and add one inner ring per extra hour, so +2h doesn't
+    // render as an identical full circle to +1h.
+    const whole = Math.floor(hours);
+    const frac = hours - whole;
+    const rings = [];
+    for (let i = 0; i < Math.max(1, whole); i++) rings.push({ r: 7 - i * 3, frac: 1 });
+    if (frac > 0) {
+      if (whole === 0) rings[0] = { r: 7, frac };
+      else rings.push({ r: 7 - whole * 3, frac });
+    }
+
+    rings.forEach(({ r, frac: f }) => {
+      if (r <= 1) return;
+      const c = 2 * Math.PI * r;
+      const track = document.createElementNS(ns, 'circle');
+      track.setAttribute('class', 'time-chip-dial-track');
+      track.setAttribute('cx', '9'); track.setAttribute('cy', '9'); track.setAttribute('r', String(r));
+      const fill = document.createElementNS(ns, 'circle');
+      fill.setAttribute('class', 'time-chip-dial-fill');
+      fill.setAttribute('cx', '9'); fill.setAttribute('cy', '9'); fill.setAttribute('r', String(r));
+      fill.setAttribute('stroke-dasharray', String(c));
+      fill.setAttribute('stroke-dashoffset', String(c * (1 - f)));
+      fill.setAttribute('transform', 'rotate(-90 9 9)');
+      svg.append(track, fill);
+    });
+    return svg;
+  }
+
+  // Returns { el, getHours, setHours, reset } — the caller owns what happens
+  // on commit, so this works anywhere time gets logged.
+  function makeTimeAddRing({ presets = DEFAULT_TIME_PRESETS, onChange } = {}) {
+    let pending = 0;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'time-ring-wrap';
+
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'time-ring');
+    svg.setAttribute('viewBox', '0 0 128 128');
+    svg.setAttribute('role', 'slider');
+    svg.setAttribute('aria-label', 'Time to add');
+    svg.setAttribute('aria-valuemin', '0');
+    svg.setAttribute('tabindex', '0');
+
+    const track = document.createElementNS(ns, 'circle');
+    track.setAttribute('class', 'time-ring-track');
+    track.setAttribute('cx', '64'); track.setAttribute('cy', '64'); track.setAttribute('r', String(TIME_RING_R));
+
+    const fill = document.createElementNS(ns, 'circle');
+    fill.setAttribute('class', 'time-ring-fill');
+    fill.setAttribute('cx', '64'); fill.setAttribute('cy', '64'); fill.setAttribute('r', String(TIME_RING_R));
+    fill.setAttribute('stroke-dasharray', String(TIME_RING_C));
+    fill.setAttribute('stroke-dashoffset', String(TIME_RING_C));
+    fill.setAttribute('transform', 'rotate(-90 64 64)');
+
+    // Knob sits at the head of the fill — the grab affordance.
+    const knob = document.createElementNS(ns, 'circle');
+    knob.setAttribute('class', 'time-ring-knob');
+    knob.setAttribute('r', '6');
+
+    svg.append(track, fill, knob);
+
+    const centre = document.createElement('div');
+    centre.className = 'time-ring-centre';
+    const amount = document.createElement('div');
+    amount.className = 'time-ring-amount';
+    const caption = document.createElement('div');
+    caption.className = 'time-ring-caption';
+    caption.textContent = 'to add';
+    centre.append(amount, caption);
+
+    // One pip per completed hour, so a 3h log doesn't look like a bare ring.
+    const pips = document.createElement('div');
+    pips.className = 'time-ring-pips';
+
+    const dial = document.createElement('div');
+    dial.className = 'time-ring-dial';
+    dial.append(svg, centre);
+    wrap.append(dial, pips);
+
+    function paint() {
+      const whole = Math.floor(pending + 1e-9);
+      const frac = pending - whole;
+      // A full ring reads better than an empty one at exact hours.
+      const shown = pending > 0 && frac === 0 ? 1 : frac;
+      fill.setAttribute('stroke-dashoffset', String(TIME_RING_C * (1 - shown)));
+
+      const ang = (shown * 2 * Math.PI) - Math.PI / 2;
+      knob.setAttribute('cx', String(64 + TIME_RING_R * Math.cos(ang)));
+      knob.setAttribute('cy', String(64 + TIME_RING_R * Math.sin(ang)));
+
+      amount.textContent = pending === 0 ? '0m' : formatHours(pending, '0m');
+      wrap.classList.toggle('time-ring-wrap--empty', pending === 0);
+
+      pips.innerHTML = '';
+      const pipCount = pending > 0 && frac === 0 ? whole - 1 : whole;
+      for (let i = 0; i < pipCount; i++) {
+        const p = document.createElement('span');
+        p.className = 'time-ring-pip';
+        pips.appendChild(p);
+      }
+      if (pipCount > 0) {
+        const lbl = document.createElement('span');
+        lbl.className = 'time-ring-pip-label';
+        lbl.textContent = `${pipCount}h`;
+        pips.appendChild(lbl);
+      }
+
+      svg.setAttribute('aria-valuemax', String(TIME_RING_MAX));
+      svg.setAttribute('aria-valuenow', String(Math.round(pending * 60)));
+      svg.setAttribute('aria-valuetext', pending === 0 ? 'nothing to add' : formatHours(pending, '0m'));
+      if (onChange) onChange(pending);
+    }
+
+    function setHours(h, { animate = false } = {}) {
+      const next = Math.max(0, Math.min(TIME_RING_MAX, Math.round(h * 60) / 60));
+      const grew = next > pending;
+      pending = next;
+      if (!dragging) dragRaw = next;   // chips/keys re-baseline the drag
+      paint();
+      if (animate && grew) {
+        dial.classList.remove('time-ring-dial--bump');
+        void dial.offsetWidth; // restart the animation
+        dial.classList.add('time-ring-dial--bump');
+      }
+    }
+
+    // ── Drag to scrub ──
+    // Angle maps within the current hour; crossing the top boundary steps a
+    // whole hour up or down, so a long drag keeps accumulating.
+    // `dragRaw` accumulates the unsnapped value: snapping on every pointermove
+    // would round each sub-step delta to zero and the drag would never move.
+    let dragging = false, lastAngle = null, dragRaw = 0;
+    function angleAt(ev) {
+      const r = svg.getBoundingClientRect();
+      const x = ev.clientX - (r.left + r.width / 2);
+      const y = ev.clientY - (r.top + r.height / 2);
+      let a = Math.atan2(y, x) + Math.PI / 2;
+      if (a < 0) a += 2 * Math.PI;
+      return a / (2 * Math.PI);
+    }
+    function onDown(ev) {
+      dragging = true;
+      dragRaw = pending;
+      lastAngle = angleAt(ev);
+      svg.setPointerCapture(ev.pointerId);
+      wrap.classList.add('time-ring-wrap--dragging');
+      ev.preventDefault();
+    }
+    function onMove(ev) {
+      if (!dragging) return;
+      const a = angleAt(ev);
+      let d = a - lastAngle;
+      if (d > 0.5) d -= 1;        // wrapped backwards past 12 o'clock
+      else if (d < -0.5) d += 1;  // wrapped forwards
+      lastAngle = a;
+      dragRaw = Math.max(0, Math.min(TIME_RING_MAX, dragRaw + d));
+      setHours(Math.round(dragRaw / TIME_RING_STEP) * TIME_RING_STEP);
+    }
+    function onUp(ev) {
+      if (!dragging) return;
+      dragging = false;
+      wrap.classList.remove('time-ring-wrap--dragging');
+      try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
+    }
+    svg.addEventListener('pointerdown', onDown);
+    svg.addEventListener('pointermove', onMove);
+    svg.addEventListener('pointerup', onUp);
+    svg.addEventListener('pointercancel', onUp);
+
+    svg.addEventListener('keydown', e => {
+      const big = e.shiftKey ? 1 : TIME_RING_STEP;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { setHours(pending + big); e.preventDefault(); }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { setHours(pending - big); e.preventDefault(); }
+      if (e.key === 'Home') { setHours(0); e.preventDefault(); }
+    });
+
+    // ── Preset chips ──
     const chips = document.createElement('div');
-    chips.className = 'focus-modal-chips';
+    chips.className = 'time-ring-chips';
     presets.forEach(({ label, hours }) => {
       const chip = document.createElement('button');
-      chip.className = 'focus-time-chip';
-      chip.textContent = label;
+      chip.className = 'time-ring-chip';
+      chip.appendChild(makeChipDial(hours));
+      const txt = document.createElement('span');
+      txt.textContent = label.replace(/^\+/, '');
+      chip.appendChild(txt);
+      chip.title = `Add ${label.replace(/^\+/, '')}`;
       chip.addEventListener('click', () => {
-        onAdd(hours);
+        setHours(pending + hours, { animate: true });
         chip.classList.add('focus-time-chip-flash');
         setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
       });
       chips.appendChild(chip);
     });
-    return chips;
+
+    const container = document.createElement('div');
+    container.className = 'time-ring-section';
+    container.append(wrap, chips);
+
+    paint();
+    return {
+      el: container,
+      getHours: () => pending,
+      setHours,
+      reset: () => setHours(0),
+    };
   }
 
   // Inline click-to-edit for an hours pill. Shared by the goal card, the focus
@@ -2857,7 +3070,9 @@
     const updateHoursDisplay = () => {
       const h = state.goals[index] ? (state.goals[index].hours || 0) : (goal.hours || 0);
       if (hoursDisplay.querySelector('input')) return;
-      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${formatHours(h)} today`;
+      // Reads as the existing total, distinct from the ring below it (which
+      // is only what's about to be added).
+      hoursDisplay.textContent = h === 0 ? 'Nothing logged yet' : `${formatHours(h)} logged today`;
       hoursDisplay.classList.toggle('goal-hours-pill--empty', h === 0);
     };
     updateHoursDisplay();
@@ -2879,7 +3094,10 @@
       render: updateHoursDisplay,
     });
 
-    // Quick time chips
+    // ── Time to add ──
+    // Staged, not live: the ring counts only what this visit is about to log
+    // and starts at zero. Nothing reaches the task until "Add" is pressed, so
+    // dismissing the modal adds nothing.
     const chipsSection = document.createElement('div');
     chipsSection.className = 'focus-modal-chips-section';
 
@@ -2887,41 +3105,73 @@
     chipsLabel.className = 'focus-modal-chips-label';
     chipsLabel.textContent = 'Log time on this task';
 
-    const chips = makeTimeAddPills(addedHours => {
+    // Declared before the ring: constructing it paints once, which fires
+    // onChange before this button would otherwise exist.
+    let addBtn = null;
+    const ring = makeTimeAddRing({
+      onChange: pending => {
+        if (!addBtn) return;
+        addBtn.disabled = pending <= 0;
+        addBtn.textContent = pending > 0 ? `Add ${formatHours(pending, '0m')}` : 'Add time';
+      },
+    });
+
+    chipsSection.append(chipsLabel, ring.el);
+
+    // Divider
+    const divider = document.createElement('div');
+    divider.className = 'focus-modal-divider';
+
+    // Commits the staged time onto the task. Shared by the Add button and by
+    // entering focus mode, so staged time is never silently dropped.
+    function commitPendingTime() {
+      const pending = ring.getHours();
+      if (pending <= 0) return 0;
       const prev = state.goals[index].hours || 0;
-      const next = Math.min(24, prev + addedHours);
+      const next = Math.min(24, prev + pending);
       const delta = next - prev;
       state.goals[index].hours = Math.round(next * 100) / 100;
       saveState();
       accumulateCategoryHours(state.goals[index].category || 'general', delta);
       renderSummary();
       updateHoursDisplay();
-      // Sync the hours pill on the card without a full re-render
       const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
       if (cardPill && !cardPill.querySelector('input')) {
         const h = state.goals[index].hours || 0;
         cardPill.textContent = formatHours(h);
         cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
       }
-    });
+      ring.reset();
+      return delta;
+    }
 
-    chipsSection.append(chipsLabel, chips);
+    const actions = document.createElement('div');
+    actions.className = 'focus-modal-actions';
 
-    // Divider
-    const divider = document.createElement('div');
-    divider.className = 'focus-modal-divider';
-
-    // Focus mode button
     const focusModeBtn = document.createElement('button');
-    focusModeBtn.className = 'focus-enter-btn';
-    focusModeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg> Enter Focus Mode';
+    focusModeBtn.className = 'focus-enter-btn focus-enter-btn--secondary';
+    focusModeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg> Focus Mode';
     focusModeBtn.addEventListener('click', () => {
+      // Don't discard staged time just because they chose to focus instead.
+      commitPendingTime();
       overlay.remove();
       activeFocusOverlay = null;
       openFullFocusMode(goal, index, catColor, catEmoji, cat);
     });
 
-    modal.append(header, taskName, hoursDisplay, chipsSection, divider, focusModeBtn);
+    addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-primary focus-add-time-btn';
+    addBtn.textContent = 'Add time';
+    addBtn.disabled = true;
+    addBtn.addEventListener('click', () => {
+      commitPendingTime();
+      overlay.remove();
+      activeFocusOverlay = null;
+    });
+
+    actions.append(focusModeBtn, addBtn);
+
+    modal.append(header, taskName, hoursDisplay, chipsSection, divider, actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 

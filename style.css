@@ -4250,6 +4250,235 @@ footer {
   margin-bottom: 10px;
 }
 
+/* ============================================================
+   TIME ADD RING
+   A staged time picker: the ring shows only what this interaction is about
+   to log, starting at zero. One full turn = 1 hour; whole hours collect as
+   pips beneath. Chips feed it, dragging scrubs it either way.
+   ============================================================ */
+.time-ring-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.time-ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-ring-dial {
+  position: relative;
+  width: 128px;
+  height: 128px;
+}
+
+.time-ring-dial--bump {
+  animation: time-ring-bump 0.34s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes time-ring-bump {
+  0%   { transform: scale(1); }
+  38%  { transform: scale(1.055); }
+  100% { transform: scale(1); }
+}
+
+.time-ring {
+  width: 128px;
+  height: 128px;
+  display: block;
+  touch-action: none;          /* dragging the ring must not scroll the modal */
+  cursor: grab;
+}
+
+.time-ring-wrap--dragging .time-ring { cursor: grabbing; }
+
+.time-ring:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+.time-ring-track {
+  fill: none;
+  stroke: rgba(45,106,79,0.12);
+  stroke-width: 10;
+}
+
+.time-ring-fill {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.32s cubic-bezier(0.4,0,0.2,1);
+}
+
+.time-ring-wrap--dragging .time-ring-fill {
+  transition: none;            /* scrubbing must track the finger exactly */
+}
+
+.time-ring-knob {
+  fill: #fff;
+  stroke: var(--primary);
+  stroke-width: 3;
+  transition: opacity 0.2s;
+}
+
+.time-ring-wrap--dragging .time-ring-knob { r: 7; }
+
+/* At zero the knob sits at 12 o'clock as the "you can drag this" cue, so it
+   stays visible — just quieter until there's something staged. */
+.time-ring-wrap--empty .time-ring-knob {
+  stroke: rgba(45,106,79,0.45);
+}
+
+.time-ring-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;        /* the ring beneath owns the drag */
+}
+
+.time-ring-amount {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.time-ring-wrap--empty .time-ring-amount { color: var(--text-muted); }
+
+.time-ring-caption {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* One pip per completed hour — a 3h log shouldn't look like a bare ring. */
+.time-ring-pips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 10px;
+}
+
+.time-ring-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: time-ring-pip-in 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes time-ring-pip-in {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+
+.time-ring-pip-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-left: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Five presets on one row — wrapping orphans the last chip. */
+.time-ring-chips {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+/* Preset chip carrying a mini dial filled to its fraction of an hour. */
+.time-ring-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 10px 6px 7px;
+  white-space: nowrap;
+  border-radius: 20px;
+  border: 1.5px solid rgba(45,106,79,0.22);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.06) 100%),
+    rgba(45,106,79,0.07);
+  color: var(--primary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.time-ring-chip:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.time-chip-dial { flex-shrink: 0; }
+
+.time-chip-dial-track {
+  fill: none;
+  stroke: rgba(45,106,79,0.22);
+  stroke-width: 3;
+}
+
+.time-chip-dial-fill {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* Two-action footer: focus mode (secondary) beside the commit button. */
+.focus-modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.focus-modal-actions .focus-enter-btn--secondary {
+  flex: 1;
+  background: rgba(45,106,79,0.07);
+  color: var(--primary);
+  border-color: rgba(45,106,79,0.22);
+}
+
+.focus-modal-actions .focus-enter-btn--secondary:hover {
+  background: rgba(45,106,79,0.14);
+  border-color: var(--primary);
+}
+
+.focus-add-time-btn {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 13px 20px;
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-add-time-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .time-ring-dial--bump { animation: none; }
+  .time-ring-pip { animation: none; }
+  .time-ring-fill { transition: none; }
+}
+
 .focus-modal-chips {
   display: flex;
   gap: 8px;

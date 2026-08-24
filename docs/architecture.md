@@ -63,6 +63,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `getCategoryById(id)` — always returns something; falls back to `general`.
 - `accumulateCategoryHours(catId, delta)` — **only place `totalHours` is mutated.** Called on every hours-input change.
 - `createCategoryPill()` — tracks `currentCatId` in closure so picker always shows current value.
+- `makeTimeAddRing({ presets, onChange })` → `{ el, getHours, setHours, reset }` — the reusable staged time picker (ring + preset dial chips). The caller owns the commit, so it drops into anywhere time gets logged. Constants: `TIME_RING_MAX` (12h ceiling per pass), `TIME_RING_STEP` (5-minute drag snap). `makeChipDial(hours)` builds a preset's mini dial. Replaced `makeTimeAddPills`, which applied time live on every tap.
 - `openTaskContextPicker(anchor, catId, repeatable, onConfirm, { showRepeatable })` — the **single** category/context modal for every task-like row. `showRepeatable: false` gives a category-only picker (used by backlog + distractions); default shows the repeatable toggle (Top 5 goals). There is no separate popover picker.
 
 **Shared UI helpers** (added to kill duplication — reuse these, don't reimplement):

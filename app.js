@@ -247,11 +247,18 @@
     ];
   }
 
-  // Cache blob elements — all three are real divs now
+  // Cache blob elements — all three are real divs now.
+  // _blobs are the painted blobs (CSS swirl owns their transform);
+  // _blobDrifts are their zero-size wrappers (JS drift owns those).
   const _blobs = [
     document.getElementById('blob1'),
     document.getElementById('blob2'),
     document.getElementById('blob3'),
+  ];
+  const _blobDrifts = [
+    document.getElementById('blob1-drift'),
+    document.getElementById('blob2-drift'),
+    document.getElementById('blob3-drift'),
   ];
 
   let _lastBlobColorKey = '';
@@ -274,79 +281,145 @@
   // When a swirl triggers, the rAF loop pauses and the CSS swirl animation plays.
   // When swirl ends, the loop resumes from the blob's current rendered position.
 
+  // Physics runs at DRIFT_FPS, not per animation frame. The per-step
+  // constants below are scaled by (60 / DRIFT_FPS) against the old
+  // per-frame values so the motion looks exactly as it always has.
+  const DRIFT_FPS = 24;
+  const DRIFT_INTERVAL = 1000 / DRIFT_FPS;
+  const _STEP_SCALE = 60 / DRIFT_FPS; // 2.5
+
   const _blobState = _blobs.map((b, i) => {
     const w = [0.55, 0.50, 0.48][i];
     const h = [0.55, 0.60, 0.48][i];
     const px = Math.random() * (1 - w);
     const py = Math.random() * (1 - h);
     const angle = Math.random() * Math.PI * 2;
-    const speed = 0.0004; // vw-fraction per frame
-    // turnRate: how many radians the direction rotates per frame — creates arcs.
+    const speed = 0.0004 * _STEP_SCALE; // vw-fraction per step
+    // turnRate: how many radians the direction rotates per step — creates arcs.
     // Each blob gets a different rate so they trace different curve radii.
     // Sign alternates so they curve in different directions.
     // turnRate oscillates via a per-blob phase so arcs curve both ways over time,
     // preventing inward spiraling. Each blob has a different oscillation period.
-    const turnPeriods = [380, 520, 290]; // frames per full oscillation
-    const turnAmps   = [0.012, 0.009, 0.014];
+    const turnPeriods = [380, 520, 290].map(p => p / _STEP_SCALE); // steps per oscillation
+    const turnAmps    = [0.012, 0.009, 0.014].map(a => a * _STEP_SCALE);
     return { px, py, angle, speed, w, h, frame: Math.floor(Math.random() * turnPeriods[i]), turnPeriod: turnPeriods[i], turnAmp: turnAmps[i] };
   });
 
-  let _driftPaused = false;
+  let _driftPaused = false;   // a swirl is playing
+  let _driftHidden = false;   // tab hidden, or focus fullscreen is covering us
+  let _reduceMotion = false;  // user asked the OS for reduced motion
+  let _focusModeOpen = false;
   let _rafId = null;
+  let _lastStep = 0;
 
-  function _driftTick() {
-    if (_driftPaused) return;
-    _blobState.forEach((s, i) => {
-      const b = _blobs[i];
-      if (!b) return;
-      // Oscillating turn rate — curves left then right over time, no inward spiral
-      s.frame++;
-      const turnRate = s.turnAmp * Math.sin((s.frame / s.turnPeriod) * Math.PI * 2);
-      s.angle += turnRate;
-      // Edge repulsion — only kick in very close to boundary, low strength
-      const margin = 0.03;
-      if (s.px < margin)           s.angle += 0.12 * Math.pow(1 - s.px / margin, 2);
-      if (s.px > 1 - s.w - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.w - s.px) / margin, 2);
-      if (s.py < margin)           s.angle += 0.12 * Math.pow(1 - s.py / margin, 2);
-      if (s.py > 1 - s.h - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.h - s.py) / margin, 2);
-      s.px += Math.cos(s.angle) * s.speed;
-      s.py += Math.sin(s.angle) * s.speed;
-      // Last-resort clamp + flip angle inward if a blob somehow escapes
-      if (s.px < 0)       { s.px = 0;       s.angle =  Math.abs(Math.cos(s.angle)) > 0.1 ? Math.PI - s.angle : s.angle; }
-      if (s.px > 1 - s.w) { s.px = 1 - s.w; s.angle = -Math.PI - s.angle; }
-      if (s.py < 0)       { s.py = 0;       s.angle = -s.angle; }
-      if (s.py > 1 - s.h) { s.py = 1 - s.h; s.angle = -s.angle; }
-      b.style.left = (s.px * 100).toFixed(3) + 'vw';
-      b.style.top  = (s.py * 100).toFixed(3) + 'vh';
-    });
+  // Advance one blob by a single physics step. Unchanged from the original
+  // per-frame maths — only the write target moved to the wrapper.
+  function _driftStep(s) {
+    // Oscillating turn rate — curves left then right over time, no inward spiral
+    s.frame++;
+    const turnRate = s.turnAmp * Math.sin((s.frame / s.turnPeriod) * Math.PI * 2);
+    s.angle += turnRate;
+    // Edge repulsion — only kick in very close to boundary, low strength
+    const margin = 0.03;
+    if (s.px < margin)           s.angle += 0.12 * Math.pow(1 - s.px / margin, 2);
+    if (s.px > 1 - s.w - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.w - s.px) / margin, 2);
+    if (s.py < margin)           s.angle += 0.12 * Math.pow(1 - s.py / margin, 2);
+    if (s.py > 1 - s.h - margin) s.angle -= 0.12 * Math.pow(1 - (1 - s.h - s.py) / margin, 2);
+    s.px += Math.cos(s.angle) * s.speed;
+    s.py += Math.sin(s.angle) * s.speed;
+    // Last-resort clamp + flip angle inward if a blob somehow escapes
+    if (s.px < 0)       { s.px = 0;       s.angle =  Math.abs(Math.cos(s.angle)) > 0.1 ? Math.PI - s.angle : s.angle; }
+    if (s.px > 1 - s.w) { s.px = 1 - s.w; s.angle = -Math.PI - s.angle; }
+    if (s.py < 0)       { s.py = 0;       s.angle = -s.angle; }
+    if (s.py > 1 - s.h) { s.py = 1 - s.h; s.angle = -s.angle; }
+  }
+
+  // Compositor-only write: translate3d on an unpainted wrapper means no
+  // layout, no repaint, and no re-blur of the (static) blur underneath.
+  function _writeBlob(i) {
+    const s = _blobState[i], d = _blobDrifts[i];
+    if (!d) return;
+    d.style.transform = 'translate3d(' + (s.px * 100).toFixed(3) + 'vw,' +
+                                         (s.py * 100).toFixed(3) + 'vh,0)';
+  }
+
+  function _driftTick(now) {
+    _rafId = null;
+    if (_driftPaused || _driftHidden || _reduceMotion) return;
+    if (!_lastStep || now - _lastStep >= DRIFT_INTERVAL) {
+      // Cap catch-up so a long stall can't teleport the blobs.
+      const steps = _lastStep ? Math.min(2, Math.max(1, Math.round((now - _lastStep) / DRIFT_INTERVAL))) : 1;
+      _lastStep = now;
+      for (let i = 0; i < _blobState.length; i++) {
+        for (let n = 0; n < steps; n++) _driftStep(_blobState[i]);
+        _writeBlob(i);
+      }
+    }
     _rafId = requestAnimationFrame(_driftTick);
   }
 
+  // _startDrift/_stopDrift are the ONLY owners of _rafId. The null-check
+  // makes a duplicated (and therefore uncancellable) rAF chain impossible.
+  function _startDrift() {
+    if (_rafId !== null) return;
+    if (_driftPaused || _driftHidden || _reduceMotion) return;
+    _lastStep = 0; // resume takes exactly one step — no positional jump
+    _rafId = requestAnimationFrame(_driftTick);
+  }
+  function _stopDrift() {
+    if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+  }
+
+  function _refreshDriftGate() {
+    _driftHidden = document.hidden || _focusModeOpen;
+    if (_driftHidden) _stopDrift(); else _startDrift();
+  }
+
+  document.addEventListener('visibilitychange', _refreshDriftGate);
+
+  // Focus fullscreen fully occludes the blobs — stop the loop while it's up.
+  window.DayByDayBlobs = {
+    setOccluded(on) {
+      if (_focusModeOpen === on) return;
+      _focusModeOpen = on;
+      _refreshDriftGate();
+    }
+  };
+
+  const _rmQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  _reduceMotion = _rmQuery.matches;
+  _rmQuery.addEventListener('change', e => {
+    _reduceMotion = e.matches;
+    if (_reduceMotion) _stopDrift(); else _startDrift();
+  });
+
   // Strip CSS drift animations — motion is now fully JS-driven
-  _blobs.forEach(b => { if (b) { b.style.animation = 'none'; b.style.bottom = ''; b.style.right = ''; } });
-  _driftTick();
+  _blobs.forEach(b => { if (b) { b.style.animation = 'none'; } });
+  _blobState.forEach((s, i) => _writeBlob(i)); // paint initial positions
+  _startDrift();
 
   let _swirlTimer = null;
   function pulseBlobEvent(type) {
+    if (_reduceMotion) return;
     if (_swirlTimer) { clearTimeout(_swirlTimer); _swirlTimer = null; }
 
     const dur = type === 'complete' ? 2200 : 1400;
     const swirlType = (type === 'distraction') ? 'add' : type;
     const targets = (type === 'distraction') ? [_blobs[2]] : _blobs;
 
-    // Pause drift loop, freeze each blob at current position so swirl starts from here
+    // Pause the drift loop for the duration of the swirl. The wrapper keeps
+    // the absolute position; the swirl is a relative offset on the inner blob.
     _driftPaused = true;
-    if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+    _stopDrift();
 
-    _blobs.forEach((b, i) => {
+    _blobs.forEach(b => {
       if (!b) return;
       b.removeAttribute('data-swirl');
-      // Position already set by drift loop — just clear any animation so swirl CSS takes over
       b.style.animation = 'none';
     });
     void document.body.offsetWidth;
 
-    targets.forEach((b, i) => {
+    targets.forEach(b => {
       if (!b) return;
       b.style.animation = '';  // re-enable CSS animations for swirl
       b.style.animationDelay = '0s';
@@ -354,23 +427,15 @@
     });
 
     _swirlTimer = setTimeout(() => {
-      // Swirl ended — read each blob's final rendered position back into _blobState
-      // so the drift loop resumes seamlessly from exactly where the swirl landed.
-      _blobs.forEach((b, i) => {
+      // Swirl keyframes end back at translate(0,0), and they never touched the
+      // drift wrapper — so there is no position to reconcile. Just clear and go.
+      _blobs.forEach(b => {
         if (!b) return;
-        const vw = window.innerWidth, vh = window.innerHeight;
-        const rect = b.getBoundingClientRect();
-        _blobState[i].px = rect.left / vw;
-        _blobState[i].py = rect.top  / vh;
-        // Keep current angle so arc continues in the same direction it was heading
         b.removeAttribute('data-swirl');
         b.style.animation = 'none';
-        b.style.left = (rect.left / vw * 100).toFixed(3) + 'vw';
-        b.style.top  = (rect.top  / vh * 100).toFixed(3) + 'vh';
       });
-      void document.body.offsetWidth;
       _driftPaused = false;
-      _driftTick();
+      _startDrift();
       _swirlTimer = null;
     }, dur);
   }
@@ -438,6 +503,9 @@
       if ((src.progress || 0) >= 100) e.completedAt = now;
     } else if (type === 'backlog') {
       e.repeatable = src.repeatable || false;
+      // Progress survives a trip through the backlog so a part-done task can be
+      // shelved and resumed where it left off (hours are carried generically).
+      e.progress = src.progress || 0;
     }
     return e;
   }
@@ -517,6 +585,7 @@
       if (e.fromBacklog) v.fromBacklog = true;
     } else if (e.type === 'backlog') {
       v.repeatable = e.repeatable || false;
+      v.progress = e.progress || 0;
     }
     return v;
   }
@@ -534,6 +603,7 @@
       if ((v.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; } else delete e.completedAt;
     } else if (type === 'backlog') {
       e.repeatable = v.repeatable || false;
+      e.progress = v.progress || 0;
     }
     e.updatedAt = now;
   }
@@ -615,6 +685,17 @@
 
   function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
 
+  const HOURS_PER_STAGE = 24;
+  const GROWTH_STAGES = [
+    { art: '·',  label: 'Bare soil' },
+    { art: '🌱', label: 'Seedling' },
+    { art: '🌿', label: 'Sprout' },
+    { art: '☘️', label: 'Growing' },
+    { art: '🪴', label: 'Potted' },
+    { art: '🌳', label: 'Tree' },
+    { art: '🌲', label: 'Evergreen' },
+  ];
+
   // --- Categories ---
   let categories = loadCategories();
 
@@ -638,6 +719,21 @@
   }
 
   function saveCategories() { storageSet(CATEGORIES_KEY, JSON.stringify(categories)); }
+
+  // Existing hours are not a milestone the user just earned. On the first run
+  // after this feature ships (and for any category that predates it), baseline
+  // seenStage to where the plant already stands so the toast only ever fires
+  // for growth that happens from here on.
+  function baselineGrowthStages() {
+    let touched = false;
+    categories.forEach(cat => {
+      if (cat.seenStage == null) {
+        cat.seenStage = Math.floor(Math.max(0, cat.totalHours || 0) / HOURS_PER_STAGE);
+        touched = true;
+      }
+    });
+    if (touched) saveCategories();
+  }
 
   function getCategoryById(id) {
     // Archived categories still resolve — past sessions/journal/pills keep
@@ -725,6 +821,53 @@
   // Format a duration in hours as a calm h/m pill (no seconds). Shared by every
   // hours pill in the app. `emptyLabel` is shown when the value is zero/falsy.
   // For a duration in whole minutes, pass formatHours(mins / 60, '0m').
+  // =========================================================
+  // GROWTH STAGES
+  // =========================================================
+  // Every 24h invested in a life area — one full day of your life — advances
+  // its plant one stage. Absolute, not relative: a category never regresses
+  // because another one grew, which is the point. Comparison between areas
+  // still reads at a glance from the stage art itself.
+  // A category records the stage it was last *shown* at (`seenStage`). When
+  // the plant has grown past it, the sidebar owes the user a quiet toast the
+  // next time it's opened. Persisted with the category, so crossing 24h with
+  // the sidebar collapsed still gets acknowledged later.
+  function pendingGrowthMilestones() {
+    return activeCategories()
+      .map(cat => {
+        const st = getGrowthStage(cat.totalHours);
+        const seen = cat.seenStage || 0;
+        return st.daysDone > seen ? { cat, stage: st } : null;
+      })
+      .filter(Boolean);
+  }
+
+  // Called once the toast has actually been shown.
+  function acknowledgeGrowthMilestones(items) {
+    if (!items.length) return;
+    items.forEach(({ cat, stage }) => { cat.seenStage = stage.daysDone; });
+    saveCategories();
+  }
+
+  function getGrowthStage(totalHours) {
+    const h = Math.max(0, totalHours || 0);
+    const daysDone = Math.floor(h / HOURS_PER_STAGE);
+    // Past the last art stage the plant stops changing but the count keeps
+    // climbing, so long-term areas still show progress without new artwork.
+    const idx = Math.min(daysDone, GROWTH_STAGES.length - 1);
+    const stage = GROWTH_STAGES[idx];
+    const intoStage = h - daysDone * HOURS_PER_STAGE;
+    return {
+      daysDone,
+      art: stage.art,
+      label: stage.label,
+      isMaxArt: daysDone >= GROWTH_STAGES.length - 1,
+      intoStage,
+      pctToNext: Math.min(100, (intoStage / HOURS_PER_STAGE) * 100),
+      hoursToNext: Math.max(0, HOURS_PER_STAGE - intoStage),
+    };
+  }
+
   function formatHours(h, emptyLabel = '+ hrs') {
     if (!h || h <= 0) return emptyLabel;
     if (h < 1) return `${Math.round(h * 60)}m`;
@@ -741,24 +884,237 @@
     { label: '+2h',  hours: 2 },
   ];
 
-  // Build a row of preset time-add chips (+10m, +15m, …). Each click calls
-  // onAdd(deltaHours) — the caller owns the clamp/save/accumulate/sync — then
-  // the chip flashes. Returns the container element.
-  function makeTimeAddPills(onAdd, presets = DEFAULT_TIME_PRESETS) {
+  // =========================================================
+  // TIME ADD RING
+  // =========================================================
+  // A staged time picker: the ring shows ONLY what this interaction is about
+  // to add, starting at zero. Chips feed it, dragging the ring scrubs it
+  // (down as well as up), and nothing reaches the task until the caller
+  // commits. One full turn = 1 hour; whole hours collect as pips beneath.
+  const TIME_RING_R = 52;
+  const TIME_RING_C = 2 * Math.PI * TIME_RING_R;
+  const TIME_RING_MAX = 12;      // hours — a sane ceiling for one logging pass
+  const TIME_RING_STEP = 1 / 60; // drag snaps to 1-minute increments
+
+  // Preset chips render a mini dial filled to their fraction of an hour, so
+  // "+15m" reads as a quarter-filled circle at a glance.
+  function makeChipDial(hours) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'time-chip-dial');
+    svg.setAttribute('viewBox', '0 0 18 18');
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
+
+    // Sub-hour presets fill a single dial to their fraction. Whole hours fill
+    // it completely and add one inner ring per extra hour, so +2h doesn't
+    // render as an identical full circle to +1h.
+    const whole = Math.floor(hours);
+    const frac = hours - whole;
+    const rings = [];
+    for (let i = 0; i < Math.max(1, whole); i++) rings.push({ r: 7 - i * 3, frac: 1 });
+    if (frac > 0) {
+      if (whole === 0) rings[0] = { r: 7, frac };
+      else rings.push({ r: 7 - whole * 3, frac });
+    }
+
+    rings.forEach(({ r, frac: f }) => {
+      if (r <= 1) return;
+      const c = 2 * Math.PI * r;
+      const track = document.createElementNS(ns, 'circle');
+      track.setAttribute('class', 'time-chip-dial-track');
+      track.setAttribute('cx', '9'); track.setAttribute('cy', '9'); track.setAttribute('r', String(r));
+      const fill = document.createElementNS(ns, 'circle');
+      fill.setAttribute('class', 'time-chip-dial-fill');
+      fill.setAttribute('cx', '9'); fill.setAttribute('cy', '9'); fill.setAttribute('r', String(r));
+      fill.setAttribute('stroke-dasharray', String(c));
+      fill.setAttribute('stroke-dashoffset', String(c * (1 - f)));
+      fill.setAttribute('transform', 'rotate(-90 9 9)');
+      svg.append(track, fill);
+    });
+    return svg;
+  }
+
+  // Returns { el, getHours, setHours, reset } — the caller owns what happens
+  // on commit, so this works anywhere time gets logged.
+  function makeTimeAddRing({ presets = DEFAULT_TIME_PRESETS, onChange } = {}) {
+    let pending = 0;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'time-ring-wrap';
+
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'time-ring');
+    svg.setAttribute('viewBox', '0 0 128 128');
+    svg.setAttribute('role', 'slider');
+    svg.setAttribute('aria-label', 'Time to add');
+    svg.setAttribute('aria-valuemin', '0');
+    svg.setAttribute('tabindex', '0');
+
+    const track = document.createElementNS(ns, 'circle');
+    track.setAttribute('class', 'time-ring-track');
+    track.setAttribute('cx', '64'); track.setAttribute('cy', '64'); track.setAttribute('r', String(TIME_RING_R));
+
+    const fill = document.createElementNS(ns, 'circle');
+    fill.setAttribute('class', 'time-ring-fill');
+    fill.setAttribute('cx', '64'); fill.setAttribute('cy', '64'); fill.setAttribute('r', String(TIME_RING_R));
+    fill.setAttribute('stroke-dasharray', String(TIME_RING_C));
+    fill.setAttribute('stroke-dashoffset', String(TIME_RING_C));
+    fill.setAttribute('transform', 'rotate(-90 64 64)');
+
+    // Knob sits at the head of the fill — the grab affordance.
+    const knob = document.createElementNS(ns, 'circle');
+    knob.setAttribute('class', 'time-ring-knob');
+    knob.setAttribute('r', '6');
+
+    svg.append(track, fill, knob);
+
+    const centre = document.createElement('div');
+    centre.className = 'time-ring-centre';
+    const amount = document.createElement('div');
+    amount.className = 'time-ring-amount';
+    const caption = document.createElement('div');
+    caption.className = 'time-ring-caption';
+    caption.textContent = 'to add';
+    centre.append(amount, caption);
+
+    // One pip per completed hour, so a 3h log doesn't look like a bare ring.
+    const pips = document.createElement('div');
+    pips.className = 'time-ring-pips';
+
+    const dial = document.createElement('div');
+    dial.className = 'time-ring-dial';
+    dial.append(svg, centre);
+    wrap.append(dial, pips);
+
+    function paint() {
+      const whole = Math.floor(pending + 1e-9);
+      const frac = pending - whole;
+      // A full ring reads better than an empty one at exact hours.
+      const shown = pending > 0 && frac === 0 ? 1 : frac;
+      fill.setAttribute('stroke-dashoffset', String(TIME_RING_C * (1 - shown)));
+
+      const ang = (shown * 2 * Math.PI) - Math.PI / 2;
+      knob.setAttribute('cx', String(64 + TIME_RING_R * Math.cos(ang)));
+      knob.setAttribute('cy', String(64 + TIME_RING_R * Math.sin(ang)));
+
+      amount.textContent = pending === 0 ? '0m' : formatHours(pending, '0m');
+      wrap.classList.toggle('time-ring-wrap--empty', pending === 0);
+
+      pips.innerHTML = '';
+      const pipCount = pending > 0 && frac === 0 ? whole - 1 : whole;
+      for (let i = 0; i < pipCount; i++) {
+        const p = document.createElement('span');
+        p.className = 'time-ring-pip';
+        pips.appendChild(p);
+      }
+      if (pipCount > 0) {
+        const lbl = document.createElement('span');
+        lbl.className = 'time-ring-pip-label';
+        lbl.textContent = `${pipCount}h`;
+        pips.appendChild(lbl);
+      }
+
+      svg.setAttribute('aria-valuemax', String(TIME_RING_MAX));
+      svg.setAttribute('aria-valuenow', String(Math.round(pending * 60)));
+      svg.setAttribute('aria-valuetext', pending === 0 ? 'nothing to add' : formatHours(pending, '0m'));
+      if (onChange) onChange(pending);
+    }
+
+    function setHours(h, { animate = false } = {}) {
+      const next = Math.max(0, Math.min(TIME_RING_MAX, Math.round(h * 60) / 60));
+      const grew = next > pending;
+      pending = next;
+      if (!dragging) dragRaw = next;   // chips/keys re-baseline the drag
+      paint();
+      if (animate && grew) {
+        dial.classList.remove('time-ring-dial--bump');
+        void dial.offsetWidth; // restart the animation
+        dial.classList.add('time-ring-dial--bump');
+      }
+    }
+
+    // ── Drag to scrub ──
+    // Angle maps within the current hour; crossing the top boundary steps a
+    // whole hour up or down, so a long drag keeps accumulating.
+    // `dragRaw` accumulates the unsnapped value: snapping on every pointermove
+    // would round each sub-step delta to zero and the drag would never move.
+    let dragging = false, lastAngle = null, dragRaw = 0;
+    function angleAt(ev) {
+      const r = svg.getBoundingClientRect();
+      const x = ev.clientX - (r.left + r.width / 2);
+      const y = ev.clientY - (r.top + r.height / 2);
+      let a = Math.atan2(y, x) + Math.PI / 2;
+      if (a < 0) a += 2 * Math.PI;
+      return a / (2 * Math.PI);
+    }
+    function onDown(ev) {
+      dragging = true;
+      dragRaw = pending;
+      lastAngle = angleAt(ev);
+      svg.setPointerCapture(ev.pointerId);
+      wrap.classList.add('time-ring-wrap--dragging');
+      ev.preventDefault();
+    }
+    function onMove(ev) {
+      if (!dragging) return;
+      const a = angleAt(ev);
+      let d = a - lastAngle;
+      if (d > 0.5) d -= 1;        // wrapped backwards past 12 o'clock
+      else if (d < -0.5) d += 1;  // wrapped forwards
+      lastAngle = a;
+      dragRaw = Math.max(0, Math.min(TIME_RING_MAX, dragRaw + d));
+      setHours(Math.round(dragRaw / TIME_RING_STEP) * TIME_RING_STEP);
+    }
+    function onUp(ev) {
+      if (!dragging) return;
+      dragging = false;
+      wrap.classList.remove('time-ring-wrap--dragging');
+      try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
+    }
+    svg.addEventListener('pointerdown', onDown);
+    svg.addEventListener('pointermove', onMove);
+    svg.addEventListener('pointerup', onUp);
+    svg.addEventListener('pointercancel', onUp);
+
+    svg.addEventListener('keydown', e => {
+      const big = e.shiftKey ? 1 : TIME_RING_STEP;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { setHours(pending + big); e.preventDefault(); }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { setHours(pending - big); e.preventDefault(); }
+      if (e.key === 'Home') { setHours(0); e.preventDefault(); }
+    });
+
+    // ── Preset chips ──
     const chips = document.createElement('div');
-    chips.className = 'focus-modal-chips';
+    chips.className = 'time-ring-chips';
     presets.forEach(({ label, hours }) => {
       const chip = document.createElement('button');
-      chip.className = 'focus-time-chip';
-      chip.textContent = label;
+      chip.className = 'time-ring-chip';
+      chip.appendChild(makeChipDial(hours));
+      const txt = document.createElement('span');
+      txt.textContent = label.replace(/^\+/, '');
+      chip.appendChild(txt);
+      chip.title = `Add ${label.replace(/^\+/, '')}`;
       chip.addEventListener('click', () => {
-        onAdd(hours);
+        setHours(pending + hours, { animate: true });
         chip.classList.add('focus-time-chip-flash');
         setTimeout(() => chip.classList.remove('focus-time-chip-flash'), 400);
       });
       chips.appendChild(chip);
     });
-    return chips;
+
+    const container = document.createElement('div');
+    container.className = 'time-ring-section';
+    container.append(wrap, chips);
+
+    paint();
+    return {
+      el: container,
+      getHours: () => pending,
+      setHours,
+      reset: () => setHours(0),
+    };
   }
 
   // Inline click-to-edit for an hours pill. Shared by the goal card, the focus
@@ -827,6 +1183,11 @@
   // updates (via accumulateCategoryHours) stay reflected in the store.
   store.categories = categories;
 
+  // Now that categories are the live, store-backed array, baseline the growth
+  // stages: pre-existing hours must not fire a milestone toast the first time
+  // this feature runs.
+  baselineGrowthStages();
+
   // Make the view arrays live over the store for the active day. If the store
   // already has this day (normal same-day boot), the store wins; otherwise (e.g.
   // a fresh new-day state with _carryover) keep the loaded data and let the
@@ -891,6 +1252,8 @@
   const sidebarCategoriesEl = document.getElementById('sidebar-categories');
   const sidebarCatDots = document.getElementById('sidebar-cat-dots');
   const addCategoryBtn = document.getElementById('add-category-btn');
+  const sidebarScrim = document.getElementById('sidebar-scrim');
+  const sidebarFab = document.getElementById('sidebar-fab');
 
   // =========================================================
   // CLOCK
@@ -910,19 +1273,64 @@
   // =========================================================
   // SIDEBAR
   // =========================================================
-  function initSidebar() {
-    if (sidebarCollapsed) lifeSidebar.classList.add('collapsed');
-    else document.getElementById('main-content').classList.add('sidebar-open');
+  // Below this width the sidebar is a drawer over the content, not a column
+  // beside it. Must match the max-width in style.css's mobile block.
+  const MOBILE_BREAKPOINT = 800;
+  function isMobileLayout() {
+    return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+  }
+
+  // Single path for every way the sidebar opens or closes, so the drawer's
+  // scrim, the FAB's state, and the growth toast can never drift apart.
+  // `persist: false` for mobile drawer toggles — a drawer opened on a phone
+  // shouldn't decide how the sidebar sits next time on a desktop.
+  function setSidebarOpen(open, { persist = true } = {}) {
+    sidebarCollapsed = !open;
+    lifeSidebar.classList.toggle('collapsed', sidebarCollapsed);
+    document.getElementById('main-content').classList.toggle('sidebar-open', open);
+    if (sidebarScrim) sidebarScrim.hidden = !(open && isMobileLayout());
+    if (sidebarFab) sidebarFab.setAttribute('aria-expanded', String(open));
+    if (persist) storageSet(SIDEBAR_KEY, open ? 'open' : 'collapsed');
+    // Opening is what surfaces a pending growth toast; closing must clear it.
     renderSidebar();
+  }
+
+  function initSidebar() {
+    // On a phone the sidebar always starts closed: it covers the content, so
+    // restoring a saved "open" would bury the app behind a drawer on load.
+    if (isMobileLayout()) sidebarCollapsed = true;
+    setSidebarOpen(!sidebarCollapsed, { persist: false });
 
     if (sidebarExpandBtn) {
       sidebarExpandBtn.addEventListener('click', () => {
-        sidebarCollapsed = !sidebarCollapsed;
-        lifeSidebar.classList.toggle('collapsed', sidebarCollapsed);
-        document.getElementById('main-content').classList.toggle('sidebar-open', !sidebarCollapsed);
-        storageSet(SIDEBAR_KEY, sidebarCollapsed ? 'collapsed' : 'open');
+        setSidebarOpen(sidebarCollapsed, { persist: !isMobileLayout() });
       });
     }
+
+    // ── Mobile drawer ──
+    if (sidebarFab) {
+      sidebarFab.addEventListener('click', () => setSidebarOpen(true, { persist: false }));
+    }
+    if (sidebarScrim) {
+      sidebarScrim.addEventListener('click', () => setSidebarOpen(false, { persist: false }));
+    }
+    if (sidebarCloseBtn) {
+      sidebarCloseBtn.addEventListener('click', () => setSidebarOpen(false, { persist: false }));
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      // Modals own Escape while they're up.
+      if (isModalOpen() || isFocusFullscreenOpen()) return;
+      if (isMobileLayout() && !sidebarCollapsed) setSidebarOpen(false, { persist: false });
+    });
+
+    // Crossing the breakpoint (rotation, resize) leaves the drawer's scrim
+    // stranded over a desktop layout — close it and start clean.
+    window.addEventListener('resize', () => {
+      const mobile = isMobileLayout();
+      if (mobile && !sidebarCollapsed) setSidebarOpen(false, { persist: false });
+      if (!mobile && sidebarScrim) sidebarScrim.hidden = true;
+    });
 
     addCategoryBtn.addEventListener('click', () => openNewCategoryModal(null));
   }
@@ -931,6 +1339,36 @@
     if (!sidebarCategoriesEl) return;
     sidebarCategoriesEl.innerHTML = '';
     if (sidebarCatDots) sidebarCatDots.innerHTML = '';
+
+    // ── Growth milestone toast ──
+    // Only while the panel is actually open: collapsing the sidebar takes the
+    // toast with it, and the milestone waits (unacknowledged) for the next
+    // time the user looks. Shown once, then marked seen.
+    const milestones = sidebarCollapsed ? [] : pendingGrowthMilestones();
+    if (milestones.length > 0) {
+      const toast = document.createElement('div');
+      toast.className = 'sidebar-growth-toast';
+      const first = milestones[0];
+      const art = document.createElement('span');
+      art.className = 'sidebar-growth-toast-art';
+      art.textContent = first.stage.art;
+      const text = document.createElement('div');
+      text.className = 'sidebar-growth-toast-text';
+      if (milestones.length === 1) {
+        const days = first.stage.daysDone;
+        text.innerHTML =
+          `<strong></strong> reached ${days} full ${days === 1 ? 'day' : 'days'} invested.`;
+        text.querySelector('strong').textContent = first.cat.name;
+      } else {
+        text.textContent = `${milestones.length} life areas grew a stage.`;
+      }
+      toast.append(art, text);
+      sidebarCategoriesEl.appendChild(toast);
+    }
+    // Plants that advanced in this render get the pop. Acknowledge immediately
+    // (not on a later frame) so a re-render can't show the same toast twice.
+    const justGrew = new Set(milestones.map(m => m.cat.id));
+    acknowledgeGrowthMilestones(milestones);
 
     // Count active, completed, and backlogged goals per category today
     const todayActive = {};
@@ -954,9 +1392,6 @@
 
     const liveCats = activeCategories();
     const archivedCats = categories.filter(c => c.archived && !c.deleted);
-
-    const MAX_SCALE_HOURS = 40;
-    const maxHours = Math.max(...liveCats.map(c => c.totalHours || 0), MAX_SCALE_HOURS);
 
     // Split into today's focus vs the rest (rest sorted by totalHours asc)
     const focusIds = new Set(state.focusCategoryIds || []);
@@ -993,6 +1428,26 @@
       nameEl.className = 'sidebar-cat-name';
       nameEl.textContent = cat.name;
 
+      // Growth marker: the plant, plus a ×N count once past the last art stage
+      // so long-running areas keep visibly climbing.
+      const stage = getGrowthStage(cat.totalHours);
+      const growthEl = document.createElement('span');
+      growthEl.className = 'sidebar-cat-growth'
+        + (stage.daysDone === 0 ? ' sidebar-cat-growth-empty' : '');
+      growthEl.textContent = stage.art;
+      if (justGrew.has(cat.id)) growthEl.classList.add('sidebar-cat-growth-new');
+      growthEl.title = stage.daysDone === 0
+        ? `${formatHours(cat.totalHours || 0, '0m')} invested — 24h grows a seedling`
+        : `${stage.label} · ${stage.daysDone} full ${stage.daysDone === 1 ? 'day' : 'days'} invested`;
+      // Once the art tops out, the ×N count is the only thing still moving —
+      // show it from the final stage on, not just past it.
+      if (stage.isMaxArt) {
+        const mult = document.createElement('span');
+        mult.className = 'sidebar-cat-growth-mult';
+        mult.textContent = `×${stage.daysDone}`;
+        growthEl.appendChild(mult);
+      }
+
       const hoursEl = document.createElement('span');
       hoursEl.className = 'sidebar-cat-hours';
       const todayH = todayHours[cat.id] || 0;
@@ -1014,7 +1469,7 @@
         openCatInlineEdit(cat, card, top, editBtn);
       });
 
-      top.append(emojiEl, nameEl, hoursEl);
+      top.append(emojiEl, nameEl, growthEl, hoursEl);
 
       const completed = todayCompleted[cat.id] || 0;
       if (completed > 0) {
@@ -1025,12 +1480,20 @@
       }
       top.appendChild(editBtn);
 
+      // The bar now tracks the climb to the next growth stage (0→24h) rather
+      // than this category's size against the others — absolute progress that
+      // can't shrink when a different area pulls ahead. Relative standing is
+      // carried by the stage art instead.
+      const growth = getGrowthStage(cat.totalHours);
       const barContainer = document.createElement('div');
       barContainer.className = 'sidebar-cat-bar-container';
+      barContainer.title = growth.isMaxArt
+        ? `${growth.daysDone} full days invested`
+        : `${formatHours(growth.intoStage, '0m')} into this stage — ${formatHours(growth.hoursToNext, '0m')} to ${GROWTH_STAGES[growth.daysDone + 1].label}`;
       const bar = document.createElement('div');
       bar.className = 'sidebar-cat-bar';
       bar.style.background = `linear-gradient(90deg, ${cat.color}cc, ${cat.color}88)`;
-      bar.style.width = Math.min(100, ((cat.totalHours || 0) / maxHours) * 100) + '%';
+      bar.style.width = growth.pctToNext + '%';
       barContainer.appendChild(bar);
 
       const active = todayActive[cat.id] || 0;
@@ -1073,7 +1536,50 @@
               const nameSpan = document.createElement('span');
               nameSpan.className = 'sidebar-backlog-item-name';
               nameSpan.textContent = item.name;
-              row.append(handle, nameSpan);
+
+              // Explicit buttons beside the drag handle — dragging to Top 5 is
+              // invisible unless you already know it's there.
+              const rowActions = document.createElement('span');
+              rowActions.className = 'sidebar-detail-actions';
+
+              const topFull = getActiveGoals().length >= MAX_GOALS;
+              const upBtn = document.createElement('button');
+              upBtn.className = 'sidebar-detail-promote';
+              upBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,106.34l-96-96a8,8,0,0,0-11.32,0l-96,96a8,8,0,0,0,11.32,11.32L120,29.31V216a8,8,0,0,0,16,0V29.31l82.34,88.35a8,8,0,0,0,11.32-11.32Z"/></svg>';
+              upBtn.disabled = topFull;
+              upBtn.title = topFull
+                ? `Top 5 is full (${MAX_GOALS} tasks) — finish or demote one first`
+                : 'Move to Top 5';
+              upBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                if (getActiveGoals().length >= MAX_GOALS) return;
+                const i = backlog.indexOf(item);
+                if (i === -1) return;
+                state.goals.push({
+                  name: item.name, hours: item.hours || 0, progress: item.progress || 0,
+                  category: item.category || null, repeatable: item.repeatable || false,
+                  fromBacklog: true,
+                });
+                backlog.splice(i, 1);
+                saveState(); saveBacklog(); render(); renderSidebar();
+                if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
+              });
+
+              const delBtn = document.createElement('button');
+              delBtn.className = 'sidebar-detail-delete';
+              delBtn.textContent = '×';
+              delBtn.title = 'Delete';
+              delBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                const i = backlog.indexOf(item);
+                if (i === -1) return;
+                undoStack.push({ type: 'backlog', item: backlog[i], index: i });
+                backlog.splice(i, 1);
+                saveBacklog(); renderBacklog(); renderSidebar();
+              });
+
+              rowActions.append(upBtn, delBtn);
+              row.append(handle, nameSpan, rowActions);
               setupSidebarBacklogDrag(row, item);
             } else {
               row.textContent = item.name;
@@ -2136,6 +2642,44 @@
     try { const r = storageGet(HISTORY_KEY); return r ? JSON.parse(r) : []; } catch (e) { return []; }
   }
 
+  // Did anything actually happen on this day? Used to tell a real working day
+  // apart from one where the app was merely opened (which still gets saved and
+  // archived, and would otherwise masquerade as "the previous day").
+  function dayHasWork(d) {
+    if (!d) return false;
+    const goals = d.goals || [];
+    return goals.some(g => (g.hours || 0) > 0 || (g.progress || 0) > 0) ||
+           (d.quickDone || []).length > 0 ||
+           (d.distractions || []).some(x => (x.hours || 0) > 0) ||
+           (d.successes || []).length > 0;
+  }
+
+  // The summary modal should reflect the last day you actually WORKED, not
+  // simply the last day the app was open. Skipping days (or opening the app
+  // and doing nothing) leaves empty days in between; walk back through history
+  // to find the most recent real one, falling back to `fallback` when there is
+  // no such day. Returns { day, gapDays, idleDays }.
+  function findLastActiveDay(fallback) {
+    const today = getTodayString();
+    const candidates = loadHistory().filter(d => d && d.date && d.date < today);
+    if (fallback && fallback.date && !candidates.find(d => d.date === fallback.date)) {
+      candidates.push(fallback);
+    }
+    candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    const active = candidates.filter(dayHasWork);
+    const day = active.length ? active[active.length - 1] : fallback;
+    if (!day || !day.date) return { day: fallback, gapDays: 0, idleDays: 0 };
+
+    const dayMs = 1000 * 60 * 60 * 24;
+    const gapDays = Math.round(
+      (new Date(today + 'T12:00:00') - new Date(day.date + 'T12:00:00')) / dayMs
+    );
+    // Days between that last active day and today where nothing was logged.
+    const idleDays = Math.max(0, gapDays - 1);
+    return { day, gapDays, idleDays };
+  }
+
   function saveState() {
     // Sync today's goals/distractions/quickDone views back into the store
     // (source of truth), then persist both. Legacy key is still written so the
@@ -2149,6 +2693,39 @@
   // =========================================================
   // CARRYOVER
   // =========================================================
+
+  // Nothing unfinished may be silently discarded. Every path that clears
+  // `_carryover` routes through here first: anything not already live in
+  // Top 5 lands in the backlog, so a task survives until the user
+  // deliberately deletes it. Returns the number of tasks rescued.
+  //
+  // Note this is deliberately NOT filtered by today's focus categories —
+  // the focus picker decides what gets pre-loaded into Top 5, not what is
+  // allowed to survive the day.
+  function rescueCarryoverToBacklog() {
+    const leftovers = state._carryover || [];
+    if (leftovers.length === 0) { delete state._carryover; return 0; }
+    let rescued = 0;
+    leftovers.forEach(g => {
+      if (!g || !g.name) return;
+      // Already carried into today's Top 5 — nothing to rescue.
+      if (state.goals.find(eg => eg.name === g.name)) return;
+      // Already sitting in the backlog — don't duplicate it.
+      if (backlog.find(b => b.name === g.name)) return;
+      backlog.push({
+        name: g.name,
+        category: g.category || null,
+        repeatable: g.repeatable || false,
+        hours: g.hours || 0,
+        progress: g.progress || 0,
+      });
+      rescued++;
+    });
+    delete state._carryover;
+    if (rescued > 0) saveBacklog();
+    return rescued;
+  }
+
   function showCarryoverIfNeeded() {
     if (!state._carryover || state._carryover.length === 0) {
       if (carryoverBanner) carryoverBanner.classList.add('hidden');
@@ -2169,15 +2746,17 @@
       if (state.goals.length < MAX_GOALS)
         state.goals.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0, category: g.category || null, repeatable: g.repeatable || false });
     });
-    delete state._carryover;
+    rescueCarryoverToBacklog();
     saveState();
     carryoverBanner.classList.add('hidden');
     render();
   });
 
   if (carryoverDismiss) carryoverDismiss.addEventListener('click', () => {
-    delete state._carryover;
+    rescueCarryoverToBacklog();
+    saveState();
     carryoverBanner.classList.add('hidden');
+    render();
   });
 
   if (storageWarning && !storageAvailable) storageWarning.classList.remove('hidden');
@@ -2305,7 +2884,10 @@
     demoteBtn.title = 'Move to backlog';
     demoteBtn.addEventListener('click', () => {
       const g = state.goals[index];
-      backlog.push({ name: g.name, category: g.category || null, repeatable: g.repeatable || false });
+      backlog.push({
+        name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+        hours: g.hours || 0, progress: g.progress || 0,
+      });
       state.goals.splice(index, 1);
       saveState(); saveBacklog(); render(); renderSidebar();
     });
@@ -2488,7 +3070,9 @@
     const updateHoursDisplay = () => {
       const h = state.goals[index] ? (state.goals[index].hours || 0) : (goal.hours || 0);
       if (hoursDisplay.querySelector('input')) return;
-      hoursDisplay.textContent = h === 0 ? '+ hrs' : `${formatHours(h)} today`;
+      // Reads as the existing total, distinct from the ring below it (which
+      // is only what's about to be added).
+      hoursDisplay.textContent = h === 0 ? 'Nothing logged yet' : `${formatHours(h)} logged today`;
       hoursDisplay.classList.toggle('goal-hours-pill--empty', h === 0);
     };
     updateHoursDisplay();
@@ -2510,7 +3094,10 @@
       render: updateHoursDisplay,
     });
 
-    // Quick time chips
+    // ── Time to add ──
+    // Staged, not live: the ring counts only what this visit is about to log
+    // and starts at zero. Nothing reaches the task until "Add" is pressed, so
+    // dismissing the modal adds nothing.
     const chipsSection = document.createElement('div');
     chipsSection.className = 'focus-modal-chips-section';
 
@@ -2518,41 +3105,73 @@
     chipsLabel.className = 'focus-modal-chips-label';
     chipsLabel.textContent = 'Log time on this task';
 
-    const chips = makeTimeAddPills(addedHours => {
+    // Declared before the ring: constructing it paints once, which fires
+    // onChange before this button would otherwise exist.
+    let addBtn = null;
+    const ring = makeTimeAddRing({
+      onChange: pending => {
+        if (!addBtn) return;
+        addBtn.disabled = pending <= 0;
+        addBtn.textContent = pending > 0 ? `Add ${formatHours(pending, '0m')}` : 'Add time';
+      },
+    });
+
+    chipsSection.append(chipsLabel, ring.el);
+
+    // Divider
+    const divider = document.createElement('div');
+    divider.className = 'focus-modal-divider';
+
+    // Commits the staged time onto the task. Shared by the Add button and by
+    // entering focus mode, so staged time is never silently dropped.
+    function commitPendingTime() {
+      const pending = ring.getHours();
+      if (pending <= 0) return 0;
       const prev = state.goals[index].hours || 0;
-      const next = Math.min(24, prev + addedHours);
+      const next = Math.min(24, prev + pending);
       const delta = next - prev;
       state.goals[index].hours = Math.round(next * 100) / 100;
       saveState();
       accumulateCategoryHours(state.goals[index].category || 'general', delta);
       renderSummary();
       updateHoursDisplay();
-      // Sync the hours pill on the card without a full re-render
       const cardPill = goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
       if (cardPill && !cardPill.querySelector('input')) {
         const h = state.goals[index].hours || 0;
         cardPill.textContent = formatHours(h);
         cardPill.classList.toggle('goal-hours-pill--empty', h === 0);
       }
-    });
+      ring.reset();
+      return delta;
+    }
 
-    chipsSection.append(chipsLabel, chips);
+    const actions = document.createElement('div');
+    actions.className = 'focus-modal-actions';
 
-    // Divider
-    const divider = document.createElement('div');
-    divider.className = 'focus-modal-divider';
-
-    // Focus mode button
     const focusModeBtn = document.createElement('button');
-    focusModeBtn.className = 'focus-enter-btn';
-    focusModeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg> Enter Focus Mode';
+    focusModeBtn.className = 'focus-enter-btn focus-enter-btn--secondary';
+    focusModeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg> Focus Mode';
     focusModeBtn.addEventListener('click', () => {
+      // Don't discard staged time just because they chose to focus instead.
+      commitPendingTime();
       overlay.remove();
       activeFocusOverlay = null;
       openFullFocusMode(goal, index, catColor, catEmoji, cat);
     });
 
-    modal.append(header, taskName, hoursDisplay, chipsSection, divider, focusModeBtn);
+    addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-primary focus-add-time-btn';
+    addBtn.textContent = 'Add time';
+    addBtn.disabled = true;
+    addBtn.addEventListener('click', () => {
+      commitPendingTime();
+      overlay.remove();
+      activeFocusOverlay = null;
+    });
+
+    actions.append(focusModeBtn, addBtn);
+
+    modal.append(header, taskName, hoursDisplay, chipsSection, divider, actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
@@ -2667,12 +3286,18 @@
       return grid;
     }
 
-    function makeCloseBtn() {
+    // `teardown` lets a screen clean up its own timers before the overlay
+    // goes away. Only the ambient screen has any (clock/idle/breathe); without
+    // it those intervals outlive the closed session forever.
+    function makeCloseBtn(teardown) {
       const btn = document.createElement('button');
       btn.className = 'focus-fullscreen-close';
       btn.title = 'Close focus mode';
       btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-      btn.addEventListener('click', () => { clearSnapshot(); overlay.remove(); activeFocusOverlay = null; });
+      btn.addEventListener('click', () => {
+        if (teardown) teardown();
+        clearSnapshot(); overlay.remove(); activeFocusOverlay = null;
+      });
       return btn;
     }
 
@@ -2776,7 +3401,9 @@
       screen.className = 'focus-ambient-screen';
       screen.style.setProperty('--cat-color', catColor);
 
-      const closeBtn = makeCloseBtn();
+      // Wrapped in an arrow fn: stopAmbientIntervals is hoisted but its
+      // interval handles aren't assigned until further down this function.
+      const closeBtn = makeCloseBtn(() => stopAmbientIntervals());
       closeBtn.classList.add('focus-ambient-close');
       screen.appendChild(closeBtn);
 
@@ -3825,9 +4452,12 @@
   // The backlog card only shows items from today's focus categories (picked in
   // the day-start modal). With no focus set (e.g. modal skipped) it shows all.
   // Hidden items stay reachable via the sidebar category expansions.
+  // General is the backlog's inbox — items land there before they're filed into
+  // a life area, so today's focus filter must never hide them.
   function isBacklogItemVisible(item) {
     const focusIds = state.focusCategoryIds || [];
-    return focusIds.length === 0 || focusIds.includes(item.category || 'general');
+    const cat = item.category || 'general';
+    return cat === 'general' || focusIds.length === 0 || focusIds.includes(cat);
   }
 
   // Map a slot among the *visible* backlog rows to an index in the full
@@ -3898,7 +4528,7 @@
       promoteBtn.title = 'Move to active goals';
       promoteBtn.addEventListener('click', () => {
         if (getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: item.name, hours: 0, progress: 0, fromBacklog: true, category: item.category || null });
+        state.goals.push({ name: item.name, hours: item.hours || 0, progress: item.progress || 0, fromBacklog: true, category: item.category || null, repeatable: item.repeatable || false });
         backlog.splice(index, 1);
         saveState(); saveBacklog(); render();
         if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
@@ -3924,7 +4554,10 @@
     if (!backlogInputEl) return;
     const n = backlogInputEl.value.trim();
     if (!n) return;
-    backlog.push({ name: n });
+    // Stamp 'general' explicitly: an undefined category defaults to General in
+    // isBacklogItemVisible, and General items are always shown, so a freshly
+    // typed task can never be filtered out of the card the instant it's added.
+    backlog.push({ name: n, category: 'general' });
     backlogInputEl.value = '';
     saveBacklog(); renderBacklog();
   }
@@ -4672,7 +5305,10 @@
         // ── Drop onto backlog ──
         const g = state.goals[goalIndex];
         if (g) {
-          const newItem = { name: g.name, category: g.category || null, repeatable: g.repeatable || false };
+          const newItem = {
+            name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+            hours: g.hours || 0, progress: g.progress || 0,
+          };
           const slot = activeDrag.crossSlot >= 0 ? backlogVisibleSlotToIndex(activeDrag.crossSlot) : backlog.length;
           backlog.splice(Math.min(slot, backlog.length), 0, newItem);
           state.goals.splice(goalIndex, 1);
@@ -4737,6 +5373,9 @@
   // =========================================================
   function setupSidebarBacklogDrag(dragEl, backlogItem) {
     dragEl.addEventListener('pointerdown', e => {
+      // The row's own buttons must stay clickable: capturing the pointer here
+      // would swallow their click entirely.
+      if (e.target.closest('.sidebar-detail-actions')) return;
       e.preventDefault();
       e.stopPropagation();
       dragEl.setPointerCapture(e.pointerId);
@@ -4838,7 +5477,7 @@
             const activeGoals = getActiveGoals();
             const clampedSlot = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
             // Find the real state.goals index to insert before
-            const newGoal = { name: backlogItem.name, hours: 0, progress: 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
+            const newGoal = { name: backlogItem.name, hours: backlogItem.hours || 0, progress: backlogItem.progress || 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
             if (clampedSlot >= activeGoals.length) {
               // Append after last active goal — find the real index of the last active goal
               const lastActive = activeGoals[activeGoals.length - 1];
@@ -4948,7 +5587,7 @@
             backlog.splice(index, 1);
             const activeGoals = getActiveGoals();
             const clamped = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
-            const newGoal = { name: item.name, hours: 0, progress: 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
+            const newGoal = { name: item.name, hours: item.hours || 0, progress: item.progress || 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
             if (clamped >= activeGoals.length) {
               const last = activeGoals[activeGoals.length - 1];
               state.goals.splice(last ? state.goals.indexOf(last) + 1 : state.goals.length, 0, newGoal);
@@ -5297,10 +5936,18 @@
   function isModalOpen() {
     return !!document.querySelector('body > .modal-overlay');
   }
+  function isFocusFullscreenOpen() {
+    return !!document.querySelector('body > .focus-fullscreen-overlay');
+  }
   new MutationObserver(() => {
     // Class goes on <html>: overflow:hidden on body alone doesn't reliably
     // stop viewport wheel scrolling in Chromium.
     document.documentElement.classList.toggle('modal-open', isModalOpen());
+    // Focus fullscreen hides the blob layer and pauses its drift loop.
+    // Driven from here so every overlay.remove() path is covered for free.
+    const focusOpen = isFocusFullscreenOpen();
+    document.documentElement.classList.toggle('focus-fullscreen-open', focusOpen);
+    if (window.DayByDayBlobs) window.DayByDayBlobs.setOccluded(focusOpen);
   }).observe(document.body, { childList: true });
 
   // =========================================================
@@ -5349,7 +5996,9 @@
         saveState(); renderJournal();
       } else if (type === 'backlog') {
         backlog.splice(Math.min(index, backlog.length), 0, item);
-        saveBacklog(); renderBacklog();
+        // Sidebar too: backlog items are also listed under their life area,
+        // and deleting from there is now possible.
+        saveBacklog(); renderBacklog(); renderSidebar();
       } else if (type === 'quickDone') {
         state.quickDone.splice(Math.min(index, state.quickDone.length), 0, item);
         saveState(); renderDone();
@@ -5413,14 +6062,23 @@
     const dateLabel = prevDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     const today = new Date(getTodayString() + 'T12:00:00');
     const dayGap = Math.round((today - prevDate) / (1000 * 60 * 60 * 24));
+    const missedDays = Math.max(0, dayGap - 1);
     const greeting = dayGap === 1 ? 'Good morning.' : `Welcome back.`;
     const subline = dayGap === 1
       ? `Here's how ${dateLabel} went`
-      : `Last session: ${dateLabel}`;
+      : `Here's how ${dateLabel} went — your last day of work`;
     header.innerHTML = `
       <div class="day-modal-greeting">${greeting}</div>
       <div class="day-modal-date">${subline}</div>
     `;
+    if (missedDays > 0) {
+      const gapNote = document.createElement('div');
+      gapNote.className = 'day-modal-gap-note';
+      gapNote.textContent = missedDays === 1
+        ? 'That was a day ago. One day away — the thread is still here.'
+        : `That was ${missedDays} days ago. ${missedDays} days away, and today is still yours to use.`;
+      header.appendChild(gapNote);
+    }
 
     // ── Yesterday's summary ──
     const summary = document.createElement('div');
@@ -5474,6 +6132,24 @@
     const insights = document.createElement('div');
     insights.className = 'day-modal-insights';
 
+    // Returning after a gap — a reflective nudge, never a scolding.
+    // Burkeman's point: you can't do everything, so the missed days aren't a
+    // debt to repay. Pick a few things today and let the rest go.
+    if (missedDays > 0) {
+      const RETURN_NOTES = [
+        'Missing days isn\'t falling behind — there was never a schedule to fall behind on. There\'s only what you choose to do with today.',
+        'You can\'t do everything, and the days away don\'t change that. Pick two or three things that matter and let the rest go.',
+        'Nothing needs making up for. A finite day holds only a few things well — choose those, and count today a good one.',
+        'The backlog will always outgrow the time. That\'s not failure, it\'s arithmetic. Choose a little, do it properly.',
+      ];
+      // Stable per-day pick, so reopening the modal doesn't reshuffle the text.
+      const seed = getTodayString().split('-').reduce((s, n) => s + parseInt(n, 10), 0);
+      const note = document.createElement('div');
+      note.className = 'day-modal-insight-row day-modal-return-note';
+      note.innerHTML = `<strong>Good luck today.</strong> ${RETURN_NOTES[seed % RETURN_NOTES.length]}`;
+      insights.appendChild(note);
+    }
+
     // Find lagging categories (have totalHours < average, and not zero because new)
     const activeCats = activeCategories().filter(c => (c.totalHours || 0) > 0 || backlog.some(b => (b.category || 'general') === c.id));
     if (activeCats.length > 1) {
@@ -5522,6 +6198,7 @@
           btn.classList.add('selected');
         }
         updateRepeatableChecklist();
+        updateBacklogWaiting();
       });
       catGrid.appendChild(btn);
     });
@@ -5614,16 +6291,109 @@
 
     updateRepeatableChecklist();
 
+    // ── Leftover tasks ──
+    // Show what was actually left unfinished, by name, so the carryover is
+    // visible rather than implied. Nothing here is lost: whatever isn't
+    // pre-loaded into Top 5 lands in the backlog.
+    const leftovers = (state._carryover || []).filter(g => g && g.name);
+    let leftoverSection = null;
+    if (leftovers.length > 0) {
+      leftoverSection = document.createElement('div');
+      leftoverSection.className = 'day-modal-leftover-section';
+
+      const leftoverLabel = document.createElement('div');
+      leftoverLabel.className = 'day-modal-section-label';
+      leftoverLabel.textContent = leftovers.length === 1
+        ? 'Left unfinished'
+        : `Left unfinished (${leftovers.length})`;
+      leftoverSection.appendChild(leftoverLabel);
+
+      const leftoverList = document.createElement('div');
+      leftoverList.className = 'day-modal-leftover-list';
+      leftovers.forEach(g => {
+        const cat = getCategoryById(g.category || 'general');
+        const row = document.createElement('div');
+        row.className = 'day-modal-leftover-item';
+        const prog = g.progress || 0;
+        const prevH = g.prevHours || 0;
+        row.innerHTML =
+          `<span class="day-leftover-emoji">${cat.emoji}</span>` +
+          `<span class="day-leftover-name">${g.name}</span>` +
+          (prog > 0 ? `<span class="day-leftover-prog">${prog}%</span>` : '') +
+          (prevH > 0 ? `<span class="day-leftover-hours">${formatHours(prevH, '')}</span>` : '');
+        leftoverList.appendChild(row);
+      });
+      leftoverSection.appendChild(leftoverList);
+
+      const leftoverNote = document.createElement('div');
+      leftoverNote.className = 'day-modal-leftover-note';
+      leftoverNote.textContent = leftovers.length === 1
+        ? 'Not started today? It waits in your backlog — nothing is lost.'
+        : 'Any you don\'t start today wait in your backlog — nothing is lost.';
+      leftoverSection.appendChild(leftoverNote);
+    }
+
+    // ── Waiting in backlog ──
+    // Shelved work is unfinished work too, so the morning view shouldn't
+    // pretend the backlog isn't there. Filtered to today's selected focus
+    // areas (re-rendered on every chip click, like the repeatable checklist)
+    // so it stays a short, relevant nudge rather than a guilt-pile.
+    const waitingSection = document.createElement('div');
+    waitingSection.className = 'day-modal-waiting-section';
+    const waitingLabel = document.createElement('div');
+    waitingLabel.className = 'day-modal-section-label';
+    waitingSection.appendChild(waitingLabel);
+    const waitingList = document.createElement('div');
+    waitingList.className = 'day-modal-waiting-list';
+    waitingSection.appendChild(waitingList);
+
+    function updateBacklogWaiting() {
+      // Skip anything already surfaced above: repeatables have their own
+      // checklist, and leftovers their own list.
+      const shownAbove = new Set(leftovers.map(g => g.name));
+      const items = backlog.filter(b =>
+        b && b.name &&
+        !b.repeatable &&
+        !shownAbove.has(b.name) &&
+        selectedCats.has(b.category || 'general')
+      );
+      waitingList.innerHTML = '';
+      if (items.length === 0) { waitingSection.classList.add('hidden'); return; }
+      waitingSection.classList.remove('hidden');
+      waitingLabel.textContent = items.length === 1
+        ? 'Waiting in backlog'
+        : `Waiting in backlog (${items.length})`;
+      items.forEach(b => {
+        const cat = getCategoryById(b.category || 'general');
+        const row = document.createElement('div');
+        row.className = 'day-modal-waiting-item';
+        const prog = b.progress || 0;
+        const hrs = b.hours || 0;
+        row.innerHTML =
+          `<span class="day-leftover-emoji">${cat.emoji}</span>` +
+          `<span class="day-leftover-name"></span>` +
+          (prog > 0 ? `<span class="day-leftover-prog">${prog}%</span>` : '') +
+          (hrs > 0 ? `<span class="day-leftover-hours">${formatHours(hrs, '')}</span>` : '');
+        row.querySelector('.day-leftover-name').textContent = b.name;
+        waitingList.appendChild(row);
+      });
+    }
+    updateBacklogWaiting();
+
     // ── Actions ──
     const actions = document.createElement('div');
     actions.className = 'day-modal-actions';
 
     const skipBtn = document.createElement('button');
     skipBtn.className = 'btn btn-ghost';
-    skipBtn.textContent = 'Skip, start fresh';
+    skipBtn.textContent = 'Start fresh';
     skipBtn.addEventListener('click', () => {
-      delete state._carryover;
+      // "Start fresh" clears today's board — it must not destroy yesterday's
+      // unfinished work. Everything left over drops into the backlog.
+      rescueCarryoverToBacklog();
       saveState();
+      render();
+      renderSidebar();
       overlay.remove();
     });
 
@@ -5666,7 +6436,9 @@
       // Persist today's focus categories so the sidebar can show them all day
       state.focusCategoryIds = Array.from(selectedCats);
 
-      delete state._carryover;
+      // Anything still unfinished (wrong focus category, or Top 5 was full)
+      // goes to the backlog rather than disappearing.
+      rescueCarryoverToBacklog();
       saveBacklog();
       saveState();
       render();
@@ -5679,7 +6451,12 @@
 
     modal.append(header, summary);
     if (insights.children.length > 0) modal.appendChild(insights);
-    modal.append(focusSection, repeatSection, actions);
+    if (leftoverSection) modal.appendChild(leftoverSection);
+    // Sits *after* the focus picker: its list is filtered by the selected
+    // areas, so it only makes sense once that choice is visible — same
+    // placement logic as the repeatable checklist beside it.
+    modal.append(focusSection, repeatSection, waitingSection);
+    modal.appendChild(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
   }
@@ -5706,7 +6483,10 @@
       saveState();
       render();
       updateClock();
-      showDayTransitionModal(prev);
+      // Same rule as boot: if `prev` was an idle day (tab left open overnight,
+      // nothing logged), summarise the last day that actually had work.
+      const { day: lastActive } = findLastActiveDay(prev);
+      showDayTransitionModal(dayHasWork(prev) ? prev : (lastActive || prev));
     }
   }
   (function scheduleNewDayCheck() {
@@ -5737,13 +6517,13 @@
   restoreCardLayout();
   render();
   if (_prevDayForModal) {
-    const prevDate = new Date(_prevDayForModal.date + 'T12:00:00');
-    const todayDate = new Date(getTodayString() + 'T12:00:00');
-    const gap = Math.round((todayDate - prevDate) / (1000 * 60 * 60 * 24));
-    const hasData = (_prevDayForModal.goals && _prevDayForModal.goals.length > 0) ||
-                    (_prevDayForModal.quickDone && _prevDayForModal.quickDone.length > 0) ||
-                    (_prevDayForModal.successes && _prevDayForModal.successes.length > 0);
-    if (gap === 1 || hasData) showDayTransitionModal(_prevDayForModal);
+    // Show the last day real work happened, not merely the last day the app
+    // was opened — skipped (or idle) days would otherwise summarise as blank.
+    const { day: lastActive, gapDays } = findLastActiveDay(_prevDayForModal);
+    const summaryDay = lastActive || _prevDayForModal;
+    const hasData = dayHasWork(summaryDay) ||
+                    (summaryDay.goals && summaryDay.goals.length > 0);
+    if (gapDays === 1 || hasData) showDayTransitionModal(summaryDay);
     else showCarryoverIfNeeded();
   } else showCarryoverIfNeeded();
   initCardDragHandles();

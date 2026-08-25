@@ -33,7 +33,7 @@ Reorders rows within Top 5 or Distractions list. Item stays in DOM (`position: r
 ## 3. Cross-card drag — `dragType: 'cross'`
 
 **Triggered by:** dragging a Top 5 goal outside its card bounds.
-**Also:** `setupSidebarBacklogDrag` — dragging from sidebar backlog rail into Top 5 (separate implementation, similar pattern).
+**Also:** `setupSidebarBacklogDrag` — dragging from sidebar backlog rail into Top 5 (separate implementation, similar pattern). It bails out when the pointerdown starts inside `.sidebar-detail-actions`, so the row's ↑/× buttons stay clickable — without that guard, `preventDefault()` + `setPointerCapture` on the row swallows their clicks.
 
 ### Flow
 

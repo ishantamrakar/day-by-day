@@ -41,13 +41,14 @@ day-rollover detection in `loadState()`.
 }
 ```
 
-**Backlog** (`daybyday_backlog`): `[{ name, category?, repeatable? }]`
+**Backlog** (`daybyday_backlog`): `[{ name, category?, repeatable?, hours?, progress? }]` — `addBacklogItem()` stamps `category: 'general'` on entry; a missing `category` is also treated as General. General items bypass the focus filter (see [features.md](features.md) § Backlog).
 
 **Categories** (`daybyday_categories`):
 ```js
-[{ id, name, emoji, color, totalHours, vision? }]
+[{ id, name, emoji, color, totalHours, vision?, seenStage? }]
 ```
 - 5 defaults: fitness, career, relationships, chores, general
+- `seenStage` — last growth stage acknowledged by the milestone toast (see [features.md](features.md) § Growth stages). Baselined at boot by `baselineGrowthStages()` so existing hours never toast.
 - Custom ids start with `custom_`
 - `totalHours` is a **running accumulator** — never recomputed from history, only `+= delta` via `accumulateCategoryHours()`. This is intentional for performance; preserve this when porting to a backend.
 
@@ -62,6 +63,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `getCategoryById(id)` — always returns something; falls back to `general`.
 - `accumulateCategoryHours(catId, delta)` — **only place `totalHours` is mutated.** Called on every hours-input change.
 - `createCategoryPill()` — tracks `currentCatId` in closure so picker always shows current value.
+- `makeTimeAddRing({ presets, onChange })` → `{ el, getHours, setHours, reset }` — the reusable staged time picker (ring + preset dial chips). The caller owns the commit, so it drops into anywhere time gets logged. Constants: `TIME_RING_MAX` (12h ceiling per pass), `TIME_RING_STEP` (5-minute drag snap). `makeChipDial(hours)` builds a preset's mini dial. Replaced `makeTimeAddPills`, which applied time live on every tap.
 - `openTaskContextPicker(anchor, catId, repeatable, onConfirm, { showRepeatable })` — the **single** category/context modal for every task-like row. `showRepeatable: false` gives a category-only picker (used by backlog + distractions); default shows the repeatable toggle (Top 5 goals). There is no separate popover picker.
 
 **Shared UI helpers** (added to kill duplication — reuse these, don't reimplement):
@@ -74,11 +76,23 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `loadState()` — detects new day on boot → `archiveDay()` → sets `_prevDayForModal` → builds fresh state with `_carryover`.
 - `checkForNewDay()` — runs every 60s at the minute boundary. Same logic for mid-session day change.
 - `archiveDay()` — pushes snapshot to history (max 30). Does not touch `totalHours`.
+- `dayHasWork(d)` — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
+- Demote/promote preserve `hours` + `progress` both ways, so a shelved task resumes where it left off.
+- `rescueCarryoverToBacklog()` — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
+- `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
 
 **Rendering:**
 - `getActiveGoals()` → `progress < 100`; `getCompletedGoals()` → `progress === 100`
 - Completed goals go to Done Today card, not the goals list. This matters for drag index math — see [drag-drop.md](drag-drop.md).
 - `renderGoals()` iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
+
+**Background blobs (performance-critical — see [design-system.md](design-system.md) § Depth & Glass):**
+- Markup is `.blob-layer > .blob-drift > .blob`. JS owns the wrapper's `transform`; CSS swirl keyframes own the inner blob's. Splitting them keeps `filter: blur(60px)` **static**, so it rasterizes once instead of every frame.
+- `_driftStep(s)` advances one blob's physics; `_writeBlob(i)` writes `translate3d()` to its wrapper. Never write `left`/`top` here — they trigger layout and force a full-screen blur re-raster.
+- `_startDrift()` / `_stopDrift()` are the **only** owners of `_rafId`; the `_rafId !== null` guard in `_startDrift` makes a duplicated (uncancellable) rAF chain impossible. Call these, never `_driftTick()` directly.
+- Three gates stop the loop: `_driftPaused` (swirl playing), `_driftHidden` (`document.hidden` or focus fullscreen open, via `_refreshDriftGate`), and `_reduceMotion` (`prefers-reduced-motion`).
+- Physics runs at `DRIFT_FPS = 24`, not per frame. Per-step constants are scaled by `_STEP_SCALE = 60 / DRIFT_FPS` so motion matches the original 60fps feel — change `DRIFT_FPS` and the scaling follows automatically.
+- `window.DayByDayBlobs.setOccluded(bool)` is called from the body `MutationObserver` when a `.focus-fullscreen-overlay` is added/removed, covering every `overlay.remove()` path without touching them.
 
 **Other:**
 - Clock syncs to minute boundary via `msUntilNextMinute`, no seconds.
@@ -90,6 +104,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 
 ## index.html structure
 
+- `<body>` opens with `#blob-layer`, holding the three `.blob-drift > .blob` pairs, before `#app`
 - `#app` → `<aside id="life-sidebar">` + `<div id="main-content">`
 - Sidebar is `position: fixed` — not in the grid
 - `#main-content` padding-left: `calc(52px + 40px)` → `calc(320px + 40px)` when `.sidebar-open`

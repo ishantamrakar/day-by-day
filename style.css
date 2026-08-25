@@ -88,13 +88,44 @@ html.modal-open body {
   overflow: hidden;
 }
 
-/* Animated background blobs — real divs, all identical base rules */
-.blob {
+/* Animated background blobs — real divs, all identical base rules.
+   Three-layer split so drift and swirl never fight over `transform`:
+     .blob-layer  — fixed full-viewport container, single hide/show switch
+     .blob-drift  — zero-size wrapper; JS writes ONLY translate3d() here
+     .blob        — the painted blob; static blur + CSS swirl transform
+   Because the blur never changes, the blob rasterizes once into a texture
+   and the compositor just moves it. */
+.blob-layer {
   position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* Drift wrapper — never painted, so moving it is one compositor matrix. */
+.blob-drift {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+
+.blob {
+  position: absolute;
+  top: 0;
+  left: 0;
   border-radius: 50%;
   filter: blur(60px);
   pointer-events: none;
-  z-index: 0;
+  /* Resting opacity — swirl keyframes ramp this to 1 for the "brighten"
+     beat that used to be filter: brightness(). */
+  opacity: 0.88;
+  /* Own texture so the static blur is rasterized once, not per frame. */
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 #blob1 {
@@ -136,76 +167,90 @@ html.modal-open body {
 
 /* Blob 1 — starts top-left (~27vw,27vh center), sweeps to screen center then orbits */
 @keyframes blobSwirl1Complete {
-  0%   { transform: translate(0, 0) scale(1);       filter: blur(60px) brightness(1);    }
-  18%  { transform: translate(15vw, 14vh) scale(1.08);  filter: blur(52px) brightness(1.10); }
-  28%  { transform: translate(23vw, 23vh) scale(1.12);  filter: blur(46px) brightness(1.20); }
-  40%  { transform: translate(33vw, 23vh) scale(1.12);  filter: blur(44px) brightness(1.22); }
-  52%  { transform: translate(23vw, 31vh) scale(1.10);  filter: blur(46px) brightness(1.18); }
-  64%  { transform: translate(13vw, 23vh) scale(1.08);  filter: blur(50px) brightness(1.12); }
-  76%  { transform: translate(23vw, 15vh) scale(1.05);  filter: blur(54px) brightness(1.06); }
-  88%  { transform: translate(12vw, 10vh) scale(1.02);  filter: blur(58px) brightness(1.02); }
-  100% { transform: translate(0, 0) scale(1);       filter: blur(60px) brightness(1);    }
+  0%   { transform: translate(0, 0) scale(1);          opacity: 0.88; }
+  18%  { transform: translate(15vw, 14vh) scale(1.08); opacity: 0.94; }
+  28%  { transform: translate(23vw, 23vh) scale(1.12); opacity: 0.99; }
+  40%  { transform: translate(33vw, 23vh) scale(1.12); opacity: 1;    }
+  52%  { transform: translate(23vw, 31vh) scale(1.10); opacity: 0.98; }
+  64%  { transform: translate(13vw, 23vh) scale(1.08); opacity: 0.95; }
+  76%  { transform: translate(23vw, 15vh) scale(1.05); opacity: 0.91; }
+  88%  { transform: translate(12vw, 10vh) scale(1.02); opacity: 0.89; }
+  100% { transform: translate(0, 0) scale(1);          opacity: 0.88; }
 }
 
 /* Blob 2 — starts bottom-right, sweeps to center then orbits 120° offset */
 @keyframes blobSwirl2Complete {
-  0%   { transform: translate(0, 0) scale(1);          filter: blur(60px) brightness(1);    }
-  18%  { transform: translate(-15vw, -17vh) scale(1.08); filter: blur(52px) brightness(1.10); }
-  28%  { transform: translate(-23vw, -28vh) scale(1.12); filter: blur(46px) brightness(1.20); }
-  40%  { transform: translate(-33vw, -28vh) scale(1.12); filter: blur(44px) brightness(1.22); }
-  52%  { transform: translate(-23vw, -20vh) scale(1.10); filter: blur(46px) brightness(1.18); }
-  64%  { transform: translate(-13vw, -28vh) scale(1.08); filter: blur(50px) brightness(1.12); }
-  76%  { transform: translate(-23vw, -36vh) scale(1.05); filter: blur(54px) brightness(1.06); }
-  88%  { transform: translate(-12vw, -18vh) scale(1.02); filter: blur(58px) brightness(1.02); }
-  100% { transform: translate(0, 0) scale(1);          filter: blur(60px) brightness(1);    }
+  0%   { transform: translate(0, 0) scale(1);            opacity: 0.88; }
+  18%  { transform: translate(-15vw, -17vh) scale(1.08); opacity: 0.94; }
+  28%  { transform: translate(-23vw, -28vh) scale(1.12); opacity: 0.99; }
+  40%  { transform: translate(-33vw, -28vh) scale(1.12); opacity: 1;    }
+  52%  { transform: translate(-23vw, -20vh) scale(1.10); opacity: 0.98; }
+  64%  { transform: translate(-13vw, -28vh) scale(1.08); opacity: 0.95; }
+  76%  { transform: translate(-23vw, -36vh) scale(1.05); opacity: 0.91; }
+  88%  { transform: translate(-12vw, -18vh) scale(1.02); opacity: 0.89; }
+  100% { transform: translate(0, 0) scale(1);            opacity: 0.88; }
 }
 
 /* Blob 3 — near center, tight orbit, 240° offset */
 @keyframes blobSwirl3Complete {
-  0%   { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);    }
-  18%  { transform: translate(2vw, -4vh) scale(1.08);  filter: blur(52px) brightness(1.10); }
-  28%  { transform: translate(0, -10vh) scale(1.12);   filter: blur(46px) brightness(1.20); }
-  40%  { transform: translate(-10vw, -4vh) scale(1.12);filter: blur(44px) brightness(1.22); }
-  52%  { transform: translate(0, 4vh) scale(1.10);     filter: blur(46px) brightness(1.18); }
-  64%  { transform: translate(10vw, -4vh) scale(1.08); filter: blur(50px) brightness(1.12); }
-  76%  { transform: translate(0, -10vh) scale(1.05);   filter: blur(54px) brightness(1.06); }
-  88%  { transform: translate(2vw, -4vh) scale(1.02);  filter: blur(58px) brightness(1.02); }
-  100% { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);    }
+  0%   { transform: translate(0, 0) scale(1);           opacity: 0.88; }
+  18%  { transform: translate(2vw, -4vh) scale(1.08);   opacity: 0.94; }
+  28%  { transform: translate(0, -10vh) scale(1.12);    opacity: 0.99; }
+  40%  { transform: translate(-10vw, -4vh) scale(1.12); opacity: 1;    }
+  52%  { transform: translate(0, 4vh) scale(1.10);      opacity: 0.98; }
+  64%  { transform: translate(10vw, -4vh) scale(1.08);  opacity: 0.95; }
+  76%  { transform: translate(0, -10vh) scale(1.05);    opacity: 0.91; }
+  88%  { transform: translate(2vw, -4vh) scale(1.02);   opacity: 0.89; }
+  100% { transform: translate(0, 0) scale(1);           opacity: 0.88; }
 }
 
 /* Add swirl — quick sweep toward center, half-orbit, back */
 @keyframes blobSwirl1Add {
-  0%   { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);   }
-  25%  { transform: translate(16vw, 17vh) scale(1.08); filter: blur(52px) brightness(1.12); }
-  50%  { transform: translate(26vw, 23vh) scale(1.09); filter: blur(50px) brightness(1.14); }
-  75%  { transform: translate(16vw, 30vh) scale(1.05); filter: blur(55px) brightness(1.06); }
-  100% { transform: translate(0, 0) scale(1);        filter: blur(60px) brightness(1);   }
+  0%   { transform: translate(0, 0) scale(1);          opacity: 0.88; }
+  25%  { transform: translate(16vw, 17vh) scale(1.08); opacity: 0.95; }
+  50%  { transform: translate(26vw, 23vh) scale(1.09); opacity: 0.97; }
+  75%  { transform: translate(16vw, 30vh) scale(1.05); opacity: 0.91; }
+  100% { transform: translate(0, 0) scale(1);          opacity: 0.88; }
 }
 @keyframes blobSwirl2Add {
-  0%   { transform: translate(0, 0) scale(1);           filter: blur(60px) brightness(1);   }
-  25%  { transform: translate(-16vw, -16vh) scale(1.08); filter: blur(52px) brightness(1.12); }
-  50%  { transform: translate(-26vw, -23vh) scale(1.09); filter: blur(50px) brightness(1.14); }
-  75%  { transform: translate(-16vw, -30vh) scale(1.05); filter: blur(55px) brightness(1.06); }
-  100% { transform: translate(0, 0) scale(1);           filter: blur(60px) brightness(1);   }
+  0%   { transform: translate(0, 0) scale(1);            opacity: 0.88; }
+  25%  { transform: translate(-16vw, -16vh) scale(1.08); opacity: 0.95; }
+  50%  { transform: translate(-26vw, -23vh) scale(1.09); opacity: 0.97; }
+  75%  { transform: translate(-16vw, -30vh) scale(1.05); opacity: 0.91; }
+  100% { transform: translate(0, 0) scale(1);            opacity: 0.88; }
 }
 @keyframes blobSwirl3Add {
-  0%   { transform: translate(0, 0) scale(1);      filter: blur(60px) brightness(1);   }
-  25%  { transform: translate(0, -6vh) scale(1.08); filter: blur(52px) brightness(1.12); }
-  50%  { transform: translate(-7vw, 0) scale(1.09); filter: blur(50px) brightness(1.14); }
-  75%  { transform: translate(0, 6vh) scale(1.05);  filter: blur(55px) brightness(1.06); }
-  100% { transform: translate(0, 0) scale(1);      filter: blur(60px) brightness(1);   }
+  0%   { transform: translate(0, 0) scale(1);       opacity: 0.88; }
+  25%  { transform: translate(0, -6vh) scale(1.08); opacity: 0.95; }
+  50%  { transform: translate(-7vw, 0) scale(1.09); opacity: 0.97; }
+  75%  { transform: translate(0, 6vh) scale(1.05);  opacity: 0.91; }
+  100% { transform: translate(0, 0) scale(1);       opacity: 0.88; }
 }
 
 /* Applied via data attributes.
    No fill-mode — animation ends, element returns to base (no transform).
-   The ambient drift keyframes also start at translate(var(--bx),var(--by))
-   which equals the fixed rest position + time offset, so handoff is smooth. */
+   The swirl lives on the inner .blob and is a purely relative offset that
+   returns to translate(0,0); the .blob-drift wrapper keeps the absolute
+   position, so drift and swirl compose without any handoff maths. */
 #blob1[data-swirl="complete"] { animation: blobSwirl1Complete 2.2s ease-in-out; }
 #blob2[data-swirl="complete"] { animation: blobSwirl2Complete 2.2s ease-in-out; }
 #blob3[data-swirl="complete"] { animation: blobSwirl3Complete 2.2s ease-in-out; }
 #blob1[data-swirl="add"]      { animation: blobSwirl1Add      1.4s ease-in-out; }
 #blob2[data-swirl="add"]      { animation: blobSwirl2Add      1.4s ease-in-out; }
 #blob3[data-swirl="add"]      { animation: blobSwirl3Add      1.4s ease-in-out; }
+
+/* Focus fullscreen paints an opaque #1e2420 over everything, so the blobs
+   are invisible behind it — take them out of the compositor entirely.
+   visibility (not display) keeps the blurred textures warm, so closing
+   focus mode doesn't re-rasterize three half-viewport blurs. */
+html.focus-fullscreen-open .blob-layer { visibility: hidden; }
+
+/* Reduced motion — blobs stay visible and static; the drift rAF loop is
+   stopped in JS, and event swirls are suppressed here. */
+@media (prefers-reduced-motion: reduce) {
+  #blob1[data-swirl], #blob2[data-swirl], #blob3[data-swirl] { animation: none; }
+  .blob-drift { will-change: auto; }
+}
 
 /* === App Container — Sidebar is fixed overlay, main content takes full width === */
 #app {
@@ -1692,6 +1737,13 @@ footer {
   /* Subtle shadow only when expanded */
 }
 
+/* Mobile drawer chrome — the FAB and its scrim exist only below 800px
+   (see the mobile block); above it the rail is the way in. */
+.sidebar-fab,
+.sidebar-scrim {
+  display: none;
+}
+
 .life-sidebar.collapsed { width: 52px; }
 .life-sidebar:not(.collapsed) {
   width: 320px;
@@ -2065,6 +2117,82 @@ footer {
   flex-shrink: 0;
 }
 
+/* Growth milestone toast — a quiet acknowledgement at the top of the sidebar
+   when an area crosses another 24h. Lives only while the panel is open; it is
+   never a modal or an interruption. */
+.sidebar-growth-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: rgba(45,106,79,0.07);
+  border: 1px solid rgba(45,106,79,0.16);
+  border-radius: 10px;
+  animation: growth-toast-in 0.4s cubic-bezier(0.4,0,0.2,1);
+}
+
+@keyframes growth-toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.sidebar-growth-toast-art {
+  font-size: 1.05rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sidebar-growth-toast-text {
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.sidebar-growth-toast-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Growth marker — the plant that advances one stage per 24h invested. Sits
+   between the name and the hours; quiet by default so it reads as a reward
+   noticed rather than a metric demanded. */
+.sidebar-cat-growth {
+  font-size: 0.8rem;
+  line-height: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Nothing earned yet: the bare-soil dot recedes rather than reading as a
+   zero score. */
+.sidebar-cat-growth-empty {
+  color: var(--text-muted);
+  opacity: 0.35;
+  font-size: 0.7rem;
+}
+
+.sidebar-cat-growth-mult {
+  font-size: 0.56rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Celebrates a freshly crossed stage the first time the sidebar shows it. */
+@keyframes growth-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.sidebar-cat-growth-new {
+  animation: growth-pop 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+
 .sidebar-cat-name {
   font-size: 0.76rem;
   font-weight: 600;
@@ -2202,6 +2330,63 @@ footer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Row actions on sidebar backlog items — an explicit path to Top 5 and delete,
+   since dragging is undiscoverable. Fade in on hover like the drag handle so
+   the rail stays quiet at rest, but remain reachable on touch (no hover). */
+.sidebar-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sidebar-detail-backlog:hover .sidebar-detail-actions,
+.sidebar-detail-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .sidebar-detail-actions { opacity: 0.55; }
+}
+
+.sidebar-detail-promote,
+.sidebar-detail-delete {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-detail-promote:hover:not(:disabled) {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.sidebar-detail-delete {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.sidebar-detail-delete:hover {
+  color: var(--danger, #e63946);
+  background: rgba(230,57,70,0.1);
+}
+
+.sidebar-detail-promote:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 /* Dragging ghost — card style */
@@ -2814,20 +2999,117 @@ footer {
 
 /* === Responsive — stack on narrow screens === */
 @media (max-width: 800px) {
-  #main-content {
-    padding: 16px 20px 16px calc(52px + 20px);
-    transition: padding-left 0.3s cubic-bezier(0.4,0,0.2,1);
-  }
-
+  /* The sidebar stops being furniture on mobile and becomes a drawer.
+     The rail is hidden entirely and content gets the full width back;
+     the FAB opens the panel as an overlay above the page. */
+  #main-content,
   #main-content.sidebar-open {
-    padding-left: calc(280px + 20px);
+    padding: 16px 20px;
   }
 
-  .life-sidebar.collapsed { width: 52px; }
+  .sidebar-rail { display: none; }
+
+  .life-sidebar {
+    width: 300px;
+    max-width: 88vw;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 4px 0 32px rgba(0,0,0,0.18);
+  }
+
+  /* Collapsed is the resting state on mobile: fully off-canvas, and inert
+     so nothing inside it is tabbable or tappable while hidden. */
+  .life-sidebar.collapsed {
+    width: 300px;
+    transform: translateX(-100%);
+    pointer-events: none;
+    visibility: hidden;
+  }
 
   .life-sidebar:not(.collapsed) {
-    width: 280px !important;
-    box-shadow: 4px 0 32px rgba(0,0,0,0.18);
+    width: 300px !important;
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  /* The panel is opacity:0 when .collapsed at desktop widths; on mobile the
+     transform does the hiding, so keep it painted. As a drawer floating over
+     the page it also needs a solid ground — the desktop glass gradient is
+     designed to sit on the app background and turns unreadable here. */
+  .life-sidebar .sidebar-panel {
+    opacity: 1;
+    pointer-events: auto;
+    width: 100%;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg, #eef2ee);
+    backdrop-filter: none;
+    /* Scrolling a long category list must not chain to the page behind. */
+    overscroll-behavior: contain;
+  }
+
+  /* The scrim swallows touch-scroll on the page underneath. */
+  .sidebar-scrim:not([hidden]) {
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  /* Only present while the drawer is open — app.js toggles [hidden]. */
+  .sidebar-scrim:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(20,30,26,0.42);
+    backdrop-filter: blur(2px);
+    animation: sidebar-scrim-in 0.25s ease;
+  }
+
+  @keyframes sidebar-scrim-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* The × inside the panel is the drawer's close affordance on mobile
+     (hidden at desktop widths, where the rail hamburger does the job). */
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    margin: -6px -6px -6px 0;
+    border-radius: 8px;
+  }
+
+  .sidebar-fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    right: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    z-index: 98;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.5);
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(45,106,79,0.34), 0 2px 6px rgba(0,0,0,0.14);
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.18s;
+  }
+
+  .sidebar-fab:active { transform: scale(0.94); }
+
+  /* Out of the way while the drawer is open — the scrim and × take over. */
+  .sidebar-fab[aria-expanded="true"] {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.85);
   }
 
   .two-col {
@@ -2934,6 +3216,21 @@ footer {
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-muted);
+}
+
+/* Gap note — shown when returning after one or more missed days.
+   Deliberately quiet: a statement of fact, never a reprimand. */
+.day-modal-gap-note {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding: 7px 11px;
+  background: rgba(255,159,28,0.07);
+  border: 1px solid rgba(255,159,28,0.18);
+  border-left: 2.5px solid rgba(255,159,28,0.5);
+  border-radius: 9px;
 }
 
 /* Stat pills row */
@@ -3051,6 +3348,98 @@ footer {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid rgba(45,106,79,0.08);
+}
+
+/* Leftover tasks — what was left unfinished, shown by name so the
+   carryover is visible rather than implied. Amber, matching the
+   "attention, not alarm" register used elsewhere. */
+.day-modal-leftover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-modal-leftover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255,159,28,0.06);
+  border: 1px solid rgba(255,159,28,0.18);
+  border-radius: 12px;
+}
+
+.day-modal-leftover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text);
+  padding: 3px 0;
+}
+
+.day-leftover-emoji {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.day-leftover-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-leftover-prog,
+.day-leftover-hours {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* Waiting in backlog — shelved work surfaced in the morning modal. Shares the
+   leftover row structure but sits in a cool neutral rather than the leftover
+   amber: it's a calm reminder of what's parked, not something urgent. */
+.day-modal-waiting-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-modal-waiting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(141,153,174,0.07);
+  border: 1px solid rgba(141,153,174,0.18);
+  border-radius: 12px;
+}
+
+.day-modal-waiting-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  padding: 3px 0;
+}
+
+.day-modal-leftover-note {
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+
+/* Return note — the encouragement shown after a gap. Slightly warmer than
+   the analytical insight rows it sits beside. */
+.day-modal-return-note strong {
+  color: var(--primary);
+  font-weight: 700;
 }
 
 /* Section label */
@@ -3861,6 +4250,235 @@ footer {
   margin-bottom: 10px;
 }
 
+/* ============================================================
+   TIME ADD RING
+   A staged time picker: the ring shows only what this interaction is about
+   to log, starting at zero. One full turn = 1 hour; whole hours collect as
+   pips beneath. Chips feed it, dragging scrubs it either way.
+   ============================================================ */
+.time-ring-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.time-ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-ring-dial {
+  position: relative;
+  width: 128px;
+  height: 128px;
+}
+
+.time-ring-dial--bump {
+  animation: time-ring-bump 0.34s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes time-ring-bump {
+  0%   { transform: scale(1); }
+  38%  { transform: scale(1.055); }
+  100% { transform: scale(1); }
+}
+
+.time-ring {
+  width: 128px;
+  height: 128px;
+  display: block;
+  touch-action: none;          /* dragging the ring must not scroll the modal */
+  cursor: grab;
+}
+
+.time-ring-wrap--dragging .time-ring { cursor: grabbing; }
+
+.time-ring:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+.time-ring-track {
+  fill: none;
+  stroke: rgba(45,106,79,0.12);
+  stroke-width: 10;
+}
+
+.time-ring-fill {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.32s cubic-bezier(0.4,0,0.2,1);
+}
+
+.time-ring-wrap--dragging .time-ring-fill {
+  transition: none;            /* scrubbing must track the finger exactly */
+}
+
+.time-ring-knob {
+  fill: #fff;
+  stroke: var(--primary);
+  stroke-width: 3;
+  transition: opacity 0.2s;
+}
+
+.time-ring-wrap--dragging .time-ring-knob { r: 7; }
+
+/* At zero the knob sits at 12 o'clock as the "you can drag this" cue, so it
+   stays visible — just quieter until there's something staged. */
+.time-ring-wrap--empty .time-ring-knob {
+  stroke: rgba(45,106,79,0.45);
+}
+
+.time-ring-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;        /* the ring beneath owns the drag */
+}
+
+.time-ring-amount {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.time-ring-wrap--empty .time-ring-amount { color: var(--text-muted); }
+
+.time-ring-caption {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* One pip per completed hour — a 3h log shouldn't look like a bare ring. */
+.time-ring-pips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 10px;
+}
+
+.time-ring-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: time-ring-pip-in 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes time-ring-pip-in {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+
+.time-ring-pip-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-left: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Five presets on one row — wrapping orphans the last chip. */
+.time-ring-chips {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+/* Preset chip carrying a mini dial filled to its fraction of an hour. */
+.time-ring-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 10px 6px 7px;
+  white-space: nowrap;
+  border-radius: 20px;
+  border: 1.5px solid rgba(45,106,79,0.22);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.06) 100%),
+    rgba(45,106,79,0.07);
+  color: var(--primary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.time-ring-chip:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.time-chip-dial { flex-shrink: 0; }
+
+.time-chip-dial-track {
+  fill: none;
+  stroke: rgba(45,106,79,0.22);
+  stroke-width: 3;
+}
+
+.time-chip-dial-fill {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* Two-action footer: focus mode (secondary) beside the commit button. */
+.focus-modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.focus-modal-actions .focus-enter-btn--secondary {
+  flex: 1;
+  background: rgba(45,106,79,0.07);
+  color: var(--primary);
+  border-color: rgba(45,106,79,0.22);
+}
+
+.focus-modal-actions .focus-enter-btn--secondary:hover {
+  background: rgba(45,106,79,0.14);
+  border-color: var(--primary);
+}
+
+.focus-add-time-btn {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 13px 20px;
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-add-time-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .time-ring-dial--bump { animation: none; }
+  .time-ring-pip { animation: none; }
+  .time-ring-fill { transition: none; }
+}
+
 .focus-modal-chips {
   display: flex;
   gap: 8px;
@@ -3952,7 +4570,8 @@ footer {
     radial-gradient(ellipse at 25% 45%, rgba(var(--focus-cat-color-rgb, 45,106,79), 0.14) 0%, transparent 60%),
     radial-gradient(ellipse at 78% 65%, rgba(var(--focus-cat-color-rgb, 45,106,79), 0.08) 0%, transparent 50%),
     #1e2420;
-  backdrop-filter: blur(24px) saturate(1.2);
+  /* No backdrop-filter: the #1e2420 base layer is opaque, so blurring the
+     backdrop was invisible work re-run every frame the blobs moved. */
   display: flex;
   align-items: center;
   justify-content: center;

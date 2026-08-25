@@ -16,7 +16,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Deploy is gated on its own copy of the checks rather than trusting that CI
+  # ran: this workflow fires on *any* push to main, including a direct push or
+  # an admin merge that bypassed the PR. Self-contained, so it can't be skipped.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dev tooling
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Full check (lint, html, smoke, regression)
+        run: npm run check:all
+
   deploy:
+    needs: verify          # nothing ships unless the checks above are green
     runs-on: ubuntu-latest
     environment:
       name: github-pages

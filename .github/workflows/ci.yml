@@ -3,8 +3,15 @@ name: CI
 on:
   pull_request:
     branches: [develop, main]
+  # Also on push to main: a direct push or an admin merge must not reach
+  # production unverified.
   push:
-    branches: [develop]
+    branches: [develop, main]
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checks:
@@ -17,8 +24,10 @@ jobs:
           node-version: 20
           cache: npm
 
+      # Strict: a broken or out-of-date lockfile should fail here rather than
+      # be papered over by falling back to `npm install`.
       - name: Install dev tooling
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Lint (ESLint)
         run: npm run lint
@@ -26,8 +35,19 @@ jobs:
       - name: Validate HTML
         run: npm run validate:html
 
-      - name: Install Chromium for smoke test
+      # Chromium is most of this workflow's runtime — cache it between runs.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Smoke test (app boots cleanly)
         run: npm run test:smoke
+
+      - name: Regression suites (data integrity)
+        run: npm run test:regression

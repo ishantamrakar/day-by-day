@@ -718,7 +718,13 @@
     return DEFAULT_CATEGORIES.map(c => ({ ...c }));
   }
 
-  function saveCategories() { storageSet(CATEGORIES_KEY, JSON.stringify(categories)); }
+  // `store.categories` is the same array object, so a category change is
+  // already live in memory — but the *persisted* store would keep a stale copy
+  // until something else happened to save it. Write both.
+  function saveCategories() {
+    storageSet(CATEGORIES_KEY, JSON.stringify(categories));
+    if (typeof store !== 'undefined' && store) saveStore();
+  }
 
   // Existing hours are not a milestone the user just earned. On the first run
   // after this feature ships (and for any category that predates it), baseline

@@ -2,14 +2,16 @@
   "name": "day-by-day",
   "version": "0.9.0",
   "private": true,
-  "description": "Finitude-aware daily focus app. Vanilla JS, no build step — dependencies here are dev tooling only (lint / validate / smoke test).",
+  "description": "Finitude-aware daily focus app. Vanilla JS, no build step \u2014 dependencies here are dev tooling only (lint / validate / smoke test).",
   "type": "module",
   "scripts": {
     "lint": "eslint app.js notifications.js",
     "validate:html": "html-validate index.html",
     "test:smoke": "node scripts/smoke-test.mjs",
     "check": "npm run lint && npm run validate:html && npm run test:smoke",
-    "serve": "python3 -m http.server 8000"
+    "serve": "python3 -m http.server 8000",
+    "test:regression": "node scripts/run-regression.mjs",
+    "check:all": "npm run check && npm run test:regression"
   },
   "devDependencies": {
     "eslint": "^9.17.0",

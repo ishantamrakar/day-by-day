@@ -32,7 +32,7 @@ Everything here pays off even if the product phase never happens.
 2. **JSON export/import** — one button each; exports the unified store verbatim. Doubles as backup against "Clear browsing data" and becomes the account-migration path in Stage 2.
 3. **Retire legacy keys** once the store has a clean month (data-model.md already plans this).
 4. **Split `app.js` into native ES modules** (`store.js`, `focus.js`, `sidebar.js`, `drag.js`, …). `<script type="module">` keeps the no-build-step property. This is the agreed alternative to a framework rewrite.
-5. **Formalize the verification scripts** — the ad-hoc Playwright scripts (idle check, crash recovery, backlog filter, distraction hours) become `scripts/test-*.mjs` wired into `npm run check`, so the safety net exists before outside users do.
+5. ~~**Formalize the verification scripts**~~ — **done 2026-08.** Four data-integrity suites (`scripts/test-*.mjs`) run via `npm run test:regression`, wired into CI and the deploy gate. Scoped to invariants where a regression loses or corrupts data, not UI behaviour. See [dev-workflow.md](dev-workflow.md) § Regression suites. Still open: crash-recovery and idle-check coverage.
 6. **Day-rollover edge cases** — multi-tab open at midnight, timezone changes, laptop-asleep-across-midnight.
 
 **Exit:** G1–G3 all true. **Target window:** through ~Sep 2026, alongside daily use — but gates rule, not the calendar.

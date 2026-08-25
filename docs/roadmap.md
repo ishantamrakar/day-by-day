@@ -4,9 +4,11 @@
 
 ## Known Bugs
 
-- **Cross-card drag broken** — goal→backlog drop unreliable, ghost trail. Full diagnosis in [drag-drop.md](drag-drop.md).
+- **Cross-card drag** — *likely fixed, needs hand-verification.* An automated pass (5 goal→backlog drops at two drag speeds) succeeded 5/5 with no ghost trail and no console errors. Plausibly fixed incidentally by the blob re-raster perf work in PR #7. Left listed until confirmed by hand on the deployed site, since the original report came from real use. Diagnosis kept in [drag-drop.md](drag-drop.md).
 - **Browser notifications** — permission flow works but notifications don't appear in some browsers. In-app nudge is the reliable fallback.
 - **`totalHours` not retroactive** — only reflects hours logged after categories feature was added. No backfill.
+
+**Fixed (2026-08):** `saveCategories()` wrote only the legacy `daybyday_categories` key, never the unified store — so `store.categories[].totalHours` in localStorage stayed stale until some unrelated action happened to call `saveStore()`. In-memory reads were correct (the two share one array), which is why it went unnoticed. Caught by the new `test-hours.mjs` regression suite the day it was written.
 
 **Fixed (2026-07):** the "category hours on carryover" double-count family. Audit found and fixed four accumulator leaks: quick-done hour edits didn't accumulate their delta; changing a quick-done's category left its hours in the old category's total; the focus-session save accumulated uncapped hours when the 24h/day goal cap truncated the gain; and `prevHours` reset each rollover instead of accumulating across multi-day carries. Goal-card hour edits were already correct (delta-based).
 

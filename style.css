@@ -3191,7 +3191,10 @@ footer {
   border-radius: 20px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 24px 64px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,1);
   width: 100%;
-  max-width: 680px;
+  /* Wide enough for the focus grid to breathe (and to hold an intention field
+     per selected area). width:100% + the overlay's padding keeps it safe on
+     phones, so no mobile override is needed. */
+  max-width: 900px;
   max-height: 88vh;
   overflow-y: auto;
   padding: 36px;

@@ -5896,8 +5896,14 @@
           btn.classList.remove('selected');
         } else {
           if (selectedCats.size >= 3) {
-            const first = catGrid.querySelector('.day-modal-cat-btn.selected');
-            if (first) { selectedCats.delete(first.dataset.catId); first.classList.remove('selected'); }
+            // Drop the oldest *pick*, FIFO. A Set preserves insertion order, so
+            // its first value is the earliest selection — querySelector would
+            // instead return whichever selected button sits leftmost in the
+            // grid, which is rarely the one chosen first.
+            const oldestId = selectedCats.values().next().value;
+            selectedCats.delete(oldestId);
+            const oldestBtn = catGrid.querySelector(`.day-modal-cat-btn[data-cat-id="${oldestId}"]`);
+            if (oldestBtn) oldestBtn.classList.remove('selected');
           }
           selectedCats.add(cat.id);
           btn.classList.add('selected');
@@ -6196,9 +6202,14 @@
           btn.classList.remove('selected');
         } else {
           if (selectedCats.size >= 3) {
-            // Deselect oldest selection
-            const first = catGrid.querySelector('.day-modal-cat-btn.selected');
-            if (first) { selectedCats.delete(first.dataset.catId); first.classList.remove('selected'); }
+            // Drop the oldest *pick*, FIFO. A Set preserves insertion order, so
+            // its first value is the earliest selection — querySelector would
+            // instead return whichever selected button sits leftmost in the
+            // grid, which is rarely the one chosen first.
+            const oldestId = selectedCats.values().next().value;
+            selectedCats.delete(oldestId);
+            const oldestBtn = catGrid.querySelector(`.day-modal-cat-btn[data-cat-id="${oldestId}"]`);
+            if (oldestBtn) oldestBtn.classList.remove('selected');
           }
           selectedCats.add(cat.id);
           btn.classList.add('selected');

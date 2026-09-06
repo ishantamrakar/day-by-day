@@ -37,6 +37,8 @@ that section header and is headed for the named file.
 | Storage key names, `STORE_VERSION` | ✅ `js/core/keys.js` |
 | Loading/saving state, categories, history, carryover | ✅ `js/core/state.js` |
 | Store shape, entities, hydrate/sync adapter | ✅ `js/core/store.js` |
+| Which colours the blobs wear | ✅ `js/core/blob-colors.js` |
+| Blob motion, drift, swirl pulses | ✅ `js/ui/blobs.js` |
 | Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
 | Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
 | Day transition modal | `app.js` (§ DAY TRANSITION MODAL) → `js/ui/day-transition.js` |

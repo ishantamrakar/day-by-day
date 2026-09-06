@@ -39,6 +39,8 @@ that section header and is headed for the named file.
 | Store shape, entities, hydrate/sync adapter | ✅ `js/core/store.js` |
 | Which colours the blobs wear | ✅ `js/core/blob-colors.js` |
 | Blob motion, drift, swirl pulses | ✅ `js/ui/blobs.js` |
+| Backup export/import rules | ✅ `js/core/backup.js` |
+| Time-add ring, chip dials, inline hours editor | ✅ `js/ui/time-ring.js` |
 | Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
 | Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
 | Day transition modal | `app.js` (§ DAY TRANSITION MODAL) → `js/ui/day-transition.js` |

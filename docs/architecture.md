@@ -44,8 +44,8 @@ that section header and is headed for the named file.
 | Day transition (morning review) modal | ✅ `js/ui/day-transition.js` |
 | Drag & drop (all three systems) | ✅ `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
 | Focus mode screens (sheet + fullscreen session) | ✅ `js/ui/focus-mode.js` |
+| Sidebar rail/panel, category cards, growth toasts | ✅ `js/ui/sidebar.js` |
 | Overnight session retirement, snapshot read/write | ✅ `js/core/sessions.js` |
-| Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
 `intentionsAllMetToday(state, categories)` and friends never read module state,
@@ -70,7 +70,20 @@ values, because `app.js` reassigns those bindings (rollover replaces `state`;
 a drag would mutate yesterday's array. `js/ui/drag.js` goes further and reads
 through a Proxy, so no destructuring can accidentally capture one.
 
-`npm run check:state-sync` guards the matching hazard in `app.js`: every
+**Init order inside a module matters.** A `configure(ctx)` module has three
+moments it could read injected state, and only one is right: module load is
+too early (`ctx` is not set yet — and a `try/catch` there will hide it), while
+an `initX()` called from boot may be too late if anything renders before it.
+`js/ui/sidebar.js` reads its collapsed preference in `configure()` for exactly
+this reason: reading it in `initSidebar()` let the boot render see the sidebar
+as open and silently consume a pending growth milestone.
+
+`npm run check:configure-tdz` guards a related hazard: a `configure({...})`
+object literal is evaluated where it appears, so passing a `const`/`let`
+declared further down (e.g. one destructured from another module) throws
+"Cannot access X before initialization" at boot. Function declarations hoist
+and are fine; the fix for the rest is a getter. `npm run check:state-sync`
+guards the matching hazard in `app.js`: every
 reassignment of `state`/`backlog` must be followed by `CoreState.setState`/
 `setBacklog`, or js/core keeps a stale object. That check exists because this
 refactor shipped exactly that bug in the "Reset day" path.

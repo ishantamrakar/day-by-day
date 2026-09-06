@@ -8,8 +8,9 @@
     "lint": "eslint app.js notifications.js js",
     "validate:html": "html-validate index.html",
     "check:state-sync": "node scripts/check-state-sync.mjs",
+    "check:configure-tdz": "node scripts/check-configure-tdz.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
-    "check": "npm run lint && npm run check:state-sync && npm run validate:html && npm run test:smoke && npm run test:regression",
+    "check": "npm run lint && npm run check:state-sync && npm run check:configure-tdz && npm run validate:html && npm run test:smoke && npm run test:regression",
     "serve": "python3 -m http.server 8000",
     "test:regression": "node scripts/run-regression.mjs",
     "check:all": "npm run check && npm run test:regression"

@@ -20,35 +20,23 @@ import {
   intentionsAllMetToday as coreIntentionsAllMet,
 } from './js/core/intentions.js';
 import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
+import {
+  STORAGE_KEY, HISTORY_KEY, LAYOUT_KEY, BACKLOG_KEY, CATEGORIES_KEY,
+  SIDEBAR_KEY, FOCUS_SNAPSHOT_KEY, STORE_KEY, KEY_PREFIX,
+} from './js/core/keys.js';
+import * as CoreState from './js/core/state.js';
+import * as CoreStore from './js/core/store.js';
 
 (function () {
   'use strict';
 
   const MAX_GOALS = 5;
   const MAX_DISTRACTIONS = 5;
-  const STORAGE_KEY = 'daybyday_data';
-  const HISTORY_KEY = 'daybyday_history';
-  const LAYOUT_KEY = 'daybyday_layout';
-  const BACKLOG_KEY = 'daybyday_backlog';
-  const CATEGORIES_KEY = 'daybyday_categories';
-  const SIDEBAR_KEY = 'daybyday_sidebar';
-  // In-progress focus session snapshot — lets a crashed/reloaded tab offer
-  // to resume the session instead of silently losing it.
-  const FOCUS_SNAPSHOT_KEY = 'daybyday_focus_session';
-  // Unified store (Phase 3). Built from the legacy keys above by migrateToStore();
-  // legacy keys are kept as a one-version backup so migration is reversible.
-  const STORE_KEY = 'daybyday_store';
-  const STORE_VERSION = 2;
   const RING_CIRCUMFERENCE = 2 * Math.PI * 34;
+  // Storage keys and STORE_VERSION: js/core/keys.js (imported above).
 
   // --- Default categories ---
-  const DEFAULT_CATEGORIES = [
-    { id: 'fitness',       name: 'Fitness',       emoji: '💪', color: '#3a86ff', totalHours: 0 },
-    { id: 'career',        name: 'Career',        emoji: '💼', color: '#2D6A4F', totalHours: 0 },
-    { id: 'relationships', name: 'Relationships', emoji: '❤️', color: '#ff6b9d', totalHours: 0 },
-    { id: 'chores',        name: 'Chores',        emoji: '🧹', color: '#f4a261', totalHours: 0 },
-    { id: 'general',       name: 'General',       emoji: '⚡', color: '#8d99ae', totalHours: 0 },
-  ];
+  const DEFAULT_CATEGORIES = CoreState.DEFAULT_CATEGORIES;
 
   // --- Emoji → color mapping ---
   const EMOJI_COLORS = {
@@ -477,235 +465,39 @@ import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
   // still reads from the legacy state/backlog/categories. Legacy keys are left
   // untouched as a one-version backup, so the migration is reversible.
   // =========================================================
-  let _idSeq = 0;
-  function genId() {
-    return 'e' + Date.now().toString(36) + (_idSeq++).toString(36) + Math.random().toString(36).slice(2, 6);
-  }
-
-  function makeEntity(type, src) {
-    const now = Date.now();
-    const e = {
-      id: genId(),
-      type,
-      name: src.name || '',
-      category: src.category || null,
-      hours: src.hours || 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (type === 'goal') {
-      e.progress = src.progress || 0;
-      e.repeatable = src.repeatable || false;
-      if (src.prevHours != null) e.prevHours = src.prevHours;
-      if (src.fromBacklog) e.fromBacklog = true;
-      if ((src.progress || 0) >= 100) e.completedAt = now;
-    } else if (type === 'backlog') {
-      e.repeatable = src.repeatable || false;
-      // Progress survives a trip through the backlog so a part-done task can be
-      // shelved and resumed where it left off (hours are carried generically).
-      e.progress = src.progress || 0;
-    }
-    return e;
-  }
-
-  // Build the unified store from the legacy localStorage keys. Idempotent:
-  // if a current-version store already exists, returns it untouched.
-  function migrateToStore() {
-    try {
-      const existing = storageGet(STORE_KEY);
-      if (existing) {
-        const parsed = JSON.parse(existing);
-        if (parsed && parsed.version === STORE_VERSION) return parsed;
-      }
-    } catch (e) {}
-
-    const store = {
-      version: STORE_VERSION,
-      entities: {},
-      days: {},
-      backlogIds: [],
-      categories: loadCategories(),
-      sessions: [],
-      journal: {},
-      history: loadHistory(),
-    };
-
-    // Today's state → entities + day membership + sessions + journal.
-    let day = getTodayString();
-    try {
-      const raw = storageGet(STORAGE_KEY);
-      if (raw) {
-        const p = JSON.parse(raw);
-        day = p.date || day;
-        const ids = [];
-        (p.goals || []).forEach(g => { const e = makeEntity('goal', g); store.entities[e.id] = e; ids.push(e.id); });
-        (p.distractions || []).forEach(d => { const e = makeEntity('distraction', d); store.entities[e.id] = e; ids.push(e.id); });
-        (p.quickDone || []).forEach(q => { const e = makeEntity('quickDone', q); store.entities[e.id] = e; ids.push(e.id); });
-        store.days[day] = ids;
-        store.sessions = (p.focusSessions || []).slice();
-        store.journal[day] = { successes: (p.successes || []).slice(), failures: (p.failures || []).slice() };
-      }
-    } catch (e) {}
-
-    // Backlog → backlog entities (day-less).
-    try {
-      (loadBacklog() || []).forEach(item => {
-        const e = makeEntity('backlog', item);
-        store.entities[e.id] = e;
-        store.backlogIds.push(e.id);
-      });
-    } catch (e) {}
-
-    // Layout (card order), if present, preserved verbatim.
-    try {
-      const rawLayout = storageGet(LAYOUT_KEY);
-      if (rawLayout) store.layout = JSON.parse(rawLayout);
-    } catch (e) {}
-
-    storageSet(STORE_KEY, JSON.stringify(store));
-    return store;
-  }
-
-  // ---- Store <-> state adapter (Phase 3) ----
-  // The store is the source of truth; state.goals / state.distractions /
-  // state.quickDone / backlog are live views over it so the existing
-  // rendering/undo/drag code keeps working unchanged. hydrate* builds the view
-  // from the store; sync* writes the view back into the store. Each view object
-  // carries its entity id (_eid) so we reconcile by identity.
-
-  // Project an entity into the plain view shape its array expects, carrying _eid.
-  function entityToView(e) {
-    const v = { _eid: e.id, name: e.name, hours: e.hours || 0, category: e.category || null };
-    if (e.type === 'goal') {
-      v.progress = e.progress || 0;
-      v.repeatable = e.repeatable || false;
-      if (e.prevHours != null) v.prevHours = e.prevHours;
-      if (e.fromBacklog) v.fromBacklog = true;
-    } else if (e.type === 'backlog') {
-      v.repeatable = e.repeatable || false;
-      v.progress = e.progress || 0;
-    }
-    return v;
-  }
-
-  // Copy a view's fields onto its entity (in place).
-  function applyViewToEntity(e, v, type, now) {
-    e.name = v.name;
-    e.hours = v.hours || 0;
-    e.category = v.category || null;
-    if (type === 'goal') {
-      e.progress = v.progress || 0;
-      e.repeatable = v.repeatable || false;
-      if (v.prevHours != null) e.prevHours = v.prevHours; else delete e.prevHours;
-      if (v.fromBacklog) e.fromBacklog = true; else delete e.fromBacklog;
-      if ((v.progress || 0) >= 100) { if (!e.completedAt) e.completedAt = now; } else delete e.completedAt;
-    } else if (type === 'backlog') {
-      e.repeatable = v.repeatable || false;
-      e.progress = v.progress || 0;
-    }
-    e.updatedAt = now;
-  }
-
-  // Build a view array from a day's entities of a given type, in stored order.
-  function hydrateDayType(day, type) {
-    return (store.days[day] || [])
-      .map(id => store.entities[id])
-      .filter(e => e && e.type === type)
-      .map(entityToView);
-  }
-
-  // Reconcile the store's entities-of-`type` to match `views` exactly: update
-  // existing (by _eid), mint new ones, drop removed ones. Returns the ordered
-  // entity ids. Does not touch store.days — the caller rebuilds day membership.
-  function reconcileType(type, views) {
-    const now = Date.now();
-    const ids = [];
-    views.forEach(v => {
-      let e = v._eid ? store.entities[v._eid] : null;
-      if (!e) { e = makeEntity(type, v); v._eid = e.id; store.entities[e.id] = e; }
-      applyViewToEntity(e, v, type, now);
-      ids.push(e.id);
-    });
-    return ids;
-  }
-
-  // Sync all three day-resident view arrays into the store for `day`. The day's
-  // membership is rebuilt as goals → distractions → quickDone; entities of those
-  // types no longer present are deleted.
-  function syncDayToStore(day) {
-    const goalIds = reconcileType('goal', state.goals);
-    const distIds = reconcileType('distraction', state.distractions || []);
-    const quickIds = reconcileType('quickDone', state.quickDone || []);
-    const kept = new Set([...goalIds, ...distIds, ...quickIds]);
-    (store.days[day] || []).forEach(id => {
-      const e = store.entities[id];
-      if (e && (e.type === 'goal' || e.type === 'distraction' || e.type === 'quickDone') && !kept.has(id)) {
-        delete store.entities[id];
-      }
-    });
-    store.days[day] = [...goalIds, ...distIds, ...quickIds];
-  }
-
-  // Backlog is a day-less queue tracked by store.backlogIds.
-  function hydrateBacklogFromStore() {
-    return store.backlogIds
-      .map(id => store.entities[id])
-      .filter(e => e && e.type === 'backlog')
-      .map(entityToView);
-  }
-
-  function syncBacklogToStore() {
-    const now = Date.now();
-    const ids = [];
-    backlog.forEach(v => {
-      let e = v._eid ? store.entities[v._eid] : null;
-      if (!e) { e = makeEntity('backlog', v); v._eid = e.id; store.entities[e.id] = e; }
-      applyViewToEntity(e, v, 'backlog', now);
-      ids.push(e.id);
-    });
-    const kept = new Set(ids);
-    store.backlogIds.forEach(id => {
-      const e = store.entities[id];
-      if (e && e.type === 'backlog' && !kept.has(id)) delete store.entities[id];
-    });
-    store.backlogIds = ids;
-  }
-
-  // Focus sessions are append-style records (no entity reconciliation). The
-  // store holds the canonical array; state.focusSessions mirrors it.
-  function hydrateSessionsFromStore() {
-    return (store.sessions || []).slice();
-  }
-
-  function syncSessionsToStore() {
-    store.sessions = (state.focusSessions || []).slice();
-  }
-
-  function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
+  // ---- Store: thin bindings over js/core/store.js ----
+  // The core module is stateless about *which* store it operates on — every
+  // function takes it explicitly, which is what keeps it portable. These
+  // wrappers supply this module's live `store` / `state` / `backlog` so the
+  // ~40 call sites throughout app.js stay unchanged.
+  const makeEntity = CoreStore.makeEntity;
+  const entityToView = CoreStore.entityToView;
+  const hydrateDayType = (day, type) => CoreStore.hydrateDayType(store, day, type);
+  const hydrateBacklogFromStore = () => CoreStore.hydrateBacklogFromStore(store);
+  const hydrateSessionsFromStore = () => CoreStore.hydrateSessionsFromStore(store);
+  const syncDayToStore = (day) => CoreStore.syncDayToStore(store, day, state);
+  const syncBacklogToStore = () => CoreStore.syncBacklogToStore(store, backlog);
+  const syncSessionsToStore = () => CoreStore.syncSessionsToStore(store, state);
+  const saveStore = () => CoreStore.saveStore(store);
 
   // HOURS_PER_STAGE / GROWTH_STAGES: js/core/growth.js
 
   // --- Categories ---
-  let categories = loadCategories();
+  // Composition root: core modules take storage as an injected dependency so
+  // they never import js/platform (the boundary rule — see
+  // docs/architecture.md § Module map). Wiring happens here, before any core
+  // function that persists is called.
+  CoreState.configureStorage({ get: storageGet, set: storageSet });
+  CoreStore.configureStorage({ get: storageGet, set: storageSet });
 
-  function loadCategories() {
-    try {
-      const raw = storageGet(CATEGORIES_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        const merged = DEFAULT_CATEGORIES.map(def => {
-          const found = saved.find(c => c.id === def.id);
-          // Keep saved totalHours/vision/emoji; fall back to defaults for missing fields
-          return found ? { ...def, ...found } : { ...def };
-        });
-        saved.forEach(c => {
-          if (!merged.find(m => m.id === c.id)) merged.push(c);
-        });
-        return merged;
-      }
-    } catch (e) {}
-    return DEFAULT_CATEGORIES.map(c => ({ ...c }));
-  }
+  // initState() loads categories + today's state + backlog, and returns the
+  // previous day when it detected a rollover. Returning it beats the old
+  // shared `_prevDayForModal`: loading's second output is now visible in the
+  // signature rather than arriving as a side effect.
+  const _prevDayForModal = CoreState.initState();
+  const categories = CoreState.getCategories();
+
+  const loadCategories = CoreState.loadCategories;
 
   // `store.categories` is the same array object, so a category change is
   // already live in memory — but the *persisted* store would keep a stale copy
@@ -1234,18 +1026,21 @@ import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
   let _sidebarBooted = false;
 
   // --- State ---
-  // Declared before loadState() runs: loadState assigns _prevDayForModal when it
-  // detects a new day, so the binding must already exist (else a TDZ error here
-  // silently aborts carryover + the boot transition modal).
-  let _prevDayForModal = null; // set when new day detected, consumed by modal
-  let state = loadState();
-  let backlog = loadBacklog();
+  // Loaded by CoreState.initState() above; mirrored into local bindings so the
+  // ~400 existing reads of `state` / `backlog` are unchanged. Reassignment
+  // goes through setState/setBacklog so core and app.js can't diverge.
+  let state = CoreState.getState();
+  let backlog = CoreState.getBacklog();
 
   // --- Unified store (Phase 3) ---
   // Built once at boot from the legacy keys. The store is the source of truth;
   // goals, distractions, quickDone and backlog are read/written through the
   // adapter above. Sessions still use the legacy path for now.
-  let store = migrateToStore();
+  const store = CoreStore.migrateToStore({
+    loadCategories: CoreState.loadCategories,
+    loadHistory: CoreState.loadHistory,
+    loadBacklog: CoreState.loadBacklog,
+  });
 
   // Share one categories array between the store and the module so totalHours
   // updates (via accumulateCategoryHours) stay reflected in the store.
@@ -1269,7 +1064,10 @@ import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
     syncDayToStore(state.date);
     syncSessionsToStore();
   }
+  // Reassignment: keep core's binding in step, or the two views diverge and
+  // a later CoreState.getBacklog() would hand out the pre-hydration array.
   backlog = hydrateBacklogFromStore();
+  CoreState.setBacklog(backlog);
   saveStore();
 
   // --- Undo stack ---
@@ -2873,44 +2671,7 @@ import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
     render();
   }
 
-  function loadState() {
-    try {
-      const raw = storageGet(STORAGE_KEY);
-      if (raw) {
-        const p = JSON.parse(raw);
-        p.successes = p.successes || [];
-        p.failures = p.failures || [];
-        p.quickDone = p.quickDone || [];
-        if (p.date === getTodayString()) return p;
-        archiveDay(p);
-        _prevDayForModal = p;
-        const ns = getDefaultState();
-        ns._carryover = p.goals
-          ? p.goals.map(g => {
-              const done = (g.progress || 0) >= 100;
-              if (done && !g.repeatable) return null; // completed non-repeatable: gone
-              return {
-                name: g.name, hours: 0,
-                progress: done ? 0 : (g.progress || 0), // reset repeatables to fresh
-                // Cumulative across multi-day carries — earlier days' hours
-                // must not vanish from the "Xh prev" badge on each rollover.
-                prevHours: (g.prevHours || 0) + (g.hours || 0),
-                category: g.category || null, repeatable: g.repeatable || false
-              };
-            }).filter(Boolean)
-          : [];
-        return ns;
-      }
-    } catch (e) {}
-    return getDefaultState();
-  }
-
-  function loadBacklog() {
-    try {
-      const raw = storageGet(BACKLOG_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) { return []; }
-  }
+  const loadBacklog = CoreState.loadBacklog;
 
   function saveBacklog() {
     syncBacklogToStore();
@@ -2918,24 +2679,8 @@ import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
     storageSet(BACKLOG_KEY, JSON.stringify(backlog));
   }
 
-  function archiveDay(ds) {
-    if (!ds || !ds.date) return;
-    try {
-      const h = loadHistory();
-      if (!h.find(d => d.date === ds.date)) {
-        // focusSessions is archived too: a session retired at rollover (see
-        // closeFocusSessionForRollover) lands on the outgoing day and would
-        // otherwise be dropped here the moment it was recorded.
-        h.push({ date: ds.date, goals: ds.goals || [], distractions: ds.distractions || [], successes: ds.successes || [], failures: ds.failures || [], focusSessions: ds.focusSessions || [] });
-        while (h.length > 30) h.shift();
-        storageSet(HISTORY_KEY, JSON.stringify(h));
-      }
-    } catch (e) {}
-  }
-
-  function loadHistory() {
-    try { const r = storageGet(HISTORY_KEY); return r ? JSON.parse(r) : []; } catch (e) { return []; }
-  }
+  const archiveDay = CoreState.archiveDay;
+  const loadHistory = CoreState.loadHistory;
 
   // Did anything actually happen on this day? Used to tell a real working day
   // apart from one where the app was merely opened (which still gets saved and
@@ -6933,6 +6678,7 @@ import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
           }).filter(Boolean)
         : [];
       state = ns;
+      CoreState.setState(state); // keep core's binding in step (see above)
       saveState();
       render();
       updateClock();

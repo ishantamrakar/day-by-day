@@ -34,8 +34,9 @@ that section header and is headed for the named file.
 | Growth stages, milestones, baselining | ✅ `js/core/growth.js` |
 | Daily intentions rules | ✅ `js/core/intentions.js` |
 | Dates, `dayHasWork`, default state | ✅ `js/core/day.js` |
-| Storage keys and their meaning | this file, § localStorage Keys |
-| Store shape, entities, adapter | `app.js` (§ UNIFIED STORE) → `js/core/store.js` |
+| Storage key names, `STORE_VERSION` | ✅ `js/core/keys.js` |
+| Loading/saving state, categories, history, carryover | ✅ `js/core/state.js` |
+| Store shape, entities, hydrate/sync adapter | ✅ `js/core/store.js` |
 | Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
 | Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
 | Day transition modal | `app.js` (§ DAY TRANSITION MODAL) → `js/ui/day-transition.js` |
@@ -51,6 +52,37 @@ node --input-type=module -e "import {getGrowthStage} from './js/core/growth.js';
 
 `app.js` keeps same-named thin wrappers that bind them to the live `state` /
 `categories`, so call sites are unchanged.
+
+### Dependency injection at the composition root
+
+`js/core/state.js` and `js/core/store.js` need persistence but must not import
+`js/platform` (dependencies point inward — ESLint rejects it). They declare
+what they need instead:
+
+```js
+CoreState.configureStorage({ get: storageGet, set: storageSet });
+CoreStore.configureStorage({ get: storageGet, set: storageSet });
+```
+
+`app.js` is the **composition root** — the one place that knows both halves and
+wires them together, before any core function that persists is called. A native
+build calls the same two functions with an AsyncStorage-backed shim and every
+core module is reused untouched. It also makes core runnable headless: the
+rollover and store-reconcile logic can be exercised in Node with an in-memory
+object as storage, no browser involved.
+
+### Why accessors, not exported bindings
+
+`state` and `backlog` are *reassigned* — a day rollover replaces the whole
+state object, and `backlog` is rebuilt from the store at boot. An importer of
+an exported `let` gets a live view it cannot reassign, and code that captured
+the old value would keep it. So core owns them behind `getState()`/`setState()`.
+`app.js` mirrors them into local `let`s (so ~400 existing reads are unchanged)
+and calls `CoreState.setState`/`setBacklog` at the two reassignment sites, which
+is the one thing that keeps the two views from diverging.
+
+Property mutation (`state.goals.push(...)`) needs no accessor and is used
+freely; only whole-object replacement has to go through the setter.
 
 ## Porting to iOS / Android
 

@@ -8,6 +8,18 @@
 import {
   storageGet, storageSet, storageRemove, isStorageAvailable, storageKeysWithPrefix,
 } from './js/platform/storage.js';
+import { formatHours, hexToRgb, hexToRgba } from './js/core/format.js';
+import {
+  HOURS_PER_STAGE, GROWTH_STAGES, getGrowthStage,
+  pendingGrowthMilestones as corePendingMilestones,
+  acknowledgeGrowthMilestones as coreAckMilestones,
+  baselineGrowthStages as coreBaselineStages,
+} from './js/core/growth.js';
+import {
+  MAX_INTENTION_HOURS, hoursByCategoryToday as coreHoursByCategoryToday,
+  intentionsAllMetToday as coreIntentionsAllMet,
+} from './js/core/intentions.js';
+import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
 
 (function () {
   'use strict';
@@ -180,14 +192,7 @@ import {
   // =========================================================
   // BLOB CONTROLLER — time-of-day drift + event pulses
   // =========================================================
-  // Convert a hex color to rgba(r,g,b,a) string.
-  function hexToRgba(hex, alpha) {
-    const h = hex.replace('#', '');
-    const r = parseInt(h.substring(0, 2), 16);
-    const g = parseInt(h.substring(2, 4), 16);
-    const b = parseInt(h.substring(4, 6), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
-  }
+  // hexToRgba: js/core/format.js
 
   // Pick 3 colors for the blobs: from today's focus categories if set,
   // otherwise a stable daily-random shuffle of all categories.
@@ -678,16 +683,7 @@ import {
 
   function saveStore() { storageSet(STORE_KEY, JSON.stringify(store)); }
 
-  const HOURS_PER_STAGE = 24;
-  const GROWTH_STAGES = [
-    { art: '·',  label: 'Bare soil' },
-    { art: '🌱', label: 'Seedling' },
-    { art: '🌿', label: 'Sprout' },
-    { art: '☘️', label: 'Growing' },
-    { art: '🪴', label: 'Potted' },
-    { art: '🌳', label: 'Tree' },
-    { art: '🌲', label: 'Evergreen' },
-  ];
+  // HOURS_PER_STAGE / GROWTH_STAGES: js/core/growth.js
 
   // --- Categories ---
   let categories = loadCategories();
@@ -719,19 +715,11 @@ import {
     if (typeof store !== 'undefined' && store) saveStore();
   }
 
-  // Existing hours are not a milestone the user just earned. On the first run
-  // after this feature ships (and for any category that predates it), baseline
-  // seenStage to where the plant already stands so the toast only ever fires
-  // for growth that happens from here on.
+  // Thin wrappers over js/core. They supply this module's live state so every
+  // existing call site stays unchanged and the core stays free of globals —
+  // the rationale for each rule lives with the rule, in js/core/.
   function baselineGrowthStages() {
-    let touched = false;
-    categories.forEach(cat => {
-      if (cat.seenStage == null) {
-        cat.seenStage = Math.floor(Math.max(0, cat.totalHours || 0) / HOURS_PER_STAGE);
-        touched = true;
-      }
-    });
-    if (touched) saveCategories();
+    if (coreBaselineStages(categories)) saveCategories();
   }
 
   function getCategoryById(id) {
@@ -817,100 +805,26 @@ import {
     return cat ? cat.color : '#8d99ae';
   }
 
-  // Format a duration in hours as a calm h/m pill (no seconds). Shared by every
-  // hours pill in the app. `emptyLabel` is shown when the value is zero/falsy.
-  // For a duration in whole minutes, pass formatHours(mins / 60, '0m').
   // =========================================================
-  // GROWTH STAGES
+  // GROWTH + INTENTIONS — state-bound wrappers
   // =========================================================
-  // Every 24h invested in a life area — one full day of your life — advances
-  // its plant one stage. Absolute, not relative: a category never regresses
-  // because another one grew, which is the point. Comparison between areas
-  // still reads at a glance from the stage art itself.
-  // A category records the stage it was last *shown* at (`seenStage`). When
-  // the plant has grown past it, the sidebar owes the user a quiet toast the
-  // next time it's opened. Persisted with the category, so crossing 24h with
-  // the sidebar collapsed still gets acknowledged later.
+  // The rules themselves live in js/core/growth.js and js/core/intentions.js;
+  // these bind them to this module's live `state` / `categories` and persist
+  // the result. Read the core files for the reasoning behind each rule.
   function pendingGrowthMilestones() {
-    return activeCategories()
-      .map(cat => {
-        const st = getGrowthStage(cat.totalHours);
-        const seen = cat.seenStage || 0;
-        return st.daysDone > seen ? { cat, stage: st } : null;
-      })
-      .filter(Boolean);
+    return corePendingMilestones(activeCategories());
   }
 
-  // Hours logged today per category — goals plus quick wins, the same two
-  // sources the sidebar cards count. Needed outside renderSidebar so the
-  // intentions check can run without depending on render order.
   function hoursByCategoryToday() {
-    const out = {};
-    (state.goals || []).forEach(g => {
-      if ((g.hours || 0) > 0) {
-        const id = g.category || 'general';
-        out[id] = (out[id] || 0) + g.hours;
-      }
-    });
-    (state.quickDone || []).forEach(q => {
-      if ((q.hours || 0) > 0) {
-        const id = q.category || 'general';
-        out[id] = (out[id] || 0) + q.hours;
-      }
-    });
-    return out;
+    return coreHoursByCategoryToday(state);
   }
 
-  // Every intention set for today has been met. Returns null unless the day
-  // actually has intentions — with none set there is no bar to clear, and
-  // congratulating someone for meeting nothing would be hollow.
-  //
-  // Archived areas are skipped: an intention set before archiving would
-  // otherwise be permanently unmeetable and silently block the toast forever.
   function intentionsAllMetToday() {
-    const intentions = getIntentions();
-    const ids = Object.keys(intentions).filter(id => {
-      const cat = categories.find(c => c.id === id);
-      return typeof intentions[id] === 'number' && intentions[id] > 0 && cat && !cat.archived && !cat.deleted;
-    });
-    if (ids.length === 0) return null;
-    const today = hoursByCategoryToday();
-    if (!ids.every(id => (today[id] || 0) >= intentions[id])) return null;
-    const total = ids.reduce((sum, id) => sum + intentions[id], 0);
-    return { count: ids.length, total };
+    return coreIntentionsAllMet(state, categories);
   }
 
-  // Called once the toast has actually been shown.
   function acknowledgeGrowthMilestones(items) {
-    if (!items.length) return;
-    items.forEach(({ cat, stage }) => { cat.seenStage = stage.daysDone; });
-    saveCategories();
-  }
-
-  function getGrowthStage(totalHours) {
-    const h = Math.max(0, totalHours || 0);
-    const daysDone = Math.floor(h / HOURS_PER_STAGE);
-    // Past the last art stage the plant stops changing but the count keeps
-    // climbing, so long-term areas still show progress without new artwork.
-    const idx = Math.min(daysDone, GROWTH_STAGES.length - 1);
-    const stage = GROWTH_STAGES[idx];
-    const intoStage = h - daysDone * HOURS_PER_STAGE;
-    return {
-      daysDone,
-      art: stage.art,
-      label: stage.label,
-      isMaxArt: daysDone >= GROWTH_STAGES.length - 1,
-      intoStage,
-      pctToNext: Math.min(100, (intoStage / HOURS_PER_STAGE) * 100),
-      hoursToNext: Math.max(0, HOURS_PER_STAGE - intoStage),
-    };
-  }
-
-  function formatHours(h, emptyLabel = '+ hrs') {
-    if (!h || h <= 0) return emptyLabel;
-    if (h < 1) return `${Math.round(h * 60)}m`;
-    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
-    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+    if (coreAckMilestones(items)) saveCategories();
   }
 
   // Preset quick-add amounts for the time-add pills.
@@ -932,7 +846,7 @@ import {
   // intention never leaks into Wednesday), every one is optional, and nothing
   // in the UI ever reports falling short. An unmet intention looks exactly
   // like mid-morning progress — see docs/features.md § Daily intentions.
-  const MAX_INTENTION_HOURS = 24;
+  // MAX_INTENTION_HOURS: js/core/intentions.js
 
   function getIntentions() {
     return state.focusIntentions || {};
@@ -2939,14 +2853,7 @@ import {
   // =========================================================
   // DATE / STATE MANAGEMENT
   // =========================================================
-  function getTodayString() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
-
-  function getDefaultState() {
-    return { date: getTodayString(), goals: [], distractions: [], successes: [], failures: [], quickDone: [], focusSessions: [] };
-  }
+  // getTodayString / getDefaultState: js/core/day.js
 
   // Permanently delete a goal by index — scrubs it from state.goals AND _carryover so
   // it never resurfaces in the day transition modal or anywhere else.
@@ -3033,17 +2940,6 @@ import {
   // Did anything actually happen on this day? Used to tell a real working day
   // apart from one where the app was merely opened (which still gets saved and
   // archived, and would otherwise masquerade as "the previous day").
-  function dayHasWork(d) {
-    if (!d) return false;
-    const goals = d.goals || [];
-    return goals.some(g => (g.hours || 0) > 0 || (g.progress || 0) > 0) ||
-           (d.quickDone || []).length > 0 ||
-           (d.distractions || []).some(x => (x.hours || 0) > 0) ||
-           (d.successes || []).length > 0 ||
-           // A focus session counts even when its goal is gone — a session
-           // retired at rollover may be the only record the day left behind.
-           (d.focusSessions || []).length > 0;
-  }
 
   // The summary modal should reflect the last day you actually WORKED, not
   // simply the last day the app was open. Skipping days (or opening the app
@@ -3412,12 +3308,6 @@ import {
   const FOCUS_IDLE_CHECK_MS = 30 * 1000;
   const ULTRA_FOCUS_COLOR = '#D9A441'; // warm gold — ultra focus accent
 
-  function hexToRgb(hex) {
-    const r = parseInt(hex.slice(1,3),16);
-    const g = parseInt(hex.slice(3,5),16);
-    const b = parseInt(hex.slice(5,7),16);
-    return `${r},${g},${b}`;
-  }
 
   function openFocusModal(goal, index) {
     if (activeFocusOverlay) activeFocusOverlay.remove();

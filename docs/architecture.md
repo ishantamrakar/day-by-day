@@ -24,17 +24,33 @@ browser globals and restricted imports), not by convention, because a
 documented-only boundary decays. If lint rejects a browser call in `core/`,
 the fix is to move that call into `platform/` and pass the result in.
 
+A ✅ module has moved; an arrow means the code still lives in `app.js` under
+that section header and is headed for the named file.
+
 | Need to change… | Look in |
 |---|---|
-| How data is persisted | `js/platform/storage.js` |
+| How data is persisted | ✅ `js/platform/storage.js` |
+| Hours/colour formatting | ✅ `js/core/format.js` |
+| Growth stages, milestones, baselining | ✅ `js/core/growth.js` |
+| Daily intentions rules | ✅ `js/core/intentions.js` |
+| Dates, `dayHasWork`, default state | ✅ `js/core/day.js` |
 | Storage keys and their meaning | this file, § localStorage Keys |
 | Store shape, entities, adapter | `app.js` (§ UNIFIED STORE) → `js/core/store.js` |
-| Growth stages / milestones | `app.js` (§ GROWTH STAGES) → `js/core/growth.js` |
-| Daily intentions logic | `app.js` (§ DAILY INTENTIONS) → `js/core/intentions.js` |
 | Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
 | Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
 | Day transition modal | `app.js` (§ DAY TRANSITION MODAL) → `js/ui/day-transition.js` |
 | Drag & drop | `app.js` (§ drag sections) → `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
+
+**Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
+`intentionsAllMetToday(state, categories)` and friends never read module state,
+so they stay portable *and* directly unit-testable in Node with no browser:
+
+```
+node --input-type=module -e "import {getGrowthStage} from './js/core/growth.js'; console.log(getGrowthStage(24))"
+```
+
+`app.js` keeps same-named thin wrappers that bind them to the live `state` /
+`categories`, so call sites are unchanged.
 
 ## Porting to iOS / Android
 

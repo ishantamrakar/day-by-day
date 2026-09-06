@@ -43,8 +43,9 @@ that section header and is headed for the named file.
 | Time-add ring, chip dials, inline hours editor | ✅ `js/ui/time-ring.js` |
 | Day transition (morning review) modal | ✅ `js/ui/day-transition.js` |
 | Drag & drop (all three systems) | ✅ `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
+| Focus mode screens (sheet + fullscreen session) | ✅ `js/ui/focus-mode.js` |
+| Overnight session retirement, snapshot read/write | ✅ `js/core/sessions.js` |
 | Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
-| Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
 `intentionsAllMetToday(state, categories)` and friends never read module state,

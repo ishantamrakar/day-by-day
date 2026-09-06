@@ -74,6 +74,23 @@ Deliberately **not** filtered by focus categories: the focus picker decides what
 - Rail: hamburger + one emoji button per category → opens quick-add modal
 - Panel: category cards showing the growth marker, progress-to-next-stage bar, `N active · N done · N backlog`
 
+### Daily intentions
+
+Optionally, "I'd like to give this area about N hours today" — set when picking focus areas, shown as a quiet pipe on the sidebar card.
+
+- Set in **both** focus pickers (the day-transition modal and the sidebar's pencil editor) via `makeIntentionFields()`, so a morning plan can be adjusted mid-day. Rows appear only for currently-selected areas and follow the selection live.
+- **Every intention is optional.** No default, no suggestion — leave a row blank and that card simply shows today's hours with no bar.
+- Stored in `state.focusIntentions` (`{catId: hours}`), which rides along with the day's state, so a Tuesday intention never leaks into Wednesday. No store version bump: an absent key means no intentions. Deselecting an area drops its intention (`collect()` filters to the current selection).
+- **The bar never signals shortfall.** It fills toward the intention and stops where it stops — no red, no "behind", no percent-of-target. A day that fell short looks exactly like a day still in progress. Meeting it adds a quiet ✓, nothing more. This is the tone rule applied literally: a target you can fail is precisely what *4,000 Weeks* argues against, so the visual carries the information without the judgment.
+
+### Sidebar card anatomy
+
+A focused card is a two-column body (`sidebar-cat-body`): a content column and a narrow **growth chamber** on the right.
+
+- **Two stacked pipes**, each captioned beneath it (`barContainerLabel`): today's intention progress on top (solid, 5px), the long-term stage climb below (thin, 2px, dimmed). They read as one instrument — today above, the slow climb beneath.
+- **The chamber** (~26px, hairline-separated) is the growth plant's dedicated home, with its `×N` day count. **Focused cards only** — on the other areas it would be five more things to scan for no decision it informs.
+- Non-focused cards keep the original single-bar layout unchanged.
+
 ### Growth stages
 
 Every **24h** invested in a life area (`HOURS_PER_STAGE`) advances its plant one stage: `·` bare soil → 🌱 → 🌿 → ☘️ → 🪴 → 🌳 → 🌲. Past the last stage the art holds and a `×N` day count appears beside it, so long-running areas keep visibly climbing.

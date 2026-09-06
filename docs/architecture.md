@@ -37,6 +37,7 @@ day-rollover detection in `loadState()`.
   failures: [string],
   quickDone: [{ name, hours }],
   focusCategoryIds?: [string],   // set by Day Transition Modal
+  focusIntentions?: { [catId]: hours },  // optional per-area time intention for TODAY only
   _carryover?: [goal]            // temp — set on new day, consumed by modal
 }
 ```

@@ -2107,14 +2107,88 @@ footer {
 .sidebar-cat-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 5px;
+  min-width: 0;
 }
 
 .sidebar-cat-emoji {
   font-size: 0.95rem;
   line-height: 1;
   flex-shrink: 0;
+}
+
+/* Card body — content column plus the growth chamber on the right.
+   The chamber is the plant's dedicated home: a fixed narrow strip (~13% of
+   the card) separated by a hairline, so the marker reads as its own thing
+   rather than another item crowded into the title row. */
+.sidebar-cat-body {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.sidebar-cat-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-cat-chamber {
+  flex: 0 0 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding-left: 6px;
+  border-left: 1px solid rgba(0,0,0,0.06);
+}
+
+/* Today's intention pipe — stacked directly above the growth bar so the two
+   read as one instrument: today on top, the long climb beneath. */
+.sidebar-intention-container {
+  height: 5px;
+  background: rgba(0,0,0,0.05);
+}
+
+/* Caption under a pipe — the numbers live with the bar they describe, which
+   keeps the title row free for the category name. */
+.sidebar-bar-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 3px 0 7px;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-bar-label--muted {
+  opacity: 0.65;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.sidebar-bar-tick {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* The lower pipe (long-term stage climb) stays thinner and quieter so the two
+   read as separate instruments rather than one thick bar. */
+.sidebar-cat-focused .sidebar-cat-bar-container:not(.sidebar-intention-container) {
+  height: 2px;
+  opacity: 0.55;
+}
+
+.sidebar-intention-fill {
+  transition: width 0.45s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Met: a quiet lift, never a celebration that implies the others failed. */
+.sidebar-intention--met .sidebar-intention-fill {
+  box-shadow: 0 0 0 1px rgba(45,106,79,0.28) inset;
 }
 
 /* Growth milestone toast — a quiet acknowledgement at the top of the sidebar
@@ -2158,12 +2232,13 @@ footer {
    between the name and the hours; quiet by default so it reads as a reward
    noticed rather than a metric demanded. */
 .sidebar-cat-growth {
-  font-size: 0.8rem;
+  font-size: 1rem;
   line-height: 1;
   flex-shrink: 0;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 2px;
   transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
 }
 
@@ -2208,6 +2283,12 @@ footer {
   font-weight: 700;
   color: var(--text-muted);
   white-space: nowrap;
+  flex-shrink: 0;
+}
+.sidebar-hours-of {
+  font-weight: 500;
+  color: var(--text-muted);
+  opacity: 0.8;
 }
 .sidebar-hours-today {
   color: var(--primary);
@@ -3490,6 +3571,79 @@ footer {
 .dmc-emoji { font-size: 1.3rem; line-height: 1; }
 .dmc-name { font-size: 0.7rem; font-weight: 600; color: var(--text); }
 .dmc-hours { font-size: 0.62rem; color: var(--text-muted); font-weight: 500; }
+
+/* Daily intention fields — the optional "time you'd like to give" rows under
+   a focus picker. Deliberately understated: an unfilled row is a normal state,
+   not an incomplete form. */
+.intention-fields {
+  margin-top: 14px;
+}
+
+.intention-fields.hidden { display: none; }
+
+.intention-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.intention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(0,0,0,0.05);
+}
+
+.intention-row-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intention-row-emoji {
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.intention-input {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  width: 62px;
+  padding: 5px 8px;
+  text-align: right;
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 8px;
+  background: var(--surface-solid);
+  font-variant-numeric: tabular-nums;
+}
+
+.intention-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.intention-unit {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  width: 10px;
+}
 
 /* Repeatable checklist */
 .day-modal-repeat-section.hidden { display: none; }

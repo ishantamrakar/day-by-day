@@ -891,6 +891,99 @@
   ];
 
   // =========================================================
+  // DAILY INTENTIONS
+  // =========================================================
+  // An optional "I'd like to give this area about N hours today", set when
+  // picking focus areas and shown as a quiet progress bar on the sidebar card.
+  //
+  // Deliberately soft: intentions live on the day's state (so a Tuesday
+  // intention never leaks into Wednesday), every one is optional, and nothing
+  // in the UI ever reports falling short. An unmet intention looks exactly
+  // like mid-morning progress — see docs/features.md § Daily intentions.
+  const MAX_INTENTION_HOURS = 24;
+
+  function getIntentions() {
+    return state.focusIntentions || {};
+  }
+
+  function getIntentionFor(catId) {
+    const v = getIntentions()[catId];
+    return typeof v === 'number' && v > 0 ? v : null;
+  }
+
+  // Builds the "how much time?" rows shown under a focus picker. Rows appear
+  // only for currently-selected areas and carry whatever was already set.
+  //   getSelected() -> array of category ids, in pick order
+  //   returns { el, refresh, collect }
+  function makeIntentionFields(getSelected, initial) {
+    const draft = Object.assign({}, initial || {});
+
+    const wrap = document.createElement('div');
+    wrap.className = 'intention-fields';
+
+    const label = document.createElement('div');
+    label.className = 'day-modal-section-label';
+    label.textContent = 'Time you\'d like to give (optional)';
+
+    const rows = document.createElement('div');
+    rows.className = 'intention-rows';
+    wrap.append(label, rows);
+
+    function refresh() {
+      const ids = getSelected();
+      rows.innerHTML = '';
+      if (ids.length === 0) { wrap.classList.add('hidden'); return; }
+      wrap.classList.remove('hidden');
+
+      ids.forEach(id => {
+        const cat = getCategoryById(id);
+        if (!cat) return;
+        const row = document.createElement('label');
+        row.className = 'intention-row';
+
+        const name = document.createElement('span');
+        name.className = 'intention-row-name';
+        name.innerHTML = `<span class="intention-row-emoji">${cat.emoji}</span>`;
+        name.appendChild(document.createTextNode(cat.name));
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'intention-input';
+        input.min = '0';
+        input.max = String(MAX_INTENTION_HOURS);
+        input.step = '0.5';
+        input.placeholder = '—';
+        input.value = draft[id] != null ? String(draft[id]) : '';
+        input.setAttribute('aria-label', `Hours for ${cat.name}`);
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          if (!input.value.trim() || isNaN(v) || v <= 0) delete draft[id];
+          else draft[id] = Math.min(MAX_INTENTION_HOURS, Math.max(0, v));
+        });
+
+        const unit = document.createElement('span');
+        unit.className = 'intention-unit';
+        unit.textContent = 'h';
+
+        row.append(name, input, unit);
+        rows.appendChild(row);
+      });
+    }
+
+    // Only keep intentions for areas still selected — deselecting an area
+    // shouldn't leave an orphaned target behind.
+    function collect() {
+      const ids = new Set(getSelected());
+      const out = {};
+      Object.keys(draft).forEach(id => { if (ids.has(id)) out[id] = draft[id]; });
+      return out;
+    }
+
+    refresh();
+    return { el: wrap, refresh, collect };
+  }
+
+  // =========================================================
   // TIME ADD RING
   // =========================================================
   // A staged time picker: the ring shows ONLY what this interaction is about
@@ -1419,6 +1512,15 @@
       }
     });
 
+    // Small caption sitting under a progress pipe. `muted` dims it for the
+    // secondary (long-term stage) bar so the two captions don't compete.
+    function barContainerLabel(text, muted) {
+      const el = document.createElement('div');
+      el.className = 'sidebar-bar-label' + (muted ? ' sidebar-bar-label--muted' : '');
+      el.textContent = text;
+      return el;
+    }
+
     function buildCard(cat, isFocused) {
       const card = document.createElement('div');
       card.className = 'sidebar-cat-card' + (isFocused ? ' sidebar-cat-focused' : '');
@@ -1437,7 +1539,7 @@
       // Growth marker: the plant, plus a ×N count once past the last art stage
       // so long-running areas keep visibly climbing.
       const stage = getGrowthStage(cat.totalHours);
-      const growthEl = document.createElement('span');
+      const growthEl = document.createElement('div');
       growthEl.className = 'sidebar-cat-growth'
         + (stage.daysDone === 0 ? ' sidebar-cat-growth-empty' : '');
       growthEl.textContent = stage.art;
@@ -1458,10 +1560,12 @@
       hoursEl.className = 'sidebar-cat-hours';
       const todayH = todayHours[cat.id] || 0;
       const totalH = cat.totalHours || 0;
-      if (todayH > 0) {
+      // Focused cards keep the title row to the name alone — each bar carries
+      // its own label underneath, which is where the numbers actually belong.
+      if (isFocused) {
+        hoursEl.textContent = '';
+      } else if (todayH > 0) {
         hoursEl.innerHTML = `<span class="sidebar-hours-today">${todayH.toFixed(1)}h</span><span class="sidebar-hours-sep"> | </span><span class="sidebar-hours-total">${totalH.toFixed(1)}h</span>`;
-      } else if (isFocused) {
-        hoursEl.innerHTML = `<span class="sidebar-hours-today sidebar-hours-today-zero">0h</span><span class="sidebar-hours-sep"> | </span><span class="sidebar-hours-total">${totalH > 0 ? totalH.toFixed(1) + 'h' : '—'}</span>`;
       } else {
         hoursEl.textContent = totalH > 0 ? `${totalH.toFixed(1)}h` : '—';
       }
@@ -1475,7 +1579,7 @@
         openCatInlineEdit(cat, card, top, editBtn);
       });
 
-      top.append(emojiEl, nameEl, growthEl, hoursEl);
+      top.append(emojiEl, nameEl, hoursEl);
 
       const completed = todayCompleted[cat.id] || 0;
       if (completed > 0) {
@@ -1512,7 +1616,83 @@
       countEl.className = 'sidebar-cat-task-count';
       countEl.textContent = parts.join(' · ');
 
-      card.append(top, barContainer, countEl);
+      // ── Today's intention pipe ──
+      // Sits directly above the growth bar so the card reads as two pipes in
+      // one body: today's time on top, the long climb beneath. Only on focused
+      // cards, and only when an intention was actually set.
+      //
+      // It fills toward the intention and stops where it stops. No red state,
+      // no "behind", no percent-of-target — a day that fell short looks exactly
+      // like a day still in progress. That restraint is the point.
+      let intentionBar = null;
+      const intention = isFocused ? getIntentionFor(cat.id) : null;
+      if (intention) {
+        const met = todayH >= intention;
+        intentionBar = document.createElement('div');
+        intentionBar.className = 'sidebar-cat-bar-container sidebar-intention-container'
+          + (met ? ' sidebar-intention--met' : '');
+        const fill = document.createElement('div');
+        fill.className = 'sidebar-cat-bar sidebar-intention-fill';
+        fill.style.width = Math.min(100, (todayH / intention) * 100) + '%';
+        fill.style.background = `linear-gradient(90deg, ${cat.color}, ${cat.color}aa)`;
+        intentionBar.appendChild(fill);
+        intentionBar.title = met
+          ? `Intention met — ${formatHours(todayH, '0m')} of ${formatHours(intention, '0m')} on ${cat.name} today`
+          : `${formatHours(todayH, '0m')} of ${formatHours(intention, '0m')} on ${cat.name} today`;
+      }
+
+      // The card is a two-column body: everything stacks in the content
+      // column, and the growth plant gets its own narrow chamber on the right.
+      const body = document.createElement('div');
+      body.className = 'sidebar-cat-body';
+
+      const content = document.createElement('div');
+      content.className = 'sidebar-cat-content';
+      content.appendChild(top);
+
+      // Each pipe gets its caption directly beneath it: today's time under the
+      // intention bar, the stage climb under the growth bar.
+      if (intentionBar) {
+        content.appendChild(intentionBar);
+        const todayLabel = document.createElement('div');
+        todayLabel.className = 'sidebar-bar-label';
+        todayLabel.innerHTML =
+          `<span class="sidebar-hours-today">${formatHours(todayH, '0m')}</span>`
+          + `<span class="sidebar-hours-of"> of ${formatHours(intention, '0m')} today</span>`;
+        if (todayH >= intention) {
+          const tick = document.createElement('span');
+          tick.className = 'sidebar-bar-tick';
+          tick.textContent = '✓';
+          todayLabel.appendChild(tick);
+        }
+        content.appendChild(todayLabel);
+      } else if (isFocused) {
+        // No intention set — just the plain today figure, no empty track. An
+        // unset intention shouldn't leave a hollow slot demanding to be filled.
+        content.appendChild(barContainerLabel(formatHours(todayH, '0h') + ' today'));
+      }
+
+      content.appendChild(barContainer);
+      if (isFocused) {
+        content.appendChild(barContainerLabel(
+          growth.isMaxArt
+            ? `${growth.daysDone} days invested`
+            : `${formatHours(growth.hoursToNext, '0m')} to ${GROWTH_STAGES[growth.daysDone + 1].label.toLowerCase()}`,
+          true,
+        ));
+      }
+      content.appendChild(countEl);
+
+      // The growth chamber is a focused-card affordance only: on the other
+      // areas it would be five more things to scan for no decision it informs.
+      body.appendChild(content);
+      if (isFocused) {
+        const chamber = document.createElement('div');
+        chamber.className = 'sidebar-cat-chamber';
+        chamber.appendChild(growthEl);
+        body.appendChild(chamber);
+      }
+      card.appendChild(body);
 
       const isExpanded = expandedCatId === cat.id;
       if (isExpanded) {
@@ -5908,9 +6088,17 @@
           selectedCats.add(cat.id);
           btn.classList.add('selected');
         }
+        intentionFields.refresh();
       });
       catGrid.appendChild(btn);
     });
+
+    // Same optional time intentions as the morning modal, so they can be
+    // adjusted mid-day without waiting for tomorrow.
+    const intentionFields = makeIntentionFields(
+      () => Array.from(selectedCats),
+      state.focusIntentions,
+    );
 
     const actions = document.createElement('div');
     actions.className = 'cat-modal-actions';
@@ -5923,6 +6111,7 @@
     saveBtn.textContent = 'Set focus';
     saveBtn.addEventListener('click', () => {
       state.focusCategoryIds = Array.from(selectedCats);
+      state.focusIntentions = intentionFields.collect();
       saveState();
       renderSidebar();
       renderBacklog(); // backlog card filters by focus categories
@@ -5931,7 +6120,7 @@
     });
     actions.append(cancelBtn, saveBtn);
 
-    modal.append(header, hint, catGrid, actions);
+    modal.append(header, hint, catGrid, intentionFields.el, actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     overlay.addEventListener('pointerdown', e => { if (e.target === overlay) overlay.remove(); });
@@ -6216,10 +6405,18 @@
         }
         updateRepeatableChecklist();
         updateBacklogWaiting();
+        intentionFields.refresh();
       });
       catGrid.appendChild(btn);
     });
     focusSection.appendChild(catGrid);
+
+    // Optional per-area time intentions for today, shown under the picker.
+    const intentionFields = makeIntentionFields(
+      () => Array.from(selectedCats),
+      state.focusIntentions,
+    );
+    focusSection.appendChild(intentionFields.el);
 
     // ── Repeatable tasks checklist ──
     const repeatSection = document.createElement('div');
@@ -6452,6 +6649,7 @@
 
       // Persist today's focus categories so the sidebar can show them all day
       state.focusCategoryIds = Array.from(selectedCats);
+      state.focusIntentions = intentionFields.collect();
 
       // Anything still unfinished (wrong focus category, or Top 5 was full)
       // goes to the backlog rather than disappearing.

@@ -1537,6 +1537,20 @@
       return; // setSidebarOpen re-enters renderSidebar with the panel open
     }
     let milestones = sidebarCollapsed ? [] : pendingGrowthMilestones();
+    // Growth already banked before this session is not news. The boot render
+    // still has to CONSUME such a milestone (so it can't surface later as if
+    // it just happened), but it must not celebrate it: hours that were simply
+    // sitting in storage were never earned in front of the user. Only growth
+    // that happens after the sidebar has booted gets a toast.
+    //
+    // This is what the "pre-existing hours are baselined, not celebrated"
+    // regression covers: baselineGrowthStages() only seeds seenStage when it
+    // is absent, so a category whose totalHours grew between sessions arrives
+    // here with a real pending milestone that must be swallowed quietly.
+    if (milestones.length > 0 && !_sidebarBooted) {
+      acknowledgeGrowthMilestones(milestones);
+      milestones = [];
+    }
     if (milestones.length > 0) {
       // Newly detected — take ownership and start the retire timer.
       _liveGrowthToast = { items: milestones, until: Date.now() + GROWTH_TOAST_MS };

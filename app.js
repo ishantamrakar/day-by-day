@@ -848,6 +848,45 @@
       .filter(Boolean);
   }
 
+  // Hours logged today per category — goals plus quick wins, the same two
+  // sources the sidebar cards count. Needed outside renderSidebar so the
+  // intentions check can run without depending on render order.
+  function hoursByCategoryToday() {
+    const out = {};
+    (state.goals || []).forEach(g => {
+      if ((g.hours || 0) > 0) {
+        const id = g.category || 'general';
+        out[id] = (out[id] || 0) + g.hours;
+      }
+    });
+    (state.quickDone || []).forEach(q => {
+      if ((q.hours || 0) > 0) {
+        const id = q.category || 'general';
+        out[id] = (out[id] || 0) + q.hours;
+      }
+    });
+    return out;
+  }
+
+  // Every intention set for today has been met. Returns null unless the day
+  // actually has intentions — with none set there is no bar to clear, and
+  // congratulating someone for meeting nothing would be hollow.
+  //
+  // Archived areas are skipped: an intention set before archiving would
+  // otherwise be permanently unmeetable and silently block the toast forever.
+  function intentionsAllMetToday() {
+    const intentions = getIntentions();
+    const ids = Object.keys(intentions).filter(id => {
+      const cat = categories.find(c => c.id === id);
+      return typeof intentions[id] === 'number' && intentions[id] > 0 && cat && !cat.archived && !cat.deleted;
+    });
+    if (ids.length === 0) return null;
+    const today = hoursByCategoryToday();
+    if (!ids.every(id => (today[id] || 0) >= intentions[id])) return null;
+    const total = ids.reduce((sum, id) => sum + intentions[id], 0);
+    return { count: ids.length, total };
+  }
+
   // Called once the toast has actually been shown.
   function acknowledgeGrowthMilestones(items) {
     if (!items.length) return;
@@ -951,14 +990,24 @@
         input.className = 'intention-input';
         input.min = '0';
         input.max = String(MAX_INTENTION_HOURS);
-        input.step = '0.5';
+        // Whole hours only. `step` governs the spinner arrows; the rounding
+        // in the handler covers typed input, which ignores step entirely.
+        // An intention is a rough gesture at the day, not a schedule — half
+        // hours invite a precision the number doesn't have.
+        input.step = '1';
         input.placeholder = '—';
         input.value = draft[id] != null ? String(draft[id]) : '';
         input.setAttribute('aria-label', `Hours for ${cat.name}`);
         input.addEventListener('input', () => {
           const v = parseFloat(input.value);
           if (!input.value.trim() || isNaN(v) || v <= 0) delete draft[id];
-          else draft[id] = Math.min(MAX_INTENTION_HOURS, Math.max(0, v));
+          else draft[id] = Math.round(Math.min(MAX_INTENTION_HOURS, Math.max(0, v)));
+        });
+        // Snap the visible field to the stored whole number, but only once
+        // the user is done typing — rewriting the value mid-input would fight
+        // the caret on every keystroke.
+        input.addEventListener('blur', () => {
+          input.value = draft[id] != null ? String(draft[id]) : '';
         });
 
         const unit = document.createElement('span');
@@ -1264,6 +1313,19 @@
   let expandedCatId = null; // which sidebar card is currently expanded
   let archivedSectionOpen = false; // Archived areas list — collapsed by default
 
+  // Growth toast, held across re-renders. Hours logged in one action trigger
+  // several renderSidebar() passes; without this the toast would be built and
+  // then immediately dropped by the next one. { items, until } while live.
+  const GROWTH_TOAST_MS = 8000;
+  let _liveGrowthToast = null;
+  let _growthToastTimer = null;
+  let _growthToastPainted = false; // entrance animation plays once per toast
+  let _liveIntentionsToast = null; // { met, until } while the day's toast is up
+  let _intentionsToastTimer = null;
+  // Flipped once the sidebar's first render is done, so growth detected at
+  // boot can't spring the panel open before the user has even looked.
+  let _sidebarBooted = false;
+
   // --- State ---
   // Declared before loadState() runs: loadState assigns _prevDayForModal when it
   // detects a new day, so the binding must already exist (else a TDZ error here
@@ -1399,6 +1461,7 @@
     // restoring a saved "open" would bury the app behind a drawer on load.
     if (isMobileLayout()) sidebarCollapsed = true;
     setSidebarOpen(!sidebarCollapsed, { persist: false });
+    _sidebarBooted = true;
 
     if (sidebarExpandBtn) {
       sidebarExpandBtn.addEventListener('click', () => {
@@ -1442,11 +1505,66 @@
     // ── Growth milestone toast ──
     // Only while the panel is actually open: collapsing the sidebar takes the
     // toast with it, and the milestone waits (unacknowledged) for the next
-    // time the user looks. Shown once, then marked seen.
-    const milestones = sidebarCollapsed ? [] : pendingGrowthMilestones();
+    // time the user looks.
+    //
+    // The toast is held in _liveGrowthToast rather than acknowledged on the
+    // spot. Logging hours calls renderSidebar() twice — once from
+    // accumulateCategoryHours, once from the render() that follows — so
+    // acknowledging in the same pass that built the toast meant the second
+    // pass found nothing pending and dropped it in the same tick. The
+    // milestone stays live across re-renders until a timer retires it, which
+    // is also what lets a plant that matured on a NON-focused area still be
+    // announced: the toast never depended on the focus split, only on
+    // surviving long enough to be seen.
+    // A milestone reached while the panel is closed used to be entirely
+    // silent: the rail stays visible when collapsed, so its emoji buttons are
+    // the normal way to log time to an area that ISN'T in today's focus — and
+    // that path could mature a plant with no acknowledgement anywhere on
+    // screen. The milestone was preserved (it fires whenever the panel next
+    // opens), but nothing marked the moment it happened.
+    //
+    // So: when growth lands while collapsed, open the panel and let the toast
+    // render normally. Deliberately not persisted (`persist: false`) — this is
+    // the app reacting to an event, and it shouldn't rewrite the user's
+    // remembered preference for how the sidebar sits.
+    // Gated on _sidebarBooted so this only reacts to growth that happens
+    // during the session. A milestone left unacknowledged from a previous
+    // visit would otherwise force the panel open at boot, overriding a user
+    // who deliberately keeps it closed — that one still waits quietly for the
+    // next manual open, which is the existing (correct) behaviour.
+    if (_sidebarBooted && sidebarCollapsed && !isMobileLayout() && pendingGrowthMilestones().length > 0) {
+      setSidebarOpen(true, { persist: false });
+      return; // setSidebarOpen re-enters renderSidebar with the panel open
+    }
+    let milestones = sidebarCollapsed ? [] : pendingGrowthMilestones();
+    if (milestones.length > 0) {
+      // Newly detected — take ownership and start the retire timer.
+      _liveGrowthToast = { items: milestones, until: Date.now() + GROWTH_TOAST_MS };
+      _growthToastPainted = false;
+      acknowledgeGrowthMilestones(milestones);
+      clearTimeout(_growthToastTimer);
+      _growthToastTimer = setTimeout(() => {
+        _liveGrowthToast = null;
+        renderSidebar();
+      }, GROWTH_TOAST_MS);
+    } else if (_liveGrowthToast && !sidebarCollapsed && Date.now() < _liveGrowthToast.until) {
+      // Already acknowledged, still within its window — keep showing it.
+      milestones = _liveGrowthToast.items;
+    } else if (sidebarCollapsed) {
+      // Collapsing takes either toast with it, as before.
+      _liveGrowthToast = null;
+      _liveIntentionsToast = null;
+      clearTimeout(_growthToastTimer);
+      clearTimeout(_intentionsToastTimer);
+    }
     if (milestones.length > 0) {
       const toast = document.createElement('div');
-      toast.className = 'sidebar-growth-toast';
+      // The toast is rebuilt on every re-render while it's live, so the
+      // entrance animation is applied only on the first paint — otherwise it
+      // would replay each time hours are logged or a card is clicked.
+      toast.className = 'sidebar-growth-toast'
+        + (_growthToastPainted ? '' : ' sidebar-growth-toast-enter');
+      _growthToastPainted = true;
       const first = milestones[0];
       const art = document.createElement('span');
       art.className = 'sidebar-growth-toast-art';
@@ -1463,11 +1581,63 @@
       }
       toast.append(art, text);
       sidebarCategoriesEl.appendChild(toast);
+    } else if (!sidebarCollapsed) {
+      // ── Intentions-met toast ──
+      // Second in line behind a growth milestone: crossing a stage is the
+      // rarer event, and two toasts stacked would be a pile-up. This one is
+      // still there on the next render if growth took the slot this time.
+      //
+      // Marked seen on state (not on a category) so it rides the day's state
+      // and resets itself tomorrow — no cleanup, and a Tuesday's toast can
+      // never fire again on Wednesday.
+      //
+      // Same live-hold as the growth toast, and for the same reason: logging
+      // hours re-renders the sidebar more than once, so marking it seen in the
+      // pass that builds it would drop it in the same tick. Detect once, mark
+      // seen once, then replay from _liveIntentionsToast until the timer ends.
+      // Its own timer handle, so a growth milestone arriving mid-window can't
+      // clear this one's and strand it on screen.
+      let met = null;
+      if (!state._intentionsMetSeen) {
+        met = intentionsAllMetToday();
+        if (met) {
+          state._intentionsMetSeen = true;
+          saveState();
+          _liveIntentionsToast = { met, until: Date.now() + GROWTH_TOAST_MS };
+          _growthToastPainted = false;
+          clearTimeout(_intentionsToastTimer);
+          _intentionsToastTimer = setTimeout(() => {
+            _liveIntentionsToast = null;
+            renderSidebar();
+          }, GROWTH_TOAST_MS);
+        }
+      } else if (_liveIntentionsToast && Date.now() < _liveIntentionsToast.until) {
+        met = _liveIntentionsToast.met;
+      }
+      if (met) {
+        const toast = document.createElement('div');
+        toast.className = 'sidebar-growth-toast sidebar-intentions-toast'
+          + (_growthToastPainted ? '' : ' sidebar-growth-toast-enter');
+        _growthToastPainted = true;
+        const art = document.createElement('span');
+        art.className = 'sidebar-growth-toast-art';
+        art.textContent = '✓';
+        const text = document.createElement('div');
+        text.className = 'sidebar-growth-toast-text';
+        // Says what happened, and stops. No "keep it up", no streak to
+        // protect — the day's intentions were a gesture, not a quota, and
+        // the tone rule says meeting one earns a quiet acknowledgement.
+        text.textContent = met.count === 1
+          ? `You gave today's life area the time you meant to.`
+          : `All ${met.count} life areas got the time you meant to give them.`;
+        toast.append(art, text);
+        sidebarCategoriesEl.appendChild(toast);
+      }
     }
-    // Plants that advanced in this render get the pop. Acknowledge immediately
-    // (not on a later frame) so a re-render can't show the same toast twice.
+    // Plants that advanced get the pop for as long as the toast is up.
+    // Acknowledgement already happened when the milestone was first detected,
+    // so seenStage is persisted even if the tab closes before the toast fades.
     const justGrew = new Set(milestones.map(m => m.cat.id));
-    acknowledgeGrowthMilestones(milestones);
 
     // Count active, completed, and backlogged goals per category today
     const todayActive = {};
@@ -1524,6 +1694,20 @@
     function buildCard(cat, isFocused) {
       const card = document.createElement('div');
       card.className = 'sidebar-cat-card' + (isFocused ? ' sidebar-cat-focused' : '');
+      // Focused cards carry their own area's colour so the card can wash
+      // itself in it. Only on focused cards: tinting all of them would turn
+      // the rail into a colour chart and cost the focused ones their
+      // distinction, which is the whole point of the split.
+      if (isFocused && cat.color) {
+        card.style.setProperty('--cat-color', cat.color);
+        // Only set the rgb triple when it actually parsed. hexToRgb assumes
+        // #rrggbb and yields "NaN,NaN,NaN" for anything else — and since the
+        // variable would still be *set*, the CSS var() fallback wouldn't fire
+        // and the tint would silently vanish. Leaving it unset lets the
+        // fallback do its job.
+        const rgb = hexToRgb(cat.color);
+        if (!rgb.includes('NaN')) card.style.setProperty('--cat-color-rgb', rgb);
+      }
 
       const top = document.createElement('div');
       top.className = 'sidebar-cat-top';
@@ -1560,10 +1744,18 @@
       hoursEl.className = 'sidebar-cat-hours';
       const todayH = todayHours[cat.id] || 0;
       const totalH = cat.totalHours || 0;
-      // Focused cards keep the title row to the name alone — each bar carries
-      // its own label underneath, which is where the numbers actually belong.
+      // Focused cards previously blanked this row on the grounds that each bar
+      // carries its own caption — but those captions are today's figure and the
+      // climb to the next stage, so the all-time total appeared nowhere on the
+      // cards you look at most. The title row carries it here in exactly the
+      // format the other cards use, so the number reads the same everywhere.
+      // On a focused card today's hours are already under the intention pipe,
+      // so the row shows the total alone rather than repeating it.
       if (isFocused) {
-        hoursEl.textContent = '';
+        // Wrapped in the same span the two-figure form uses, so the total
+        // renders at an identical weight and colour on every card.
+        if (totalH > 0) hoursEl.innerHTML = `<span class="sidebar-hours-total">${totalH.toFixed(1)}h</span>`;
+        else hoursEl.textContent = '—';
       } else if (todayH > 0) {
         hoursEl.innerHTML = `<span class="sidebar-hours-today">${todayH.toFixed(1)}h</span><span class="sidebar-hours-sep"> | </span><span class="sidebar-hours-total">${totalH.toFixed(1)}h</span>`;
       } else {
@@ -2817,7 +3009,10 @@
     try {
       const h = loadHistory();
       if (!h.find(d => d.date === ds.date)) {
-        h.push({ date: ds.date, goals: ds.goals || [], distractions: ds.distractions || [], successes: ds.successes || [], failures: ds.failures || [] });
+        // focusSessions is archived too: a session retired at rollover (see
+        // closeFocusSessionForRollover) lands on the outgoing day and would
+        // otherwise be dropped here the moment it was recorded.
+        h.push({ date: ds.date, goals: ds.goals || [], distractions: ds.distractions || [], successes: ds.successes || [], failures: ds.failures || [], focusSessions: ds.focusSessions || [] });
         while (h.length > 30) h.shift();
         storageSet(HISTORY_KEY, JSON.stringify(h));
       }
@@ -2837,7 +3032,10 @@
     return goals.some(g => (g.hours || 0) > 0 || (g.progress || 0) > 0) ||
            (d.quickDone || []).length > 0 ||
            (d.distractions || []).some(x => (x.hours || 0) > 0) ||
-           (d.successes || []).length > 0;
+           (d.successes || []).length > 0 ||
+           // A focus session counts even when its goal is gone — a session
+           // retired at rollover may be the only record the day left behind.
+           (d.focusSessions || []).length > 0;
   }
 
   // The summary modal should reflect the last day you actually WORKED, not
@@ -4157,16 +4355,141 @@
     }
   }
 
+  // A session left running past midnight belongs to the day it started on,
+  // not to the one you woke up in. Rather than discard it (hours genuinely
+  // worked) or credit it to today (hours nobody worked), retire it onto its
+  // own day in history, capped at the time from its start to end of that day.
+  //
+  // The cap matters: an untended session reads as 14h when the real work was
+  // maybe two. We can't know the true figure, so we record a deliberately
+  // conservative one — OVERNIGHT_CREDIT_HOURS — and mark the session
+  // `unattended` so the journal can say the number is an estimate. Erring low
+  // is the honest direction here: overstating hours is the one outcome that
+  // would make the whole log untrustworthy.
+  const OVERNIGHT_CREDIT_HOURS = 1;
+
+  function retireStaleFocusSession(snap) {
+    if (!snap || !snap.sessionStartTime || !snap.date) return false;
+    const startedOn = snap.date;
+    if (startedOn >= getTodayString()) return false;
+
+    // End of the day it started on — the latest the session could have run.
+    const endOfDay = new Date(`${startedOn}T23:59:59`).getTime();
+    const ranMs = Math.max(0, Math.min(endOfDay, Date.now()) - snap.sessionStartTime);
+    const hours = Math.min(OVERNIGHT_CREDIT_HOURS, Math.round(ranMs / 36000) / 100);
+    if (hours <= 0) return false;
+
+    try {
+      const h = loadHistory();
+      const day = h.find(d => d && d.date === startedOn);
+      // No archived day to attach to (history trimmed past 30 days, or the
+      // rollover never ran) — nothing to correct, so drop it rather than
+      // inventing a day.
+      if (!day) return false;
+
+      const goal = (day.goals || []).find(g => g && g.name === snap.goalName);
+      if (goal) {
+        goal.hours = Math.round(Math.min(24, (goal.hours || 0) + hours) * 100) / 100;
+      }
+      day.focusSessions = day.focusSessions || [];
+      day.focusSessions.push({
+        timestamp: snap.sessionStartTime,
+        goalName: snap.goalName,
+        category: snap.category || 'general',
+        totalMins: Math.round(hours * 60),
+        focusPct: 100,
+        focusMins: Math.round(hours * 60),
+        distractMins: 0,
+        isWin: false,
+        ultraFocus: !!snap.ultraFocus,
+        unattended: true, // hours are a conservative estimate, not measured
+        intention: snap.sessionIntention || null,
+        entryTag: snap.sessionEntryTag || null,
+        entryNote: snap.sessionEntryNote || null,
+        midNotes: Array.isArray(snap.sessionNotes) ? snap.sessionNotes.slice() : [],
+        exitTag: null,
+        exitNote: null,
+      });
+      storageSet(HISTORY_KEY, JSON.stringify(h));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Midnight passed with a focus session still on screen. Same reasoning as
+  // retireStaleFocusSession, but for the live case: the overlay is torn down
+  // and the session is written straight into `prevDay` (the state object about
+  // to be archived), so the hours settle on the day they were worked.
+  //
+  // Reads the snapshot rather than the overlay's closure — the snapshot is the
+  // session's serialised truth and is kept current on every meaningful change,
+  // and it's the only handle this function has on that state from outside.
+  function closeFocusSessionForRollover(prevDay) {
+    const overlay = document.querySelector('body > .focus-fullscreen-overlay');
+    const raw = storageGet(FOCUS_SNAPSHOT_KEY);
+    if (!overlay && !raw) return;
+
+    let snap = null;
+    try { snap = raw ? JSON.parse(raw) : null; } catch (e) { snap = null; }
+
+    if (snap && snap.sessionStartTime && prevDay && snap.date === prevDay.date) {
+      const endOfDay = new Date(`${snap.date}T23:59:59`).getTime();
+      const ranMs = Math.max(0, Math.min(endOfDay, Date.now()) - snap.sessionStartTime);
+      const hours = Math.min(OVERNIGHT_CREDIT_HOURS, Math.round(ranMs / 36000) / 100);
+      if (hours > 0) {
+        const goal = (prevDay.goals || []).find(g => g && g.name === snap.goalName);
+        if (goal) {
+          const before = goal.hours || 0;
+          goal.hours = Math.round(Math.min(24, before + hours) * 100) / 100;
+          // Category totals are all-time, not per-day, so they still take the
+          // real gain — only the day the hours are filed under is changing.
+          accumulateCategoryHours(goal.category || 'general', goal.hours - before);
+        }
+        prevDay.focusSessions = prevDay.focusSessions || [];
+        prevDay.focusSessions.push({
+          timestamp: snap.sessionStartTime,
+          goalName: snap.goalName,
+          category: snap.category || 'general',
+          totalMins: Math.round(hours * 60),
+          focusPct: 100,
+          focusMins: Math.round(hours * 60),
+          distractMins: 0,
+          isWin: false,
+          ultraFocus: !!snap.ultraFocus,
+          unattended: true,
+          intention: snap.sessionIntention || null,
+          entryTag: snap.sessionEntryTag || null,
+          entryNote: snap.sessionEntryNote || null,
+          midNotes: Array.isArray(snap.sessionNotes) ? snap.sessionNotes.slice() : [],
+          exitTag: null,
+          exitNote: null,
+        });
+      }
+    }
+
+    storageRemove(FOCUS_SNAPSHOT_KEY);
+    if (overlay) overlay.remove();
+    activeFocusOverlay = null;
+    // No further cleanup needed: the body MutationObserver drops the
+    // focus-fullscreen-open class and unpauses the blobs, and the ambient
+    // screen's intervals self-clear on their `isConnected` guard.
+  }
+
   // Crash recovery: a snapshot in FOCUS_SNAPSHOT_KEY means the tab crashed
   // or reloaded mid-session (deliberate closes always clear it). Offer to
-  // pick the session back up. Same-day only — after a day rollover the
-  // snapshot is stale and silently dropped.
+  // pick the session back up. Same-day only — a session from an earlier day
+  // is retired onto that day (see retireStaleFocusSession) rather than
+  // resumed, since its clock has been running unattended overnight.
   function checkForCrashedFocusSession() {
     const raw = storageGet(FOCUS_SNAPSHOT_KEY);
     if (!raw) return;
     let snap = null;
     try { snap = JSON.parse(raw); } catch (e) { snap = null; }
-    if (!snap || snap.date !== getTodayString() || !snap.sessionStartTime) {
+    if (!snap || !snap.sessionStartTime) {
+      storageRemove(FOCUS_SNAPSHOT_KEY);
+      return;
+    }
+    if (snap.date !== getTodayString()) {
+      retireStaleFocusSession(snap);
       storageRemove(FOCUS_SNAPSHOT_KEY);
       return;
     }
@@ -4823,6 +5146,17 @@
       ultraMark.textContent = '🔥';
       ultraMark.title = 'Ultra focus session — kept going past an hour-long stretch';
       pillLeft.appendChild(ultraMark);
+    }
+
+    // Left running past midnight and closed automatically — the hours are a
+    // conservative estimate, not a measurement. Say so rather than let the
+    // number pass as measured time.
+    if (session.unattended) {
+      const estMark = document.createElement('span');
+      estMark.className = 'focus-session-estimate';
+      estMark.textContent = '~';
+      estMark.title = 'Session was left running overnight and closed automatically — these hours are a conservative estimate';
+      pillLeft.appendChild(estMark);
     }
 
     const pillRight = document.createElement('div');
@@ -6411,12 +6745,13 @@
     });
     focusSection.appendChild(catGrid);
 
-    // Optional per-area time intentions for today, shown under the picker.
+    // Optional per-area time intentions for today. Appended not here but to
+    // the planning row below, so it sits beside the backlog preview — both
+    // are consequences of the same chip selection and read as one pair.
     const intentionFields = makeIntentionFields(
       () => Array.from(selectedCats),
       state.focusIntentions,
     );
-    focusSection.appendChild(intentionFields.el);
 
     // ── Repeatable tasks checklist ──
     const repeatSection = document.createElement('div');
@@ -6594,6 +6929,16 @@
     }
     updateBacklogWaiting();
 
+    // ── Planning row ──
+    // The intention fields and the backlog preview are two readings of the
+    // same chip selection: what you mean to give, and what's already waiting.
+    // Side by side they answer each other; stacked, the second scrolls out of
+    // sight exactly when the first is being filled in. Each column hides
+    // itself independently, so a lone survivor simply takes the full width.
+    const planningRow = document.createElement('div');
+    planningRow.className = 'day-modal-planning-row';
+    planningRow.append(intentionFields.el, waitingSection);
+
     // ── Actions ──
     const actions = document.createElement('div');
     actions.className = 'day-modal-actions';
@@ -6667,10 +7012,10 @@
     modal.append(header, summary);
     if (insights.children.length > 0) modal.appendChild(insights);
     if (leftoverSection) modal.appendChild(leftoverSection);
-    // Sits *after* the focus picker: its list is filtered by the selected
-    // areas, so it only makes sense once that choice is visible — same
-    // placement logic as the repeatable checklist beside it.
-    modal.append(focusSection, repeatSection, waitingSection);
+    // The planning row sits *after* the focus picker: both its columns are
+    // filtered by the selected areas, so they only make sense once that
+    // choice is visible — same placement logic as the repeatable checklist.
+    modal.append(focusSection, repeatSection, planningRow);
     modal.appendChild(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
@@ -6680,6 +7025,12 @@
     const today = getTodayString();
     if (state.date !== today) {
       const prev = state;
+      // Close any focus session still running as the day turns. Its exit
+      // handler closes over `state.goals[index]`, so left open it would log
+      // last night's hours against a goal on the fresh day. Tear the overlay
+      // down BEFORE archiving, so the retired session lands in `prev` and is
+      // archived along with it.
+      closeFocusSessionForRollover(prev);
       archiveDay(prev);
       const ns = getDefaultState();
       ns._carryover = prev.goals

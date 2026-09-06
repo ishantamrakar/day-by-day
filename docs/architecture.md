@@ -76,7 +76,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `getTodayString()` — local date `YYYY-MM-DD`, never UTC.
 - `loadState()` — detects new day on boot → `archiveDay()` → sets `_prevDayForModal` → builds fresh state with `_carryover`.
 - `checkForNewDay()` — runs every 60s at the minute boundary. Same logic for mid-session day change.
-- `archiveDay()` — pushes snapshot to history (max 30). Does not touch `totalHours`.
+- `archiveDay()` — pushes snapshot to history (max 30). Does not touch `totalHours`. The snapshot carries `focusSessions` (added so a session retired at rollover isn't dropped the moment it's recorded); days archived before that change simply have no key, and every reader defaults it to `[]`.
 - `dayHasWork(d)` — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
 - Demote/promote preserve `hours` + `progress` both ways, so a shelved task resumes where it left off.
 - `rescueCarryoverToBacklog()` — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
@@ -108,7 +108,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `<body>` opens with `#blob-layer`, holding the three `.blob-drift > .blob` pairs, before `#app`
 - `#app` → `<aside id="life-sidebar">` + `<div id="main-content">`
 - Sidebar is `position: fixed` — not in the grid
-- `#main-content` padding-left: `calc(52px + 40px)` → `calc(320px + 40px)` when `.sidebar-open`
+- `#main-content` padding-left: `calc(var(--sidebar-rail-w) + 40px)` → `calc(var(--sidebar-w) + 40px)` when `.sidebar-open`. Sidebar geometry lives in three `:root` vars — `--sidebar-w` (372px), `--sidebar-rail-w` (52px), and `--sidebar-panel-w` (derived) — so the panel and this offset follow the one width instead of being three magic numbers edited in lockstep.
 - Two-column CSS Grid inside `#main-content`: `col-left`, `col-right`
 - Cards have `data-card-id` + `draggable-card` for reordering
 - Script order: `app.js` first, then `notifications.js`

@@ -19,9 +19,19 @@ Finitude-aware daily focus app. Personal tool first, product eventually. Inspire
 ```
 index.html       — layout & structure
 style.css        — all styling (Daily Spark design system)
-app.js           — core logic, state, rendering
-notifications.js — nudge system, browser notifications
+app.js           — entry ES module: boot, wiring, window.DayByDayApp
+js/core/         — portable domain logic. NO DOM, NO browser APIs.
+js/platform/     — the only files touching browser APIs (storage, notify, env)
+js/ui/           — DOM rendering & interaction
+notifications.js — nudge system, browser notifications (classic script)
 ```
+
+**Refactor in progress:** app.js is being split into the three layers above;
+whatever hasn't moved yet still lives in app.js. Put new code in a module.
+`js/core/` may not import from `ui/` or `platform/` — dependencies point
+inward, and ESLint enforces it (no browser globals in core). See
+[docs/architecture.md](docs/architecture.md) § Module map for a
+"where do I change X" table and § Porting for the iOS/Android plan.
 
 ## Docs
 

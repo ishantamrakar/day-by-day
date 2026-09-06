@@ -285,7 +285,12 @@
     </div><!-- /#main-content -->
   </div>
 
-  <script src="app.js"></script>
-  <script src="notifications.js"></script>
+  <!-- app.js is an ES module: it defers automatically and executes after the
+       document is parsed. notifications.js stays a classic script but is
+       loaded with `defer` so it still runs before the module, and its own
+       init already waits for DOMContentLoaded + a tick, by which time the
+       module has published window.DayByDayApp. -->
+  <script type="module" src="app.js"></script>
+  <script defer src="notifications.js"></script>
 </body>
 </html>

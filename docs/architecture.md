@@ -2,6 +2,56 @@
 
 → [CLAUDE.md](../CLAUDE.md) | [features.md](features.md) | [drag-drop.md](drag-drop.md)
 
+## Module map — where to find things
+
+**Refactor in progress.** `app.js` is being split into three layers. Code not
+yet moved still lives in `app.js`; new code belongs in a module.
+
+```
+app.js              entry module — boot, wiring, window.DayByDayApp
+js/
+  core/       portable domain logic. NO DOM, NO browser APIs.
+              A native (iOS/Android) build reuses these verbatim.
+  platform/   the only files that touch browser APIs.
+              Swapped per target; everything else imports from here.
+  ui/         DOM rendering and interaction. Rewritten for native.
+notifications.js    classic script (not yet a module)
+```
+
+**The dependency rule:** `core/` never imports from `ui/` or `platform/` —
+dependencies point inward. This is enforced by ESLint (`js/core/**` has no
+browser globals and restricted imports), not by convention, because a
+documented-only boundary decays. If lint rejects a browser call in `core/`,
+the fix is to move that call into `platform/` and pass the result in.
+
+| Need to change… | Look in |
+|---|---|
+| How data is persisted | `js/platform/storage.js` |
+| Storage keys and their meaning | this file, § localStorage Keys |
+| Store shape, entities, adapter | `app.js` (§ UNIFIED STORE) → `js/core/store.js` |
+| Growth stages / milestones | `app.js` (§ GROWTH STAGES) → `js/core/growth.js` |
+| Daily intentions logic | `app.js` (§ DAILY INTENTIONS) → `js/core/intentions.js` |
+| Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
+| Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
+| Day transition modal | `app.js` (§ DAY TRANSITION MODAL) → `js/ui/day-transition.js` |
+| Drag & drop | `app.js` (§ drag sections) → `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
+
+## Porting to iOS / Android
+
+The layering above exists so a native port is a port, not a rewrite:
+
+- **`js/core/` moves unchanged.** It is already free of DOM and browser APIs,
+  verified by lint rather than by inspection.
+- **`js/platform/` is reimplemented** per target. `storage.js` is the main one:
+  its contract is synchronous, total (never throws), string-keyed and
+  string-valued. On React Native, back it with AsyncStorage — note that
+  AsyncStorage is **async**, so that port either wraps it in an in-memory cache
+  hydrated at boot, or the core's save calls become async. This is the single
+  biggest decision a native port faces.
+- **`js/ui/` is rewritten.** Drag & drop in particular is pointer-event based
+  and deliberately web-only; a native build would use Gesture Handler /
+  Reanimated instead. No effort is spent making it portable.
+
 ## localStorage Keys
 
 | Key | Contents |
@@ -111,7 +161,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `#main-content` padding-left: `calc(var(--sidebar-rail-w) + 40px)` → `calc(var(--sidebar-w) + 40px)` when `.sidebar-open`. Sidebar geometry lives in three `:root` vars — `--sidebar-w` (372px), `--sidebar-rail-w` (52px), and `--sidebar-panel-w` (derived) — so the panel and this offset follow the one width instead of being three magic numbers edited in lockstep.
 - Two-column CSS Grid inside `#main-content`: `col-left`, `col-right`
 - Cards have `data-card-id` + `draggable-card` for reordering
-- Script order: `app.js` first, then `notifications.js`
+- Script order: `app.js` is `type="module"` (auto-deferred, runs after parse); `notifications.js` is a classic script with `defer`. Its init waits for `DOMContentLoaded` plus a tick, by which point the module has published `window.DayByDayApp` — the guard it already had (`if (!window.DayByDayApp) return`) covers the rest.
 - `carryover-banner` still exists in HTML but is superseded by the Day Transition Modal
 
 ## notifications.js

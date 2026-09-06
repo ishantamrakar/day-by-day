@@ -1,4 +1,13 @@
 // === Day by Day — Core Application Logic ===
+//
+// MIGRATION IN PROGRESS: this file is being split into js/core (portable,
+// no DOM), js/platform (browser APIs, swapped per target) and js/ui (DOM).
+// See docs/architecture.md § Module map. Code still living here has not been
+// moved yet; new code belongs in a module, not at the bottom of this file.
+
+import {
+  storageGet, storageSet, storageRemove, isStorageAvailable, storageKeysWithPrefix,
+} from './js/platform/storage.js';
 
 (function () {
   'use strict';
@@ -166,13 +175,7 @@
   }
 
   // --- Storage ---
-  let storageAvailable = false;
-  try {
-    const k = '__daybyday_test__';
-    localStorage.setItem(k, '1');
-    if (localStorage.getItem(k) === '1') storageAvailable = true;
-    localStorage.removeItem(k);
-  } catch (e) {}
+  // Moved to js/platform/storage.js — imported at the top of this file.
 
   // =========================================================
   // BLOB CONTROLLER — time-of-day drift + event pulses
@@ -443,18 +446,8 @@
   // Defer color apply until after state loads (state isn't set yet at this point in the IIFE)
   setTimeout(applyBlobColors, 0);
 
-  function storageGet(key) {
-    if (!storageAvailable) return null;
-    try { return localStorage.getItem(key); } catch (e) { return null; }
-  }
-  function storageSet(key, value) {
-    if (!storageAvailable) return;
-    try { localStorage.setItem(key, value); } catch (e) {}
-  }
-  function storageRemove(key) {
-    if (!storageAvailable) return;
-    try { localStorage.removeItem(key); } catch (e) {}
-  }
+  // storageGet / storageSet / storageRemove now come from
+  // js/platform/storage.js (imported at the top of this file).
 
   // =========================================================
   // UNIFIED STORE (Phase 3, step 1)
@@ -3157,7 +3150,7 @@
     render();
   });
 
-  if (storageWarning && !storageAvailable) storageWarning.classList.remove('hidden');
+  if (storageWarning && !isStorageAvailable()) storageWarning.classList.remove('hidden');
 
   // =========================================================
   // INLINE EDITING
@@ -6183,12 +6176,7 @@
   // is a byte-for-byte round trip regardless of future schema changes.
   function collectExportPayload() {
     const keys = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf('daybyday_') === 0) keys[k] = localStorage.getItem(k);
-      }
-    } catch (e) {}
+    storageKeysWithPrefix('daybyday_').forEach(k => { keys[k] = storageGet(k); });
     return {
       app: 'day-by-day',
       formatVersion: EXPORT_FORMAT_VERSION,
@@ -6220,15 +6208,10 @@
       return 'This backup contains no app data.';
     }
     try {
-      const stale = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf('daybyday_') === 0) stale.push(k);
-      }
-      stale.forEach(k => localStorage.removeItem(k));
+      storageKeysWithPrefix('daybyday_').forEach(k => storageRemove(k));
       Object.keys(payload.keys).forEach(k => {
         if (k.indexOf('daybyday_') === 0 && typeof payload.keys[k] === 'string') {
-          localStorage.setItem(k, payload.keys[k]);
+          storageSet(k, payload.keys[k]);
         }
       });
     } catch (e) {

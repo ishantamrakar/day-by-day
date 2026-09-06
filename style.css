@@ -11,6 +11,14 @@
   --text: #1B4332;             /* Dark Evergreen */
   --text-muted: #6C757D;       /* Slate Gray */
 
+  /* Sidebar geometry. These three were three separate magic numbers (320 /
+     268 / a 320 baked into #main-content's offset) that had to be edited in
+     lockstep; as variables the panel and the content offset both derive from
+     the one width, so widening the sidebar is a single edit. */
+  --sidebar-w: 372px;
+  --sidebar-rail-w: 52px;
+  --sidebar-panel-w: calc(var(--sidebar-w) - var(--sidebar-rail-w));
+
   /* Semantic danger (destructive confirms) — rgba derivations use 201,80,76 */
   --danger: #C9504C;
   --danger-deep: #B34440;
@@ -260,12 +268,12 @@ html.focus-fullscreen-open .blob-layer { visibility: hidden; }
 
 #main-content {
   padding: 24px 40px 16px;
-  padding-left: calc(52px + 40px);
+  padding-left: calc(var(--sidebar-rail-w) + 40px);
   transition: padding-left 0.3s cubic-bezier(0.4,0,0.2,1);
 }
 
 #main-content.sidebar-open {
-  padding-left: calc(320px + 40px);
+  padding-left: calc(var(--sidebar-w) + 40px);
 }
 
 /* === Header === */
@@ -1744,9 +1752,9 @@ footer {
   display: none;
 }
 
-.life-sidebar.collapsed { width: 52px; }
+.life-sidebar.collapsed { width: var(--sidebar-rail-w); }
 .life-sidebar:not(.collapsed) {
-  width: 320px;
+  width: var(--sidebar-w);
   box-shadow: 4px 0 40px rgba(0,0,0,0.12), 2px 0 12px rgba(45,106,79,0.08);
 }
 
@@ -1760,7 +1768,7 @@ footer {
 
 /* Rail — emoji buttons stacked vertically. No distinct background — blends into page */
 .sidebar-rail {
-  width: 52px;
+  width: var(--sidebar-rail-w);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1885,9 +1893,9 @@ footer {
   opacity: 1;
 }
 
-/* Expanded panel — takes remaining width after the 52px rail */
+/* Expanded panel — takes the remaining width after the rail */
 .sidebar-panel {
-  width: 268px; /* 320 - 52 */
+  width: var(--sidebar-panel-w);
   display: flex;
   flex-direction: column;
   padding: 20px 16px 20px;
@@ -1971,11 +1979,26 @@ footer {
   transform: translateY(-1px);
 }
 
-/* Focused card — slightly elevated to distinguish from rest */
+/* Focused card — slightly elevated, and washed in its own area's colour.
+   The tint is layered OVER a near-opaque white base rather than replacing it:
+   the cards sit on a moving blob background, and a translucent colour alone
+   would let the blobs read straight through and shift as they drift. The
+   fallback rgb is the app green, for the rare category with no colour set.
+   Kept very light (0.07) — enough to identify the area at a glance, never
+   enough to compete with the bars and text it holds. */
 .sidebar-cat-focused {
-  background: rgba(255,255,255,0.72);
-  border-color: rgba(45,106,79,0.2);
-  box-shadow: 0 2px 8px rgba(45,106,79,0.08), 0 1px 2px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,1);
+  background:
+    linear-gradient(rgba(var(--cat-color-rgb, 45,106,79), 0.07), rgba(var(--cat-color-rgb, 45,106,79), 0.07)),
+    rgba(255,255,255,0.82);
+  border-color: rgba(var(--cat-color-rgb, 45,106,79), 0.22);
+  box-shadow: 0 2px 8px rgba(var(--cat-color-rgb, 45,106,79), 0.1), 0 1px 2px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,1);
+}
+
+/* Hover keeps the area's colour in the lift rather than falling back to the
+   generic grey shadow, which would drop the tint at exactly the moment the
+   card is being looked at. */
+.sidebar-cat-focused:hover {
+  box-shadow: 0 3px 12px rgba(var(--cat-color-rgb, 45,106,79), 0.16), 0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,1);
 }
 
 /* Pencil edit button — hidden until card hover */
@@ -2107,14 +2130,108 @@ footer {
 .sidebar-cat-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 5px;
+  min-width: 0;
 }
 
 .sidebar-cat-emoji {
   font-size: 0.95rem;
   line-height: 1;
   flex-shrink: 0;
+}
+
+/* Card body — content column plus the growth chamber on the right.
+   The chamber is the plant's dedicated home: a fixed narrow strip separated
+   by a hairline, so the marker reads as its own thing rather than another
+   item crowded into the title row. */
+.sidebar-cat-body {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.sidebar-cat-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The content column carries the hairline that separates it from the chamber,
+   so the chamber's own box stays square (a border-left there would be
+   subtracted from its width under border-box). Scoped to focused cards: the
+   chamber only exists there, and unscoped this would draw a rule with nothing
+   on the other side of it on every remaining card. */
+.sidebar-cat-focused .sidebar-cat-content {
+  padding-right: 8px;
+  border-right: 1px solid rgba(0,0,0,0.06);
+}
+
+/* A square chamber. The earlier bump to a 30px basis looked like nothing
+   changed because box-sizing is border-box globally: the 8px padding and the
+   1px rule were being subtracted from that 30px, leaving ~21px of actual room
+   — narrower than before. So the separator now lives on the BODY as a
+   border-right on the content column, and the chamber's own box is pure
+   content: 34px wide, with min-height matching so it reads square whatever
+   the plant and its ×N count come to.
+   The card body's budget follows --sidebar-panel-w (currently 320px, less 32
+   panel padding, 20 card padding and 2 border = 266px), so the chamber and
+   its 6px gap leave the bars ~217px. */
+.sidebar-cat-chamber {
+  flex: 0 0 34px;
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+}
+
+/* Today's intention pipe — stacked directly above the growth bar so the two
+   read as one instrument: today on top, the long climb beneath. */
+.sidebar-intention-container {
+  height: 5px;
+  background: rgba(0,0,0,0.05);
+}
+
+/* Caption under a pipe — the numbers live with the bar they describe, which
+   keeps the title row free for the category name. */
+.sidebar-bar-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 3px 0 7px;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-bar-label--muted {
+  opacity: 0.65;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.sidebar-bar-tick {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* The lower pipe (long-term stage climb) stays thinner and quieter so the two
+   read as separate instruments rather than one thick bar. */
+.sidebar-cat-focused .sidebar-cat-bar-container:not(.sidebar-intention-container) {
+  height: 2px;
+  opacity: 0.55;
+}
+
+.sidebar-intention-fill {
+  transition: width 0.45s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Met: a quiet lift, never a celebration that implies the others failed. */
+.sidebar-intention--met .sidebar-intention-fill {
+  box-shadow: 0 0 0 1px rgba(45,106,79,0.28) inset;
 }
 
 /* Growth milestone toast — a quiet acknowledgement at the top of the sidebar
@@ -2129,7 +2246,26 @@ footer {
   background: rgba(45,106,79,0.07);
   border: 1px solid rgba(45,106,79,0.16);
   border-radius: 10px;
+}
+
+/* Only on the toast's first paint — it is rebuilt on every re-render while
+   live, and replaying the entrance each time would make it twitch. */
+.sidebar-growth-toast-enter {
   animation: growth-toast-in 0.4s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Intentions-met variant. Same shape as the growth toast, warmer accent so
+   the two read as different events at a glance. The mark is drawn in the
+   accent rather than the plant's green: this is today's news, not the long
+   climb the growth toast reports. */
+.sidebar-intentions-toast {
+  background: rgba(64,145,108,0.09);
+  border-color: rgba(64,145,108,0.22);
+}
+
+.sidebar-intentions-toast .sidebar-growth-toast-art {
+  color: var(--accent);
+  font-weight: 800;
 }
 
 @keyframes growth-toast-in {
@@ -2158,12 +2294,15 @@ footer {
    between the name and the hours; quiet by default so it reads as a reward
    noticed rather than a metric demanded. */
 .sidebar-cat-growth {
-  font-size: 0.8rem;
+  /* Nudged up with the chamber that holds it — a wider strip around a plant
+     the same size would read as padding, not as more room for the plant. */
+  font-size: 1.08rem;
   line-height: 1;
   flex-shrink: 0;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 2px;
   transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
 }
 
@@ -2208,6 +2347,12 @@ footer {
   font-weight: 700;
   color: var(--text-muted);
   white-space: nowrap;
+  flex-shrink: 0;
+}
+.sidebar-hours-of {
+  font-weight: 500;
+  color: var(--text-muted);
+  opacity: 0.8;
 }
 .sidebar-hours-today {
   color: var(--primary);
@@ -3191,7 +3336,10 @@ footer {
   border-radius: 20px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 24px 64px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,1);
   width: 100%;
-  max-width: 680px;
+  /* Wide enough for the focus grid to breathe (and to hold an intention field
+     per selected area). width:100% + the overlay's padding keeps it safe on
+     phones, so no mobile override is needed. */
+  max-width: 882px;
   max-height: 88vh;
   overflow-y: auto;
   padding: 36px;
@@ -3487,6 +3635,97 @@ footer {
 .dmc-emoji { font-size: 1.3rem; line-height: 1; }
 .dmc-name { font-size: 0.7rem; font-weight: 600; color: var(--text); }
 .dmc-hours { font-size: 0.62rem; color: var(--text-muted); font-weight: 500; }
+
+/* Planning row — the intention fields and the backlog preview, side by side.
+   Both are driven by the focus chips, and both hide themselves when empty:
+   `align-items: start` keeps a short column from stretching to match a tall
+   one, and a hidden sibling leaves the survivor spanning the full width. */
+.day-modal-planning-row {
+  display: grid;
+  /* auto-fit, not `1fr 1fr`: a display:none column contributes no track, so
+     when only one survives it spans the full width instead of stranding an
+     empty half beside it. */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+/* Both columns hidden — the row would still contribute the modal's flex gap. */
+.day-modal-planning-row:not(:has(> *:not(.hidden))) { display: none; }
+
+/* Daily intention fields — the optional "time you'd like to give" rows beside
+   a focus picker. Deliberately understated: an unfilled row is a normal state,
+   not an incomplete form. No margin-top: it no longer trails the picker, it's
+   a column of the planning row, aligned with the backlog preview beside it. */
+.intention-fields {
+  min-width: 0;
+}
+
+.intention-fields.hidden { display: none; }
+
+.intention-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.intention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(0,0,0,0.05);
+}
+
+.intention-row-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intention-row-emoji {
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.intention-input {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  width: 62px;
+  padding: 5px 8px;
+  text-align: right;
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 8px;
+  background: var(--surface-solid);
+  font-variant-numeric: tabular-nums;
+}
+
+.intention-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.intention-unit {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  width: 10px;
+}
 
 /* Repeatable checklist */
 .day-modal-repeat-section.hidden { display: none; }
@@ -5499,6 +5738,16 @@ footer {
 .focus-session-ultra {
   font-size: 0.8rem;
   margin-left: 2px;
+}
+
+/* Estimate marker on a session closed automatically overnight. Quiet by
+   design — it qualifies the hours, it isn't a warning about them. */
+.focus-session-estimate {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-left: 3px;
+  color: var(--text-muted);
+  cursor: help;
 }
 
 /* Timestamp on saved session notes */

@@ -41,10 +41,10 @@ that section header and is headed for the named file.
 | Blob motion, drift, swirl pulses | ✅ `js/ui/blobs.js` |
 | Backup export/import rules | ✅ `js/core/backup.js` |
 | Time-add ring, chip dials, inline hours editor | ✅ `js/ui/time-ring.js` |
+| Day transition (morning review) modal | ✅ `js/ui/day-transition.js` |
+| Drag & drop (all three systems) | ✅ `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
 | Sidebar rendering | `app.js` (§ SIDEBAR) → `js/ui/sidebar.js` |
 | Focus mode | `app.js` (§ FOCUS MODAL) → `js/ui/focus-mode.js` |
-| Day transition modal | `app.js` (§ DAY TRANSITION MODAL) → `js/ui/day-transition.js` |
-| Drag & drop | `app.js` (§ drag sections) → `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
 `intentionsAllMetToday(state, categories)` and friends never read module state,
@@ -56,6 +56,23 @@ node --input-type=module -e "import {getGrowthStage} from './js/core/growth.js';
 
 `app.js` keeps same-named thin wrappers that bind them to the live `state` /
 `categories`, so call sites are unchanged.
+
+### The injected-context pattern
+
+The larger UI modules need many things from `app.js` — `js/ui/drag.js` needs
+16. Passing those as parameters would mean 16-argument calls, so they arrive as
+one object via `configure(ctx)`.
+
+`state` and `backlog` are declared as **getters** on that object, never plain
+values, because `app.js` reassigns those bindings (rollover replaces `state`;
+`backlog` is rehydrated at boot). A captured value would silently go stale —
+a drag would mutate yesterday's array. `js/ui/drag.js` goes further and reads
+through a Proxy, so no destructuring can accidentally capture one.
+
+`npm run check:state-sync` guards the matching hazard in `app.js`: every
+reassignment of `state`/`backlog` must be followed by `CoreState.setState`/
+`setBacklog`, or js/core keeps a stale object. That check exists because this
+refactor shipped exactly that bug in the "Reset day" path.
 
 ### Dependency injection at the composition root
 

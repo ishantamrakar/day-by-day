@@ -17,11 +17,26 @@ const tdzDecl = new Map();
 src.forEach((line, i) => {
   const single = line.match(/^\s*(?:const|let)\s+(\w+)\s*=/);
   if (single && !tdzDecl.has(single[1])) tdzDecl.set(single[1], i);
-  const destructured = line.match(/^\s*(?:const|let)\s*\{([^}]+)\}\s*=/);
-  if (destructured) {
-    for (const raw of destructured[1].split(',')) {
-      const name = raw.trim().split(':').pop().trim();
-      if (name && !tdzDecl.has(name)) tdzDecl.set(name, i);
+
+  // Destructuring, possibly spanning several lines:
+  //   const { a, b,
+  //           c } = Module;
+  // The single-line form was not enough — a multi-line destructure is exactly
+  // how the UI modules are unpacked, and missing it let a real boot failure
+  // through (Sidebar.configure passing openCatInlineEdit from js/ui/modals.js).
+  if (/^\s*(?:const|let)\s*\{/.test(line)) {
+    let names = '', j = i;
+    while (j < src.length) {
+      names += src[j];
+      if (src[j].includes('}')) break;
+      j++;
+    }
+    const inner = names.match(/\{([^}]*)\}/);
+    if (inner) {
+      for (const raw of inner[1].split(',')) {
+        const name = raw.trim().split(':').pop().trim();
+        if (name && !tdzDecl.has(name)) tdzDecl.set(name, i);
+      }
     }
   }
 });

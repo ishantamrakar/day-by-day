@@ -45,6 +45,8 @@ that section header and is headed for the named file.
 | Drag & drop (all three systems) | ✅ `js/ui/drag.js`, see [drag-drop.md](drag-drop.md) |
 | Focus mode screens (sheet + fullscreen session) | ✅ `js/ui/focus-mode.js` |
 | Sidebar rail/panel, category cards, growth toasts | ✅ `js/ui/sidebar.js` |
+| Category/quick-add/new-area/task-detail modals | ✅ `js/ui/modals.js` |
+| Category colour palette, emoji→colour | ✅ `js/core/palette.js` |
 | Overnight session retirement, snapshot read/write | ✅ `js/core/sessions.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,

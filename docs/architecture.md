@@ -46,6 +46,7 @@ that section header and is headed for the named file.
 | Focus mode screens (sheet + fullscreen session) | ✅ `js/ui/focus-mode.js` |
 | Sidebar rail/panel, category cards, growth toasts | ✅ `js/ui/sidebar.js` |
 | Category/quick-add/new-area/task-detail modals | ✅ `js/ui/modals.js` |
+| Settings dialog, backup UI, focus editor | ✅ `js/ui/settings.js` |
 | Category colour palette, emoji→colour | ✅ `js/core/palette.js` |
 | Overnight session retirement, snapshot read/write | ✅ `js/core/sessions.js` |
 
@@ -120,6 +121,25 @@ is the one thing that keeps the two views from diverging.
 
 Property mutation (`state.goals.push(...)`) needs no accessor and is used
 freely; only whole-object replacement has to go through the setter.
+
+## Serving (and the file:// trap)
+
+`app.js` is an ES module, so the app **must** be served over HTTP:
+
+```
+python3 -m http.server 8000   # from the directory containing index.html
+```
+
+Opening `index.html` directly fails with *"Access to script … has been blocked
+by CORS policy"* and a blank page. This changed when the module split landed —
+before that, `app.js` was a classic script and `file://` happened to work.
+
+**The consequence worth knowing:** `file://` and `http://localhost:8000` are
+distinct origins, each with its own localStorage. Data written while opening
+the file directly is not visible from the server. It is not lost — recover it
+by loading the old origin, exporting (gear → Export), and importing at the new
+one. The backup format is every `daybyday_*` key verbatim, so the round trip is
+exact.
 
 ## Porting to iOS / Android
 

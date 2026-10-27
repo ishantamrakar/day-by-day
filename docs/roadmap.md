@@ -4,9 +4,10 @@
 
 ## Known Bugs
 
-- **Cross-card drag** — *likely fixed, needs hand-verification.* An automated pass (5 goal→backlog drops at two drag speeds) succeeded 5/5 with no ghost trail and no console errors. Plausibly fixed incidentally by the blob re-raster perf work in PR #7. Left listed until confirmed by hand on the deployed site, since the original report came from real use. Diagnosis kept in [drag-drop.md](drag-drop.md).
 - **Browser notifications** — permission flow works but notifications don't appear in some browsers. In-app nudge is the reliable fallback.
 - **`totalHours` not retroactive** — only reflects hours logged after categories feature was added. No backfill.
+
+**Closed (2026-10):** cross-card drag (ghost paint trail, goal→backlog drop not registering). An automated pass (5 goal→backlog drops at two drag speeds) succeeded 5/5 with no ghost trail and no console errors, and the maintainer has not seen it in real daily use since. Most likely fixed incidentally by the blob re-raster perf work in PR #7 — no targeted fix was made, so if it reappears, start from the pointer-capture diagnosis kept in [drag-drop.md](drag-drop.md).
 
 **Fixed (2026-08):** `saveCategories()` wrote only the legacy `daybyday_categories` key, never the unified store — so `store.categories[].totalHours` in localStorage stayed stale until some unrelated action happened to call `saveStore()`. In-memory reads were correct (the two share one array), which is why it went unnoticed. Caught by the new `test-hours.mjs` regression suite the day it was written.
 

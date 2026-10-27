@@ -1,6 +1,6 @@
 # Product Phase Plan
 
-→ [CLAUDE.md](../CLAUDE.md) | [roadmap.md](roadmap.md) § Product Vision | [data-model.md](data-model.md)
+→ [CLAUDE.md](../CLAUDE.md) | [roadmap.md](roadmap.md) § Product Vision | [data-model.md](data-model.md) | [launch-checklist.md](launch-checklist.md)
 
 *Written 2026-07. How and when Day by Day goes from personal tool to product. The decision to stay vanilla JS until Stage 2 is deliberate (see "Framework decision" below).*
 
@@ -21,7 +21,7 @@ So the phases below are separated by **gates, not dates**. The calendar never fo
 | G1 | **Personal proof** — 60+ days of genuine daily use; the day-transition modal has real history behind it | If the maintainer's own streak doesn't hold, nobody else's will |
 | G2 | **Data integrity clean** — the Known Bugs that touch data (category `totalHours` double-count on carryover, no-backfill) are fixed or consciously accepted; zero data-loss incidents in the last 30 days | Users forgive UI bugs, never lost data |
 | G3 | **Data safety shipped** — JSON export/import exists; the unified store has run 30+ clean days and the legacy backup keys are retired | Export is both a trust feature and the future migration tool |
-| G4 | **External pull** — at least ~3 people have asked to use it *unprompted* after seeing it | Ship to pull, don't push. If nobody asks, staying personal is success, not failure |
+| G4 | **External pull** — at least ~3 people have asked to use it *unprompted* after seeing it | Ship to pull, don't push. If nobody asks, staying personal is success, not failure. Deliberately pursuing this via social outreach? See [launch-checklist.md](launch-checklist.md) first |
 | G5 | **Honest time budget** — product means support, onboarding, infra. Decide the weekly hours it's worth *before* strangers depend on it | The finitude philosophy applies to the maintainer too |
 
 ## Stage 0 — Hardening (now → gates; still 100% personal)

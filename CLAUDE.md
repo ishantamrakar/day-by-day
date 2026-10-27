@@ -14,7 +14,9 @@
 
 Finitude-aware daily focus app. Personal tool first, product eventually. Inspired by Oliver Burkeman's *4,000 Weeks* — embrace limits, act imperfectly, focus on what matters.
 
-**Stack:** Vanilla JS, no framework, no build step. Serve via HTTP (`python3 -m http.server 8000`) — `file://` blocks localStorage and Notifications.
+**Stack:** Vanilla JS, no framework, no build step. **Must be served over HTTP** (`python3 -m http.server 8000`, then `localhost:8000`) — `app.js` is an ES module, and browsers block module imports over `file://` (CORS), so opening `index.html` directly gives a blank page. `file://` also blocks localStorage and Notifications.
+
+> ⚠️ **`file://` and `http://localhost:8000` are separate origins with separate localStorage.** Data saved while opening the file directly is invisible from the server and vice versa. If data looks "missing" after switching, it is almost certainly at the other origin — export from there (gear → Export) and import at the new one, rather than assuming it was lost.
 
 ```
 index.html       — layout & structure
@@ -45,6 +47,7 @@ inward, and ESLint enforces it (no browser globals in core). See
 | [docs/roadmap.md](docs/roadmap.md) | Known bugs, backlog, future ideas, product vision |
 | [docs/product-plan.md](docs/product-plan.md) | Product-phase gates and stages: hardening → PWA beta → sync → monetization |
 | [docs/dev-workflow.md](docs/dev-workflow.md) | Branch model (`main`/`develop`/`feature/*`), CI checks, GitHub Pages deploy |
+| [docs/launch-checklist.md](docs/launch-checklist.md) | What must be true before public/social posting — pursuing gate G4 |
 
 ## Philosophy & Tone
 

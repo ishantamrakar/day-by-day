@@ -64,11 +64,11 @@ The ghost **must not** use `backdrop-filter`. Compositing a blur layer and repos
 
 ---
 
-## ⚠️ Known Bug — cross-card drop unreliable
+## Closed bug — cross-card drop unreliable
 
-**Status:** Unresolved as of last session.
+**Status:** Closed 2026-10. Passed an automated check (5/5 goal→backlog drops, two speeds, no ghost trail, no console errors) and has not recurred in real daily use. Never fixed directly — most likely resolved by the blob re-raster perf work in PR #7. The diagnosis below is kept in case it comes back.
 
-**Symptoms:**
+**Symptoms (as originally reported):**
 - Ghost still shows a paint trail in some cases
 - Drop on backlog does not consistently register
 - Re-entry placeholder may not appear
@@ -76,7 +76,7 @@ The ghost **must not** use `backdrop-filter`. Compositing a blur layer and repos
 **Most likely root cause — pointer capture:**
 `handle.setPointerCapture(e.pointerId)` is called on drag start. On cross-card transition, `handle.releasePointerCapture(e.pointerId)` is called. If this fails silently (element already detached, wrong pointerId, etc.), all subsequent pointer events route to the now-removed handle element. `pointermove` and `pointerup` on `document` never fire.
 
-**Recommended debugging approach for next session:**
+**Debugging approach if it recurs:**
 1. Add `console.log` at the top of `onTaskDragEnd` — confirm it fires at all during cross-card drop
 2. Log `activeDrag.overBacklog`, `e.clientX/Y`, and `backlogCard.getBoundingClientRect()` — confirm coords overlap
 3. Try registering the `pointerup` listener on `window` with `{ capture: true }` instead of `document`

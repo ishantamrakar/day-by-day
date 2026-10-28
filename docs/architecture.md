@@ -51,6 +51,8 @@ that section header and is headed for the named file.
 | Overnight session retirement, snapshot read/write | ✅ `js/core/sessions.js` |
 | Done Today card (completed Top 5, quick wins) | ✅ `js/ui/done-today.js` |
 | Done Today ordering, fold counts, quick-win record | ✅ `js/core/done-today.js` |
+| Journal card (focus sessions, wins & lessons) | ✅ `js/ui/journal.js` |
+| Session detail text, newest-first session order | ✅ `js/core/journal.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
 `intentionsAllMetToday(state, categories)` and friends never read module state,

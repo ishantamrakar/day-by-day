@@ -49,6 +49,8 @@ that section header and is headed for the named file.
 | Settings dialog, backup UI, focus editor | ✅ `js/ui/settings.js` |
 | Category colour palette, emoji→colour | ✅ `js/core/palette.js` |
 | Overnight session retirement, snapshot read/write | ✅ `js/core/sessions.js` |
+| Done Today card (completed Top 5, quick wins) | ✅ `js/ui/done-today.js` |
+| Done Today ordering, fold counts, quick-win record | ✅ `js/core/done-today.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
 `intentionsAllMetToday(state, categories)` and friends never read module state,

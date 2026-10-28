@@ -40,6 +40,7 @@ import * as FocusMode from './js/ui/focus-mode.js';
 import * as Sidebar from './js/ui/sidebar.js';
 import * as Modals from './js/ui/modals.js';
 import * as Settings from './js/ui/settings.js';
+import * as DoneToday from './js/ui/done-today.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
 
@@ -950,230 +951,17 @@ import * as CoreSessions from './js/core/sessions.js';
   }
 
   // =========================================================
-  // DONE TODAY
+  // DONE TODAY — wiring only
   // =========================================================
-  const DONE_VISIBLE = 3; // items shown before collapse
-  const doneExpanded = { goals: false, quick: false };
-
-  function renderDone() {
-    if (!doneListEl) return;
-    doneListEl.innerHTML = '';
-
-    const completedGoals = getCompletedGoals();
-    const quickItems = state.quickDone || [];
-    const total = completedGoals.length + quickItems.length;
-
-    if (doneSubtitle) {
-      doneSubtitle.textContent = total === 0
-        ? 'Nothing yet — go get one'
-        : `${total} thing${total !== 1 ? 's' : ''} done`;
-    }
-
-    if (total === 0) return;
-
-    // --- From Top 5 group (newest first) ---
-    if (completedGoals.length > 0) {
-      const reversed = [...completedGoals].reverse();
-      doneListEl.appendChild(createDoneGroup({
-        label: 'From Top 5',
-        items: reversed,
-        expandKey: 'goals',
-        createItem: (goal, i) => {
-          const realIndex = state.goals.indexOf(goal);
-          return createDoneGoalItem(goal, realIndex, i === 0);
-        }
-      }));
-    }
-
-    // --- Quick wins group (newest first) ---
-    if (quickItems.length > 0) {
-      const reversed = [...quickItems].reverse();
-      doneListEl.appendChild(createDoneGroup({
-        label: 'Quick wins',
-        items: reversed,
-        expandKey: 'quick',
-        createItem: (item, i) => {
-          const realIndex = quickItems.indexOf(item);
-          return createDoneQuickItem(item, realIndex, i === 0);
-        }
-      }));
-    }
-  }
-
-  function createDoneGroup({ label, items, expandKey, createItem }) {
-    const group = document.createElement('div');
-    group.className = 'done-group';
-
-    const header = document.createElement('div');
-    header.className = 'done-group-header';
-
-    const labelEl = document.createElement('span');
-    labelEl.className = 'done-group-label';
-    labelEl.textContent = label;
-
-    const countEl = document.createElement('span');
-    countEl.className = 'done-group-count';
-    countEl.textContent = items.length;
-
-    header.append(labelEl, countEl);
-    group.appendChild(header);
-
-    const list = document.createElement('div');
-    list.className = 'done-group-list';
-
-    const isExpanded = doneExpanded[expandKey];
-    const showCount = isExpanded ? items.length : Math.min(DONE_VISIBLE, items.length);
-    const hiddenCount = items.length - DONE_VISIBLE;
-
-    items.slice(0, showCount).forEach((item, i) => {
-      list.appendChild(createItem(item, i));
-    });
-
-    group.appendChild(list);
-
-    // Expand/collapse toggle
-    if (hiddenCount > 0) {
-      const toggle = document.createElement('button');
-      toggle.className = 'done-expand-btn';
-
-      if (!isExpanded) {
-        toggle.textContent = `+ ${hiddenCount} more`;
-        toggle.addEventListener('click', () => {
-          doneExpanded[expandKey] = true;
-          renderDone();
-        });
-      } else {
-        toggle.textContent = 'Show less';
-        toggle.classList.add('done-expand-btn--open');
-        toggle.addEventListener('click', () => {
-          doneExpanded[expandKey] = false;
-          renderDone();
-        });
-      }
-
-      group.appendChild(toggle);
-    }
-
-    return group;
-  }
-
-  function createDoneGoalItem(goal, index, isLatest) {
-    const row = document.createElement('div');
-    row.className = 'done-item done-item-goal' + (isLatest ? ' done-item-entering' : '');
-    if (isLatest) requestAnimationFrame(() => row.classList.remove('done-item-entering'));
-
-    // Category emoji badge — static, no edit from done list
-    const cat = getCategoryById(goal.category || 'general');
-    const catBadge = document.createElement('span');
-    catBadge.className = 'done-item-cat-badge';
-    catBadge.textContent = cat.emoji || '●';
-    catBadge.title = cat.name;
-    catBadge.style.setProperty('--badge-color', cat.color);
-
-    const name = document.createElement('span');
-    name.className = 'done-item-name';
-    name.textContent = goal.name;
-
-    const meta = document.createElement('span');
-    meta.className = 'done-item-meta';
-    meta.textContent = goal.hours > 0 ? `${goal.hours}h` : '';
-
-    const reopenBtn = document.createElement('button');
-    reopenBtn.className = 'btn-uncomplete';
-    reopenBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h31.39L181.19,69.8a80,80,0,1,0,1.67,114.1,8,8,0,0,1,11.16,11.46A96,96,0,1,1,207.07,73.93L224,90.51V48a8,8,0,0,1,16,0Z"/></svg> Reopen';
-    reopenBtn.addEventListener('click', () => {
-      state.goals[index].progress = 95;
-      saveState(); render();
-    });
-
-    const del = document.createElement('button');
-    del.className = 'task-delete';
-    del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-    del.addEventListener('click', () => { permanentlyDeleteGoal(index); });
-
-    row.append(catBadge, name, meta, reopenBtn, del);
-    return row;
-  }
-
-  function createDoneQuickItem(item, index, isLatest) {
-    const row = document.createElement('div');
-    row.className = 'done-item done-item-quick' + (isLatest ? ' done-item-entering' : '');
-    if (isLatest) requestAnimationFrame(() => row.classList.remove('done-item-entering'));
-
-    // Category pill — clickable to assign/change the life area (reuses the same
-    // unified picker as distractions/backlog), so quick tasks can be categorized.
-    const catPill = createCategoryPill(item.category, newId => {
-      // Logged hours follow the item to its new category — otherwise they
-      // stay counted under the old one and totals drift.
-      const prevCat = item.category || 'general';
-      const nextCat = newId || 'general';
-      if (prevCat !== nextCat && item.hours > 0) {
-        accumulateCategoryHours(prevCat, -item.hours);
-        accumulateCategoryHours(nextCat, item.hours);
-      }
-      state.quickDone[index].category = newId;
-      item.category = newId;
-      saveState();
-      renderSidebar();
-    });
-    catPill.classList.add('done-item-cat-pill');
-    row.appendChild(catPill);
-
-    const name = document.createElement('span');
-    name.className = 'done-item-name';
-    name.textContent = item.name;
-    makeEditable(name, newVal => { state.quickDone[index].name = newVal; saveState(); });
-
-    // Hours: show badge if set, otherwise show inline input
-    const hoursBadge = document.createElement('span');
-    hoursBadge.className = 'done-item-meta done-hours-badge';
-    hoursBadge.title = 'Click to edit hours';
-
-    function renderHoursBadge() {
-      hoursBadge.textContent = formatHours(item.hours);
-      hoursBadge.classList.toggle('done-hours-badge--empty', !(item.hours > 0));
-    }
-    renderHoursBadge();
-
-    makeInlineHoursEditor(hoursBadge, {
-      getValue: () => item.hours,
-      onCommit: (v, prev, delta) => {
-        state.quickDone[index].hours = v;
-        item.hours = v;
-        saveState();
-        // Keep category totals in sync with the edit (creation already
-        // accumulated the original hours).
-        accumulateCategoryHours(item.category || 'general', delta);
-        renderSummary();
-      },
-      render: renderHoursBadge,
-    });
-
-    const del = document.createElement('button');
-    del.className = 'task-delete';
-    del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-    del.addEventListener('click', () => {
-      undoStack.push({ type: 'quickDone', item: state.quickDone[index], index });
-      state.quickDone.splice(index, 1); saveState(); renderDone();
-    });
-
-    row.append(name, hoursBadge, del);
-    return row;
-  }
-
-  function addQuickDone(name, hours, catId) {
-    const n = name !== undefined ? name : (quickInputEl ? quickInputEl.value.trim() : '');
-    if (!n) return;
-    state.quickDone.push({ name: n, hours: hours || 0, category: catId || null });
-    if (quickInputEl && name === undefined) quickInputEl.value = '';
-    doneExpanded.quick = false;
-    saveState(); renderDone();
-    pulseBlobEvent('add');
-  }
-
-
-  if (addQuickBtn) addQuickBtn.addEventListener('click', () => openLogDoneModal());
-  if (quickInputEl) quickInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addQuickDone(); });
+  // js/ui/done-today.js. Ordering and the fold arithmetic: js/core/done-today.js.
+  DoneToday.configure({
+    get state() { return state; },
+    doneListEl, doneSubtitle, quickInputEl, addQuickBtn, undoStack,
+    saveState, render, renderSummary, renderSidebar,
+    getCompletedGoals, getCategoryById, permanentlyDeleteGoal,
+    createCategoryPill, openLogDoneModal, accumulateCategoryHours, makeEditable,
+  });
+  const { renderDone, addQuickDone } = DoneToday;
 
   function renderDistractions() {
     distractionsListEl.innerHTML = '';

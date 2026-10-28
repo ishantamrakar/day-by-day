@@ -7,7 +7,7 @@
 - Live clock — synced to system minute boundary, no seconds
 - **Top 5 goals** — hour logging, progress slider, rank badges (#1–#5), intra-list drag reorder
 - **Goal completion** — slider hits 100% → `.task-completing` animation → moves to Done Today
-- **Done Today** — two groups (Top 5 / Quick wins), top 3 visible, `+ N more` toggle, entrance animation on newest item
+- **Done Today** — two groups (Top 5 / Quick wins), top 3 visible, `+ N more` toggle, entrance animation on newest item (`js/ui/done-today.js`)
 - **Quick wins** — ad-hoc completed tasks with optional hours; hours badge is inline-editable; clickable category pill assigns/changes the life area (reuses the shared `createCategoryPill` picker)
 - **5 Distractions** — hour logging, drag reorder
 - **Summary rings** — 4 SVG rings: avg progress (green), goal hours (mint), distraction hours (rose), quick wins hours (orange)

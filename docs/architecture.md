@@ -32,10 +32,13 @@ that section header and is headed for the named file.
 | How data is persisted | ✅ `js/platform/storage.js` |
 | Hours/colour formatting | ✅ `js/core/format.js` |
 | Growth stages, milestones, baselining | ✅ `js/core/growth.js` |
-| Daily intentions rules | ✅ `js/core/intentions.js` |
-| Dates, `dayHasWork`, default state | ✅ `js/core/day.js` |
+| Daily intentions rules (reading, input parsing, selection filter) | ✅ `js/core/intentions.js` |
+| Intention fields under the focus pickers (`makeIntentionFields`) | ✅ `js/ui/intentions.js` |
+| Dates, `dayHasWork`, `findLastActiveDay`, default state | ✅ `js/core/day.js` |
 | Storage key names, `STORE_VERSION` | ✅ `js/core/keys.js` |
-| Loading/saving state, categories, history, carryover | ✅ `js/core/state.js` |
+| Loading/saving state, categories, history, building carryover (`buildCarryover`) | ✅ `js/core/state.js` |
+| Consuming carryover: rescue to backlog, banner accept, delete-scrub | ✅ `js/core/carryover.js` |
+| Legacy carryover banner | ✅ `js/ui/carryover.js` |
 | Store shape, entities, hydrate/sync adapter | ✅ `js/core/store.js` |
 | Which colours the blobs wear | ✅ `js/core/blob-colors.js` |
 | Blob motion, drift, swirl pulses | ✅ `js/ui/blobs.js` |
@@ -241,8 +244,8 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `archiveDay()` — pushes snapshot to history (max 30). Does not touch `totalHours`. The snapshot carries `focusSessions` (added so a session retired at rollover isn't dropped the moment it's recorded); days archived before that change simply have no key, and every reader defaults it to `[]`.
 - `dayHasWork(d)` — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
 - Demote/promote preserve `hours` + `progress` both ways, so a shelved task resumes where it left off.
-- `rescueCarryoverToBacklog()` — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
-- `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
+- `rescueCarryoverToBacklog()` (app.js wrapper over `rescueItems()` in `js/core/carryover.js`) — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
+- `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — app.js binding over `findLastActiveDay(history, today, fallback)` in `js/core/day.js`. Walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
 
 **Rendering:**
 - `getActiveGoals()` → `progress < 100`; `getCompletedGoals()` → `progress === 100`
@@ -274,7 +277,7 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - Two-column CSS Grid inside `#main-content`: `col-left`, `col-right`
 - Cards have `data-card-id` + `draggable-card` for reordering
 - Script order: `app.js` is `type="module"` (auto-deferred, runs after parse); `notifications.js` is a classic script with `defer`. Its init waits for `DOMContentLoaded` plus a tick, by which point the module has published `window.DayByDayApp` — the guard it already had (`if (!window.DayByDayApp) return`) covers the rest.
-- `carryover-banner` still exists in HTML but is superseded by the Day Transition Modal
+- `carryover-banner` still exists in HTML but is superseded by the Day Transition Modal. Its rendering and accept/dismiss handlers live in `js/ui/carryover.js`; boot calls `showCarryoverIfNeeded()` only when the modal is skipped
 
 ## notifications.js
 

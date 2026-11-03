@@ -576,10 +576,10 @@ import * as CarryoverUI from './js/ui/carryover.js';
   // INLINE EDITING + PROGRESS SLIDER FILL — wiring only
   // =========================================================
   // js/ui/editable.js. Shared by the Top 5, distraction, backlog, journal and
-  // Done Today rows. Hoisted declarations so a configure() call placed above
-  // this point could still pass them by value.
+  // Done Today rows. A hoisted declaration so a configure() call placed above
+  // this point could still pass it by value. updateSliderFill has no caller
+  // left in this file; js/ui/tasks.js imports it directly.
   function makeEditable(spanEl, onSave) { return Editable.makeEditable(spanEl, onSave); }
-  function updateSliderFill(slider) { return Editable.updateSliderFill(slider); }
 
   // =========================================================
   // RENDERING
@@ -604,153 +604,10 @@ import * as CarryoverUI from './js/ui/carryover.js';
     return state.goals.filter(g => (g.progress || 0) >= 100);
   }
 
-  function renderGoals() {
-    goalsListEl.innerHTML = '';
-    const active = getActiveGoals();
-    active.forEach((goal, i) => {
-      const realIndex = state.goals.indexOf(goal);
-      goalsListEl.appendChild(createGoalElement(goal, realIndex, i + 1));
-    });
-  }
-
-  function createGoalElement(goal, index, displayNumber) {
-    const item = document.createElement('div');
-    item.className = 'task-item';
-    item.dataset.goalIndex = index;
-
-    const topRow = document.createElement('div');
-    topRow.className = 'task-top-row';
-
-    const dragHandle = document.createElement('span');
-    dragHandle.className = 'task-drag-handle';
-    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M108,60A16,16,0,1,1,92,44,16,16,0,0,1,108,60Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,60ZM108,128a16,16,0,1,1-16-16A16,16,0,0,1,108,128Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,128ZM108,196a16,16,0,1,1-16-16A16,16,0,0,1,108,196Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,196Z"/></svg>';
-    dragHandle.title = 'Drag to reorder';
-
-    const number = document.createElement('span');
-    number.className = 'task-number';
-    number.textContent = displayNumber;
-
-    const name = document.createElement('span');
-    name.className = 'task-name';
-    name.textContent = goal.name;
-    makeEditable(name, newVal => { state.goals[index].name = newVal; saveState(); });
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'task-delete';
-    deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-    deleteBtn.title = 'Remove';
-    deleteBtn.addEventListener('click', () => { permanentlyDeleteGoal(index); });
-
-    const focusBtn = document.createElement('button');
-    focusBtn.className = 'task-focus-btn';
-    focusBtn.title = 'Focus on this task';
-    focusBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-144a56,56,0,1,0,56,56A56.06,56.06,0,0,0,128,72Zm0,96a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>';
-    focusBtn.addEventListener('click', e => { e.stopPropagation(); openFocusModal(goal, index); });
-
-    const trailing = [];
-    if (goal.prevHours > 0) {
-      const badge = document.createElement('span');
-      badge.className = 'prev-hours-badge';
-      badge.title = 'Hours invested in previous sessions';
-      badge.textContent = `${goal.prevHours}h prev`;
-      trailing.push(badge);
-    }
-
-    // Demote button — shown on all goals (fade-in on hover), not just fromBacklog
-    const demoteBtn = document.createElement('button');
-    demoteBtn.className = 'btn-demote' + (goal.fromBacklog ? '' : ' btn-demote-any');
-    demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
-    demoteBtn.title = 'Move to backlog';
-    demoteBtn.addEventListener('click', () => {
-      const g = state.goals[index];
-      backlog.push({
-        name: g.name, category: g.category || null, repeatable: g.repeatable || false,
-        hours: g.hours || 0, progress: g.progress || 0,
-      });
-      state.goals.splice(index, 1);
-      saveState(); saveBacklog(); render(); renderSidebar();
-    });
-    trailing.push(demoteBtn);
-    trailing.push(focusBtn);
-    trailing.push(deleteBtn);
-    topRow.append(dragHandle, number, name, ...trailing);
-
-    const logRow = document.createElement('div');
-    logRow.className = 'task-logging-row';
-
-    // Hours pill — clickable to edit inline, matches done-card badge style
-    const hoursPill = document.createElement('span');
-    hoursPill.className = 'goal-hours-pill';
-    hoursPill.dataset.goalIndex = index;
-
-    function renderHoursPill() {
-      const h = state.goals[index].hours || 0;
-      hoursPill.textContent = formatHours(h);
-      hoursPill.classList.toggle('goal-hours-pill--empty', h === 0);
-    }
-    renderHoursPill();
-
-    makeInlineHoursEditor(hoursPill, {
-      getValue: () => state.goals[index].hours,
-      onCommit: (v, prev, delta) => {
-        state.goals[index].hours = v;
-        saveState();
-        accumulateCategoryHours(state.goals[index].category || 'general', delta);
-        renderSummary();
-      },
-      render: renderHoursPill,
-    });
-
-    const pg = document.createElement('div'); pg.className = 'log-group';
-    const pl = document.createElement('label'); pl.textContent = 'Progress';
-    const ps = document.createElement('input');
-    ps.type = 'range'; ps.className = 'progress-slider'; ps.min = '0'; ps.max = '100'; ps.step = '5';
-    ps.value = goal.progress || 0;
-    updateSliderFill(ps);
-    const pv = document.createElement('span');
-    pv.className = 'progress-value'; pv.textContent = (goal.progress || 0) + '%';
-    ps.addEventListener('input', () => {
-      const val = parseInt(ps.value);
-      pv.textContent = val + '%';
-      state.goals[index].progress = val;
-      updateSliderFill(ps);
-      saveState();
-      if (val >= 100) {
-        item.classList.add('task-completing');
-        pulseBlobEvent('complete');
-        setTimeout(() => render(), 350);
-      } else {
-        renderSummary();
-      }
-    });
-    pg.append(pl, ps, pv);
-
-    // Repeat icon — sits in log row, only visible when repeatable
-    const repeatIcon = document.createElement('span');
-    repeatIcon.className = 'task-repeat-badge' + (goal.repeatable ? '' : ' hidden');
-    repeatIcon.title = 'Repeatable — carries forward if not done';
-    repeatIcon.textContent = '↻';
-
-    // Category + repeatable pill — opens context popover with both controls
-    const catPill = createCategoryPill(
-      goal.category,
-      newId => { state.goals[index].category = newId; saveState(); renderSidebar(); },
-      () => state.goals[index].repeatable || false,
-      newVal => {
-        state.goals[index].repeatable = newVal;
-        saveState();
-        repeatIcon.classList.toggle('hidden', !newVal);
-      }
-    );
-
-    logRow.append(hoursPill, pg, repeatIcon, catPill);
-    item.append(topRow, logRow);
-
-    // Task-level drag & drop — reorder within Top 5, or drag out to backlog
-    setupTaskDrag(item, goalsListEl, 'goal');
-
-    return item;
-  }
+  // Top 5 and distraction rows: js/ui/tasks.js (wired under ADDING TASKS
+  // below). Hoisted declarations, so render() can call them from anywhere.
+  function renderGoals() { Tasks.renderGoals(); }
+  function renderDistractions() { Tasks.renderDistractions(); }
 
   // =========================================================
   // FOCUS MODE — wiring only
@@ -804,79 +661,6 @@ import * as CarryoverUI from './js/ui/carryover.js';
     createCategoryPill, openLogDoneModal, accumulateCategoryHours, makeEditable,
   });
   const { renderDone, addQuickDone } = DoneToday;
-
-  function renderDistractions() {
-    distractionsListEl.innerHTML = '';
-    state.distractions.forEach((d, i) => {
-      const el = createDistractionElement(d, i);
-      distractionsListEl.appendChild(el);
-      setupTaskDrag(el, distractionsListEl, 'distraction');
-    });
-  }
-
-  function createDistractionElement(dist, index) {
-    const item = document.createElement('div');
-    item.className = 'task-item distraction';
-    item.dataset.distIndex = index;
-
-    const topRow = document.createElement('div');
-    topRow.className = 'task-top-row';
-
-    const dragHandle = document.createElement('span');
-    dragHandle.className = 'task-drag-handle';
-    dragHandle.textContent = '☰';
-
-    const number = document.createElement('span');
-    number.className = 'task-number';
-    number.textContent = index + 1;
-
-    const name = document.createElement('span');
-    name.className = 'task-name';
-    name.textContent = dist.name;
-    makeEditable(name, newVal => { state.distractions[index].name = newVal; saveState(); });
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'task-delete';
-    deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
-    deleteBtn.title = 'Remove';
-    deleteBtn.addEventListener('click', () => {
-      undoStack.push({ type: 'distraction', item: state.distractions[index], index });
-      state.distractions.splice(index, 1); saveState(); render();
-    });
-
-    topRow.append(dragHandle, number, name, deleteBtn);
-
-    const logRow = document.createElement('div');
-    logRow.className = 'task-logging-row';
-    const hg = document.createElement('div'); hg.className = 'log-group';
-    const hl = document.createElement('label'); hl.textContent = 'Hours spent';
-    const hi = document.createElement('input');
-    hi.type = 'number'; hi.className = 'hours-input'; hi.min = '0'; hi.max = '24'; hi.step = '0.25';
-    hi.value = dist.hours || 0;
-    hi.addEventListener('change', () => {
-      const prev = state.distractions[index].hours || 0;
-      let v = Math.max(0, Math.min(24, parseFloat(hi.value) || 0));
-      hi.value = v;
-      const delta = v - prev;
-      state.distractions[index].hours = v;
-      saveState();
-      accumulateCategoryHours(state.distractions[index].category || 'general', delta);
-      renderSummary();
-    });
-    hg.append(hl, hi);
-
-    // Category pill for distractions
-    const catPill = createCategoryPill(dist.category, newId => {
-      state.distractions[index].category = newId;
-      saveState();
-      renderSidebar();
-    });
-
-    logRow.append(hg, catPill);
-
-    item.append(topRow, logRow);
-    return item;
-  }
 
   // =========================================================
   // BACKLOG — wiring only
@@ -1008,15 +792,21 @@ import * as CarryoverUI from './js/ui/carryover.js';
   }
 
   // =========================================================
-  // ADDING TASKS — wiring only
+  // ADDING TASKS + TASK ROWS — wiring only
   // =========================================================
-  // The Top 5 / distraction add inputs and buttons: js/ui/tasks.js. The
+  // The Top 5 / distraction rows, add inputs and buttons: js/ui/tasks.js. The
   // "Reset day" button stays here because it reassigns `state`.
   Tasks.configure({
     get state() { return state; },
+    get backlog() { return backlog; },
     goalInputEl, addGoalBtn, distractionInputEl, addDistractionBtn,
-    saveState, render, getActiveGoals, openTaskDetailModal,
+    goalsListEl, distractionsListEl, undoStack,
+    saveState, saveBacklog, render, renderSidebar, renderSummary,
+    getActiveGoals, openTaskDetailModal, permanentlyDeleteGoal, openFocusModal,
+    accumulateCategoryHours, createCategoryPill,
     MAX_GOALS, MAX_DISTRACTIONS,
+    // Getter: destructured from js/ui/drag.js further down (TDZ).
+    get setupTaskDrag() { return setupTaskDrag; },
   });
 
   resetDayBtn.addEventListener('click', () => {

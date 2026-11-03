@@ -58,6 +58,7 @@ that section header and is headed for the named file.
 | Session detail text, newest-first session order | ✅ `js/core/journal.js` |
 | Backlog card (rows, promote/delete, hidden-items note, add input) | ✅ `js/ui/backlog.js` |
 | Adding Top 5 goals and distractions (inputs, + buttons) | ✅ `js/ui/tasks.js` |
+| Top 5 goal rows and distraction rows (`renderGoals`, `renderDistractions`) | ✅ `js/ui/tasks.js` |
 | Click-to-edit text (`makeEditable`), progress slider fill (`updateSliderFill`) | ✅ `js/ui/editable.js` |
 | Backlog visibility (focus filter, General as inbox, visible slot → index) | ✅ `js/core/backlog.js` |
 
@@ -252,7 +253,8 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 **Rendering:**
 - `getActiveGoals()` → `progress < 100`; `getCompletedGoals()` → `progress === 100`
 - Completed goals go to Done Today card, not the goals list. This matters for drag index math — see [drag-drop.md](drag-drop.md).
-- `renderGoals()` iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
+- `render()` stays in `app.js` as the orchestrator: it calls each card module's render function in turn.
+- `renderGoals()` (`js/ui/tasks.js`) iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
 
 **Background blobs (performance-critical — see [design-system.md](design-system.md) § Depth & Glass):**
 - Markup is `.blob-layer > .blob-drift > .blob`. JS owns the wrapper's `transform`; CSS swirl keyframes own the inner blob's. Splitting them keeps `filter: blur(60px)` **static**, so it rasterizes once instead of every frame.

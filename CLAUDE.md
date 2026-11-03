@@ -23,7 +23,7 @@ index.html       — layout & structure
 style.css        — all styling (Daily Spark design system)
 app.js           — entry ES module: boot, wiring, window.DayByDayApp
 js/core/         — portable domain logic. NO DOM, NO browser APIs.
-js/platform/     — the only files touching browser APIs (storage, notify, env)
+js/platform/     — the only files touching browser APIs (storage)
 js/ui/           — DOM rendering & interaction
 ```
 

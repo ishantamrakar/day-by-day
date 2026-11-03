@@ -48,13 +48,15 @@ export function applyBlobColors() {
   if (_blobs[2]) _blobs[2].style.setProperty('--blob3-color', c3);
 }
 
-// ── Blob motion: JS-driven bouncing drift (DVD-logo style) + CSS swirl on events ──
+// ── Blob motion: JS-driven wandering drift + CSS swirl on events ──
 //
-// Each blob has a position (px, py) and velocity (vx, vy) in viewport-fraction units.
-// A rAF loop updates positions each frame. Speed is ~0.008 vw/frame (~0.48 vw/s at 60fps).
-// Blobs bounce off the viewport edges (accounting for their own size).
-// When a swirl triggers, the rAF loop pauses and the CSS swirl animation plays.
-// When swirl ends, the loop resumes from the blob's current rendered position.
+// Each blob has a position (px, py), a heading and a constant speed, in
+// viewport-fraction units. Each physics step turns the heading by an
+// oscillating amount, so the path is a series of arcs that bend one way and
+// then the other. Near an edge a soft repulsion steers it back (accounting
+// for the blob's own size). When a swirl triggers, the loop pauses and the
+// CSS swirl plays on the inner blob; when it ends, the loop resumes from the
+// unchanged wrapper position.
 
 // Physics runs at DRIFT_FPS, not per animation frame. The per-step
 // constants below are scaled by (60 / DRIFT_FPS) against the old

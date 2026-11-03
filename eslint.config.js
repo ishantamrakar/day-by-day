@@ -1,6 +1,6 @@
-// Minimal flat config. The app is a browser IIFE in 'use strict' with no build
-// step, so we keep rules permissive: catch genuine errors (undefined vars, dupe
-// keys, unreachable code) without churning the existing ~4,600-line file on style.
+// Minimal flat config. The app is native ES modules with no build step. Rules
+// are permissive on purpose: catch genuine errors (undefined vars, dupe keys,
+// unreachable code), not style. The one strict block is the js/core boundary.
 import globals from 'globals';
 
 export default [

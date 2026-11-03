@@ -50,7 +50,7 @@ This is not task management. It's **finitude-aware focus** — helping you feel 
 **Architectural decisions that matter for the future:**
 - State shape `{ date, goals, distractions, successes, failures, quickDone }` is portable — keep it clean
 - `totalHours` is a running accumulator by design — store as a field when porting to a backend, don't recompute
-- No DOM-coupled logic — business logic in functions makes porting to React/SwiftUI easier
+- No DOM-coupled logic — business logic lives in `js/core/`, which ESLint keeps free of DOM and browser APIs, so a React Native or SwiftUI port reuses or transliterates it (see architecture.md § Porting)
 - The Day Transition Modal will eventually suggest tasks based on momentum, not just hours imbalance
 
 **Open questions:**

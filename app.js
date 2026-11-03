@@ -49,6 +49,7 @@ import * as Journal from './js/ui/journal.js';
 import * as Backlog from './js/ui/backlog.js';
 import * as Tasks from './js/ui/tasks.js';
 import * as Editable from './js/ui/editable.js';
+import * as Summary from './js/ui/summary.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
 import {
@@ -64,7 +65,7 @@ import * as CarryoverUI from './js/ui/carryover.js';
 
   const MAX_GOALS = 5;
   const MAX_DISTRACTIONS = 5;
-  const RING_CIRCUMFERENCE = 2 * Math.PI * 34;
+  // RING_CIRCUMFERENCE: js/ui/summary.js, next to the only code that uses it.
   // Storage keys and STORE_VERSION: js/core/keys.js (imported above).
 
   // --- Default categories ---
@@ -710,80 +711,20 @@ import * as CarryoverUI from './js/ui/carryover.js';
   function renderJournal() { Journal.renderJournal(); }
 
   // =========================================================
-  // SUMMARY & RINGS
+  // SUMMARY & RINGS — wiring only
   // =========================================================
-  function setRingProgress(el, frac) {
-    if (!el) return;
-    el.style.strokeDashoffset = RING_CIRCUMFERENCE * (1 - Math.min(1, Math.max(0, frac)));
-  }
-
-  function renderSummary() {
-    const allGoals = state.goals;
-    const gh = allGoals.reduce((s, g) => s + (g.hours || 0), 0);
-    totalHoursEl.textContent = gh > 0 ? gh.toFixed(1) + 'h' : '0h';
-    const dh = state.distractions.reduce((s, d) => s + (d.hours || 0), 0);
-    distractionHoursEl.textContent = dh > 0 ? dh.toFixed(1) + 'h' : '0h';
-    const ap = allGoals.length > 0
-      ? Math.round(allGoals.reduce((s, g) => s + (g.progress || 0), 0) / allGoals.length)
-      : 0;
-    avgProgressEl.textContent = ap + '%';
-
-    const qh = (state.quickDone || []).reduce((s, q) => s + (q.hours || 0), 0);
-    if (quickHoursEl) quickHoursEl.textContent = qh > 0 ? qh.toFixed(1) + 'h' : '0h';
-
-    setRingProgress(ringProgress, ap / 100);
-    setRingProgress(ringHours, Math.min(gh / 8, 1));
-    setRingProgress(ringDistractionHours, Math.min(dh / 4, 1));
-    setRingProgress(ringQuickHours, Math.min(qh / 4, 1));
-
-    summaryBreakdownEl.innerHTML = '';
-    allGoals.forEach(g => {
-      const row = document.createElement('div'); row.className = 'breakdown-item';
-      const n = document.createElement('span'); n.className = 'breakdown-name'; n.textContent = g.name;
-      if ((g.progress || 0) >= 100) n.classList.add('breakdown-name-done');
-      const h = document.createElement('span'); h.className = 'breakdown-hours'; h.textContent = (g.hours || 0) + 'h';
-      const bc = document.createElement('div'); bc.className = 'breakdown-bar-container';
-      const b = document.createElement('div'); b.className = 'breakdown-bar'; b.style.width = (g.progress || 0) + '%';
-      if ((g.progress || 0) >= 100) b.classList.add('breakdown-bar-done');
-      bc.appendChild(b);
-      row.append(n, h, bc);
-      summaryBreakdownEl.appendChild(row);
-    });
-
-    updateEncouragement(ap, gh, dh);
-  }
-
-  function updateEncouragement(ap, gh, dh) {
-    const el = document.getElementById('encouragement-text');
-    if (!el) return;
-
-    const completed = getCompletedGoals();
-    if (completed.length > 0 && completed.length === state.goals.length) {
-      el.textContent = `All ${completed.length} goals done. You didn't just plan a good day — you lived one. That's rare.`;
-      return;
-    }
-
-    if (completed.length > 0) {
-      el.textContent = `${completed.length} goal${completed.length > 1 ? 's' : ''} completed. The momentum is real. Carry it forward.`;
-      return;
-    }
-
-    if (dh > 0 && state.distractions.length > 0 && state.goals.length > 0) {
-      const td = state.distractions.reduce((m, d) => (d.hours || 0) > (m.hours || 0) ? d : m, state.distractions[0]);
-      const tg = state.goals.reduce((m, g) => (g.progress || 0) < (m.progress || 0) ? g : m, state.goals[0]);
-      if ((td.hours || 0) > 0 && (tg.progress || 0) < 80) {
-        const pp = Math.min(100, (tg.progress || 0) + Math.round((td.hours || 0) * 12));
-        el.textContent = `You've spent ${td.hours}h on "${td.name}." That same time on "${tg.name}" could have brought it to ~${pp}%. The work won't be perfect — but done beats imagined.`;
-        return;
-      }
-    }
-
-    if (state.goals.length === 0) el.textContent = "You have roughly 4,000 weeks in a lifetime. This one counts. Start by adding just one goal.";
-    else if (gh > 0 && dh === 0) el.textContent = "You're investing in what matters and keeping distractions at bay. This is how days become a life well-spent.";
-    else if (ap >= 75) el.textContent = "Over 75% progress. You showed up, did the work, and didn't wait for perfect. That's the whole game.";
-    else if (ap >= 40) el.textContent = "Past the halfway mark. The hardest part was starting — you've done that. Keep going.";
-    else el.textContent = "The future is never guaranteed — only this moment is real. Every hour on your goals is an hour chosen well.";
-  }
+  // Totals, average progress and ring fractions: js/core/summary.js. Figures,
+  // rings, breakdown bars and the encouragement line: js/ui/summary.js.
+  Summary.configure({
+    get state() { return state; },
+    totalHoursEl, avgProgressEl, distractionHoursEl, quickHoursEl, summaryBreakdownEl,
+    ringProgress, ringHours, ringDistractionHours, ringQuickHours,
+    getCompletedGoals,
+  });
+  // A function declaration, not `const { renderSummary } = Summary`: the
+  // FocusMode and DoneToday configure() calls above pass renderSummary by
+  // value, and a const here would still be in its temporal dead zone then.
+  function renderSummary() { Summary.renderSummary(); }
 
   function updateAddButtonVisibility() {
     const activeGoalCount = getActiveGoals().length;

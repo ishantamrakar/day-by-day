@@ -4,8 +4,9 @@
 
 ## Known Bugs
 
-- **Browser notifications** — permission flow works but notifications don't appear in some browsers. In-app nudge is the reliable fallback.
 - **`totalHours` not retroactive** — only reflects hours logged after categories feature was added. No backfill.
+
+**Removed (2026-11):** browser notifications. The permission flow worked but notifications didn't appear in some browsers, so the Notification API code, the "Enable Notifications" prompt and the `daybyday_prefs` dismissed flag were removed. The in-app nudge banner stays. OS notifications come back with the native builds (see Product Vision), where each platform's notification system is reliable.
 
 **Closed (2026-10):** cross-card drag (ghost paint trail, goal→backlog drop not registering). An automated pass (5 goal→backlog drops at two drag speeds) succeeded 5/5 with no ghost trail and no console errors, and the maintainer has not seen it in real daily use since. Most likely fixed incidentally by the blob re-raster perf work in PR #7 — no targeted fix was made, so if it reappears, start from the pointer-capture diagnosis kept in [drag-drop.md](drag-drop.md).
 
@@ -28,7 +29,7 @@
 - ~~Export data as JSON~~ — shipped 2026-07 (Settings → Data); CSV still open
 - Streak tracking per life area
 - Dark mode — will live in Settings → Appearance
-- Custom notification frequency
+- Custom nudge frequency
 
 **Big swings (separate projects)**
 - Agentic notification framework — fine-tuned model (Qwen + GRPO via [ART](https://github.com/OpenPipe/ART)) for context-aware nudges
@@ -42,8 +43,8 @@ This is not task management. It's **finitude-aware focus** — helping you feel 
 
 **Phases:**
 1. **Now** — vanilla web app, self-use, rapid iteration. No infra, no accounts.
-2. **PWA** — offline, home screen install, working push notifications. Still no backend.
-3. **Native iOS/macOS** — SwiftUI, iCloud sync. The glass design language maps directly to visionOS/iOS 26.
+2. **PWA** — offline, home screen install. Still no backend. (Web push deliberately skipped — browser notifications were unreliable and were removed 2026-11.)
+3. **Native iOS/macOS** — SwiftUI, iCloud sync, real OS notifications (the nudge messages in `notifications.js` are the starting content). The glass design language maps directly to visionOS/iOS 26.
 4. **Multi-platform** — subscription for sync + AI nudges.
 
 **Architectural decisions that matter for the future:**

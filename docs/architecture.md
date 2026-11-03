@@ -15,7 +15,7 @@ js/
   platform/   the only files that touch browser APIs.
               Swapped per target; everything else imports from here.
   ui/         DOM rendering and interaction. Rewritten for native.
-notifications.js    classic script (not yet a module)
+notifications.js    classic script (not yet a module) — in-app nudges only
 ```
 
 **The dependency rule:** `core/` never imports from `ui/` or `platform/` —
@@ -178,7 +178,7 @@ The layering above exists so a native port is a port, not a rewrite:
 | `daybyday_backlog` | Persistent backlog array |
 | `daybyday_categories` | Categories with all-time `totalHours` |
 | `daybyday_sidebar` | `'collapsed'` or `'open'` |
-| `daybyday_prefs` | Notification dismissed flag |
+| `daybyday_prefs` | *Retired 2026-11* — held the notification-prompt dismissed flag. No longer read or written; may linger in older browsers' storage (and so in their backups), harmlessly |
 | `daybyday_focus_session` | In-progress focus session snapshot (crash recovery) — written while a session runs, cleared on every deliberate close; same-day snapshots trigger a resume prompt on load |
 
 ## Data model
@@ -284,6 +284,6 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - Motivational nudge every 25 min, guilt-trip check every 40 min
 - Nudge banner stays until dismissed; new messages replace current text
 - 15 wisdom messages (4,000 Weeks) + 10 motivational messages
-- Browser notification permission prompted once (3s delay after load)
-- Public API: `window.DayByDayNotifications = { onGoalsUpdated, showNudge, sendNotification, getWisdom }`
+- **No browser (OS) notifications.** Removed 2026-11: the Notification API never delivered reliably, and real notifications are planned for the native macOS/iOS/Android builds instead (roadmap.md § Product Vision). The global keeps its `DayByDayNotifications` name so callers didn't change
+- Public API: `window.DayByDayNotifications = { onGoalsUpdated, showNudge, getWisdom }`
 - `setTimeout(init, 50)` — waits for app.js to finish loading

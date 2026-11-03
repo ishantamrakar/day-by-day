@@ -14,7 +14,7 @@
 
 Finitude-aware daily focus app. Personal tool first, product eventually. Inspired by Oliver Burkeman's *4,000 Weeks* — embrace limits, act imperfectly, focus on what matters.
 
-**Stack:** Vanilla JS, no framework, no build step. **Must be served over HTTP** (`python3 -m http.server 8000`, then `localhost:8000`) — `app.js` is an ES module, and browsers block module imports over `file://` (CORS), so opening `index.html` directly gives a blank page. `file://` also blocks localStorage and Notifications.
+**Stack:** Vanilla JS, no framework, no build step. **Must be served over HTTP** (`python3 -m http.server 8000`, then `localhost:8000`) — `app.js` is an ES module, and browsers block module imports over `file://` (CORS), so opening `index.html` directly gives a blank page. `file://` also blocks localStorage.
 
 > ⚠️ **`file://` and `http://localhost:8000` are separate origins with separate localStorage.** Data saved while opening the file directly is invisible from the server and vice versa. If data looks "missing" after switching, it is almost certainly at the other origin — export from there (gear → Export) and import at the new one, rather than assuming it was lost.
 
@@ -25,7 +25,7 @@ app.js           — entry ES module: boot, wiring, window.DayByDayApp
 js/core/         — portable domain logic. NO DOM, NO browser APIs.
 js/platform/     — the only files touching browser APIs (storage, notify, env)
 js/ui/           — DOM rendering & interaction
-notifications.js — nudge system, browser notifications (classic script)
+notifications.js — in-app nudge banner (classic script; no OS notifications)
 ```
 
 **Refactor in progress:** app.js is being split into the three layers above;

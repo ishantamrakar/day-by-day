@@ -1,11 +1,16 @@
-// === Day by Day — Notifications & Nudge System ===
+// === Day by Day — In-app Nudge System ===
+//
+// Gentle in-app nudges: wisdom/motivational messages every 25 min and a
+// reflective focus check every 40 min, shown in a dismissable banner.
+// Browser (OS) notifications were removed in 2026-11: they never delivered
+// reliably, and real notifications belong to the native macOS/iOS/Android
+// builds (see docs/roadmap.md).
 
 (function () {
   'use strict';
 
   const NUDGE_INTERVAL_MS = 25 * 60 * 1000;
   const GUILT_CHECK_INTERVAL_MS = 40 * 60 * 1000;
-  const PREFS_KEY = 'daybyday_prefs';
 
   // --- 4000 Weeks Wisdom ---
   const wisdomMessages = [
@@ -65,52 +70,16 @@
   }
 
   // --- State ---
-  let browserNotificationsEnabled = false;
   let timersStarted = false;
 
   // --- DOM ---
-  const notificationPrompt = document.getElementById('notification-prompt');
-  const enableBtn = document.getElementById('enable-notifications-btn');
-  const dismissBtn = document.getElementById('dismiss-notifications-btn');
   const nudgeBanner = document.getElementById('nudge-banner');
   const nudgeText = document.getElementById('nudge-text');
   const nudgeDismiss = document.getElementById('nudge-dismiss');
 
-  // --- Prefs ---
-  function loadPrefs() {
-    try {
-      if (window.DayByDayApp && window.DayByDayApp.storageGet) {
-        const r = window.DayByDayApp.storageGet(PREFS_KEY);
-        return r ? JSON.parse(r) : {};
-      }
-      return {};
-    } catch (e) { return {}; }
-  }
-  function savePrefs(p) {
-    try {
-      if (window.DayByDayApp && window.DayByDayApp.storageSet) {
-        window.DayByDayApp.storageSet(PREFS_KEY, JSON.stringify(p));
-      }
-    } catch (e) {}
-  }
-
   // --- Init ---
   function init() {
-    const prefs = loadPrefs();
-
-    // Always start in-app nudge timers (they don't need notification permission)
     startTimers();
-
-    // Browser notifications
-    if ('Notification' in window) {
-      if (Notification.permission === 'granted') {
-        browserNotificationsEnabled = true;
-        // Test: send one immediately to verify delivery
-        sendBrowserNotification('Day by Day', 'Notifications are working. Stay focused!');
-      } else if (Notification.permission === 'default' && !prefs.notificationsDismissed) {
-        setTimeout(showNotificationPrompt, 3000);
-      }
-    }
 
     // Banner dismiss — stays until user clicks X
     if (nudgeDismiss) {
@@ -119,51 +88,11 @@
       });
     }
 
-    if (enableBtn) enableBtn.addEventListener('click', requestPermission);
-    if (dismissBtn) dismissBtn.addEventListener('click', () => {
-      notificationPrompt.classList.add('hidden');
-      const p = loadPrefs(); p.notificationsDismissed = true; savePrefs(p);
-    });
-
     // Show initial nudge after a moment
     setTimeout(() => {
       const all = [...wisdomMessages, ...motivationalMessages];
       showInAppNudge(all[Math.floor(Math.random() * all.length)]);
     }, 1500);
-  }
-
-  function showNotificationPrompt() {
-    if (notificationPrompt) notificationPrompt.classList.remove('hidden');
-  }
-
-  async function requestPermission() {
-    if (notificationPrompt) notificationPrompt.classList.add('hidden');
-    const p = loadPrefs(); p.notificationsDismissed = true; savePrefs(p);
-
-    try {
-      const perm = await Notification.requestPermission();
-      if (perm === 'granted') {
-        browserNotificationsEnabled = true;
-        sendBrowserNotification('Day by Day', "Notifications enabled! I'll nudge you gently to stay focused.");
-      }
-    } catch (e) {
-      console.warn('Notification permission failed:', e);
-    }
-  }
-
-  // --- Browser notifications ---
-  function sendBrowserNotification(title, body) {
-    if (!browserNotificationsEnabled) return;
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    try {
-      new Notification(title, {
-        body: body,
-        tag: 'daybyday-' + Date.now(),
-        requireInteraction: false
-      });
-    } catch (e) {
-      console.warn('Notification send failed:', e);
-    }
   }
 
   // --- In-app nudge banner ---
@@ -184,7 +113,6 @@
     setInterval(() => {
       const all = [...motivationalMessages, ...wisdomMessages];
       const msg = all[Math.floor(Math.random() * all.length)];
-      sendBrowserNotification('Day by Day', msg);
       showInAppNudge(msg); // replaces current banner text
     }, NUDGE_INTERVAL_MS);
 
@@ -192,11 +120,9 @@
     setInterval(() => {
       const gm = getGuiltTripMessage();
       if (gm) {
-        sendBrowserNotification('Focus Check', gm);
         showInAppNudge(gm);
       } else {
         const msg = wisdomMessages[Math.floor(Math.random() * wisdomMessages.length)];
-        sendBrowserNotification('Day by Day', msg);
         showInAppNudge(msg);
       }
     }, GUILT_CHECK_INTERVAL_MS);
@@ -208,7 +134,6 @@
       if (goals.length === 5) showInAppNudge("All 5 goals set. Focus on #1 first — the rest can wait. You don't need to do everything at once.");
     },
     showNudge: showInAppNudge,
-    sendNotification: sendBrowserNotification,
     getWisdom: () => wisdomMessages[Math.floor(Math.random() * wisdomMessages.length)]
   };
 

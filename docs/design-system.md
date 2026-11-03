@@ -69,7 +69,7 @@ background:
 
 | Variant | Base | Used for |
 |---------|------|----------|
-| `.btn-primary` | `#4a8c6e` | Add goal, start day, enable notifications |
+| `.btn-primary` | `#4a8c6e` | Add goal, start day, export backup |
 | `.btn-secondary-orange` | `#c87d20` | Quick wins actions |
 | `.btn-distraction` | `#a85058` | Add distraction |
 | `.btn-ghost` | `rgba(140,148,156,0.25)` | Start fresh, Maybe Later |

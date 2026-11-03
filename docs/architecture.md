@@ -53,6 +53,7 @@ that section header and is headed for the named file.
 | Done Today ordering, fold counts, quick-win record | ✅ `js/core/done-today.js` |
 | Journal card (focus sessions, wins & lessons) | ✅ `js/ui/journal.js` |
 | Session detail text, newest-first session order | ✅ `js/core/journal.js` |
+| Backlog card (rows, promote/delete, hidden-items note, add input) | ✅ `js/ui/backlog.js` |
 | Backlog visibility (focus filter, General as inbox, visible slot → index) | ✅ `js/core/backlog.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
@@ -202,7 +203,7 @@ day-rollover detection in `loadState()`.
 }
 ```
 
-**Backlog** (`daybyday_backlog`): `[{ name, category?, repeatable?, hours?, progress? }]` — `addBacklogItem()` stamps `category: 'general'` on entry; a missing `category` is also treated as General. General items bypass the focus filter (see [features.md](features.md) § Backlog).
+**Backlog** (`daybyday_backlog`): `[{ name, category?, repeatable?, hours?, progress? }]` — `addBacklogItem()` (`js/ui/backlog.js`) stamps `category: 'general'` on entry; a missing `category` is also treated as General. General items bypass the focus filter (see [features.md](features.md) § Backlog).
 
 **Categories** (`daybyday_categories`):
 ```js

@@ -42,6 +42,7 @@ import * as Modals from './js/ui/modals.js';
 import * as Settings from './js/ui/settings.js';
 import * as DoneToday from './js/ui/done-today.js';
 import * as Journal from './js/ui/journal.js';
+import * as Backlog from './js/ui/backlog.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
 import {
@@ -1042,7 +1043,7 @@ import {
   }
 
   // =========================================================
-  // BACKLOG
+  // BACKLOG — wiring only
   // =========================================================
   // Visibility rules (focus filter, General-as-inbox, visible slot → array
   // index): js/core/backlog.js. These bind them to the live `state` /
@@ -1056,98 +1057,20 @@ import {
     return coreBacklogVisibleSlotToIndex(slot, backlog, state.focusCategoryIds);
   }
 
-  function renderBacklog() {
-    if (!backlogListEl) return;
-    backlogListEl.innerHTML = '';
-    let hiddenCount = 0;
-    backlog.forEach((item, i) => {
-      if (!isBacklogItemVisible(item)) {
-        hiddenCount++;
-        return;
-      }
-      backlogListEl.appendChild(createBacklogElement(item, i));
-    });
-    if (hiddenCount > 0) {
-      const note = document.createElement('div');
-      note.className = 'backlog-hidden-note';
-      note.textContent = hiddenCount === 1
-        ? '1 more task in other life areas — find it in the sidebar'
-        : `${hiddenCount} more tasks in other life areas — find them in the sidebar`;
-      backlogListEl.appendChild(note);
-    }
-    updateAddButtonVisibility();
-  }
-
-  function createBacklogElement(item, index) {
-    const row = document.createElement('div');
-    row.className = 'backlog-item';
-
-    const dragHandle = document.createElement('span');
-    dragHandle.className = 'task-drag-handle backlog-drag-handle';
-    dragHandle.title = 'Drag to Top 5';
-    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M108,60A16,16,0,1,1,92,44,16,16,0,0,1,108,60Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,60ZM108,128a16,16,0,1,1-16-16A16,16,0,0,1,108,128Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,128ZM108,196a16,16,0,1,1-16-16A16,16,0,0,1,108,196Zm56,0a16,16,0,1,1-16-16A16,16,0,0,1,164,196Z"/></svg>';
-
-    const name = document.createElement('span');
-    name.className = 'backlog-name';
-    name.textContent = item.name;
-    makeEditable(name, newVal => { backlog[index].name = newVal; saveBacklog(); });
-
-    const actions = document.createElement('div');
-    actions.className = 'backlog-actions';
-
-    // Category pill
-    const catPill = createCategoryPill(item.category, newId => {
-      backlog[index].category = newId;
-      saveBacklog();
-      renderSidebar();
-      renderBacklog();
-    });
-    actions.appendChild(catPill);
-
-    const activeCount = getActiveGoals().length;
-    if (activeCount < MAX_GOALS) {
-      const promoteBtn = document.createElement('button');
-      promoteBtn.className = 'btn-promote';
-      promoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,106.34l-96-96a8,8,0,0,0-11.32,0l-96,96a8,8,0,0,0,11.32,11.32L120,29.31V216a8,8,0,0,0,16,0V29.31l82.34,88.35a8,8,0,0,0,11.32-11.32Z"/></svg> Promote';
-      promoteBtn.title = 'Move to active goals';
-      promoteBtn.addEventListener('click', () => {
-        if (getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: item.name, hours: item.hours || 0, progress: item.progress || 0, fromBacklog: true, category: item.category || null, repeatable: item.repeatable || false });
-        backlog.splice(index, 1);
-        saveState(); saveBacklog(); render();
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
-      });
-      actions.appendChild(promoteBtn);
-    }
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'task-delete';
-    deleteBtn.textContent = '×';
-    deleteBtn.addEventListener('click', () => {
-      undoStack.push({ type: 'backlog', item: backlog[index], index });
-      backlog.splice(index, 1); saveBacklog(); renderBacklog();
-    });
-
-    actions.appendChild(deleteBtn);
-    row.append(dragHandle, name, actions);
-    setupBacklogItemDrag(row, item, index);
-    return row;
-  }
-
-  function addBacklogItem() {
-    if (!backlogInputEl) return;
-    const n = backlogInputEl.value.trim();
-    if (!n) return;
-    // Stamp 'general' explicitly: an undefined category defaults to General in
-    // isBacklogItemVisible, and General items are always shown, so a freshly
-    // typed task can never be filtered out of the card the instant it's added.
-    backlog.push({ name: n, category: 'general' });
-    backlogInputEl.value = '';
-    saveBacklog(); renderBacklog();
-  }
-
-  if (addBacklogBtn) addBacklogBtn.addEventListener('click', addBacklogItem);
-  if (backlogInputEl) backlogInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addBacklogItem(); });
+  // Card rendering, rows and the add input: js/ui/backlog.js.
+  Backlog.configure({
+    get state() { return state; },
+    get backlog() { return backlog; },
+    backlogListEl, backlogInputEl, addBacklogBtn, undoStack,
+    saveState, saveBacklog, render, renderSidebar, updateAddButtonVisibility,
+    getActiveGoals, MAX_GOALS, createCategoryPill, makeEditable,
+    // Getter: destructured from js/ui/drag.js further down (TDZ).
+    get setupBacklogItemDrag() { return setupBacklogItemDrag; },
+  });
+  // A function declaration, not `const { renderBacklog } = Backlog`: the
+  // Sidebar, Modals and Settings configure() calls pass renderBacklog by
+  // value, and a const here would still be in its temporal dead zone then.
+  function renderBacklog() { Backlog.renderBacklog(); }
 
   // =========================================================
   // JOURNAL — wiring only

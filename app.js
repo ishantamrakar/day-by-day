@@ -43,6 +43,7 @@ import * as Settings from './js/ui/settings.js';
 import * as DoneToday from './js/ui/done-today.js';
 import * as Journal from './js/ui/journal.js';
 import * as Backlog from './js/ui/backlog.js';
+import * as Tasks from './js/ui/tasks.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
 import {
@@ -1172,57 +1173,16 @@ import {
   }
 
   // =========================================================
-  // ADDING TASKS
+  // ADDING TASKS — wiring only
   // =========================================================
-  function addGoal() {
-    const n = goalInputEl.value.trim();
-    if (!n || getActiveGoals().length >= MAX_GOALS) return;
-    state.goals.push({ name: n, hours: 0, progress: 0 }); goalInputEl.value = '';
-    saveState(); render();
-    pulseBlobEvent('add');
-    if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
-  }
-  function addDistraction() {
-    const n = distractionInputEl.value.trim(); if (!n || state.distractions.length >= MAX_DISTRACTIONS) return;
-    state.distractions.push({ name: n, hours: 0 }); distractionInputEl.value = '';
-    saveState(); render();
-    pulseBlobEvent('distraction');
-  }
-
-  addGoalBtn.addEventListener('click', () => {
-    const n = goalInputEl.value.trim();
-    if (n) {
-      // Name already typed — open splash with name pre-filled
-      openTaskDetailModal({ name: n, category: null, repeatable: false }, (result) => {
-        if (getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        goalInputEl.value = '';
-        saveState(); render(); pulseBlobEvent('add');
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
-      });
-    } else {
-      // Nothing typed — open blank splash
-      openTaskDetailModal({ name: '', category: null, repeatable: false }, (result) => {
-        if (!result.name || getActiveGoals().length >= MAX_GOALS) return;
-        state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        saveState(); render(); pulseBlobEvent('add');
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
-      });
-    }
+  // The Top 5 / distraction add inputs and buttons: js/ui/tasks.js. The
+  // "Reset day" button stays here because it reassigns `state`.
+  Tasks.configure({
+    get state() { return state; },
+    goalInputEl, addGoalBtn, distractionInputEl, addDistractionBtn,
+    saveState, render, getActiveGoals, openTaskDetailModal,
+    MAX_GOALS, MAX_DISTRACTIONS,
   });
-  goalInputEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      const n = goalInputEl.value.trim();
-      if (!n || getActiveGoals().length >= MAX_GOALS) return;
-      state.goals.push({ name: n, hours: 0, progress: 0 });
-      goalInputEl.value = '';
-      saveState(); render();
-      pulseBlobEvent('add');
-      if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(state.goals);
-    }
-  });
-  addDistractionBtn.addEventListener('click', addDistraction);
-  distractionInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addDistraction(); });
 
   resetDayBtn.addEventListener('click', () => {
     if (confirm('Archive today and start fresh? Progress will be saved in history.')) {

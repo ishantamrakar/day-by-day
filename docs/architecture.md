@@ -54,6 +54,7 @@ that section header and is headed for the named file.
 | Journal card (focus sessions, wins & lessons) | ✅ `js/ui/journal.js` |
 | Session detail text, newest-first session order | ✅ `js/core/journal.js` |
 | Backlog card (rows, promote/delete, hidden-items note, add input) | ✅ `js/ui/backlog.js` |
+| Adding Top 5 goals and distractions (inputs, + buttons) | ✅ `js/ui/tasks.js` |
 | Backlog visibility (focus filter, General as inbox, visible slot → index) | ✅ `js/core/backlog.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,

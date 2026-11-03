@@ -25,7 +25,6 @@ app.js           — entry ES module: boot, wiring, window.DayByDayApp
 js/core/         — portable domain logic. NO DOM, NO browser APIs.
 js/platform/     — the only files touching browser APIs (storage, notify, env)
 js/ui/           — DOM rendering & interaction
-notifications.js — in-app nudge banner (classic script; no OS notifications)
 ```
 
 **Refactor in progress:** app.js is being split into the three layers above;

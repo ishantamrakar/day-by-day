@@ -44,6 +44,10 @@ import * as DoneToday from './js/ui/done-today.js';
 import * as Journal from './js/ui/journal.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
+import {
+  isBacklogItemVisible as coreIsBacklogItemVisible,
+  backlogVisibleSlotToIndex as coreBacklogVisibleSlotToIndex,
+} from './js/core/backlog.js';
 
 (function () {
   'use strict';
@@ -1040,27 +1044,16 @@ import * as CoreSessions from './js/core/sessions.js';
   // =========================================================
   // BACKLOG
   // =========================================================
-  // The backlog card only shows items from today's focus categories (picked in
-  // the day-start modal). With no focus set (e.g. modal skipped) it shows all.
-  // Hidden items stay reachable via the sidebar category expansions.
-  // General is the backlog's inbox — items land there before they're filed into
-  // a life area, so today's focus filter must never hide them.
+  // Visibility rules (focus filter, General-as-inbox, visible slot → array
+  // index): js/core/backlog.js. These bind them to the live `state` /
+  // `backlog`. Function declarations, not consts: Sidebar.configure() and
+  // Drag.configure() receive them by value.
   function isBacklogItemVisible(item) {
-    const focusIds = state.focusCategoryIds || [];
-    const cat = item.category || 'general';
-    return cat === 'general' || focusIds.length === 0 || focusIds.includes(cat);
+    return coreIsBacklogItemVisible(item, state.focusCategoryIds);
   }
 
-  // Map a slot among the *visible* backlog rows to an index in the full
-  // backlog array (hidden items make the two diverge).
   function backlogVisibleSlotToIndex(slot) {
-    let seen = 0;
-    for (let i = 0; i < backlog.length; i++) {
-      if (!isBacklogItemVisible(backlog[i])) continue;
-      if (seen === slot) return i;
-      seen++;
-    }
-    return backlog.length;
+    return coreBacklogVisibleSlotToIndex(slot, backlog, state.focusCategoryIds);
   }
 
   function renderBacklog() {

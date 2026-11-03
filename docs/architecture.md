@@ -58,6 +58,7 @@ that section header and is headed for the named file.
 | Session detail text, newest-first session order | ✅ `js/core/journal.js` |
 | Backlog card (rows, promote/delete, hidden-items note, add input) | ✅ `js/ui/backlog.js` |
 | Adding Top 5 goals and distractions (inputs, + buttons) | ✅ `js/ui/tasks.js` |
+| Click-to-edit text (`makeEditable`), progress slider fill (`updateSliderFill`) | ✅ `js/ui/editable.js` |
 | Backlog visibility (focus filter, General as inbox, visible slot → index) | ✅ `js/core/backlog.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
@@ -235,7 +236,8 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 **Shared UI helpers** (added to kill duplication — reuse these, don't reimplement):
 - `formatHours(h, emptyLabel='+ hrs')` — the one h/m pill formatter. For minutes pass `formatHours(mins / 60, '0m')`.
 - `makeInlineHoursEditor(pillEl, { getValue, onCommit, render })` — click-to-edit hours widget (0–24, 0.25 step; blur/Enter commit, Escape cancel). Used by the goal card, focus modal, and done badge.
-- `makeTimeAddPills(onAdd, presets=DEFAULT_TIME_PRESETS)` — row of +10m/…/+2h chips; `onAdd(deltaHours)` owns clamp/save/accumulate/sync.
+- `makeEditable(spanEl, onSave)` — click-to-edit text (Enter/blur commit, Escape cancel, empty keeps the old text). In `js/ui/editable.js`; the Top 5, distraction, backlog, journal and Done Today rows all use it.
+- `updateSliderFill(slider)` — paints a range input's track up to the thumb. Also `js/ui/editable.js`.
 
 **Day transition:**
 - `getTodayString()` — local date `YYYY-MM-DD`, never UTC.

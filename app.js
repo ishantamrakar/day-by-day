@@ -48,6 +48,7 @@ import * as DoneToday from './js/ui/done-today.js';
 import * as Journal from './js/ui/journal.js';
 import * as Backlog from './js/ui/backlog.js';
 import * as Tasks from './js/ui/tasks.js';
+import * as Editable from './js/ui/editable.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
 import {
@@ -572,45 +573,13 @@ import * as CarryoverUI from './js/ui/carryover.js';
   if (storageWarning && !isStorageAvailable()) storageWarning.classList.remove('hidden');
 
   // =========================================================
-  // INLINE EDITING
+  // INLINE EDITING + PROGRESS SLIDER FILL — wiring only
   // =========================================================
-  function makeEditable(spanEl, onSave) {
-    spanEl.style.cursor = 'pointer';
-    spanEl.title = 'Click to edit';
-    spanEl.addEventListener('click', () => {
-      if (spanEl.querySelector('input')) return;
-      const current = spanEl.textContent;
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'inline-edit-input';
-      input.value = current;
-      input.maxLength = 200;
-      spanEl.textContent = '';
-      spanEl.appendChild(input);
-      input.focus();
-      input.select();
-
-      function finish() {
-        const newVal = input.value.trim() || current;
-        spanEl.textContent = newVal;
-        onSave(newVal);
-      }
-      input.addEventListener('blur', finish);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { input.value = current; input.blur(); }
-      });
-    });
-  }
-
-  // =========================================================
-  // PROGRESS SLIDER FILL
-  // =========================================================
-  function updateSliderFill(slider) {
-    const val = slider.value;
-    const pct = ((val - slider.min) / (slider.max - slider.min)) * 100;
-    slider.style.background = `linear-gradient(to right, #2D6A4F 0%, #40916C ${pct}%, rgba(45,106,79,0.1) ${pct}%)`;
-  }
+  // js/ui/editable.js. Shared by the Top 5, distraction, backlog, journal and
+  // Done Today rows. Hoisted declarations so a configure() call placed above
+  // this point could still pass them by value.
+  function makeEditable(spanEl, onSave) { return Editable.makeEditable(spanEl, onSave); }
+  function updateSliderFill(slider) { return Editable.updateSliderFill(slider); }
 
   // =========================================================
   // RENDERING

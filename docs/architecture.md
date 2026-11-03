@@ -225,55 +225,75 @@ day-rollover detection in `loadState()`.
 
 ## app.js internals
 
-IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`, `BACKLOG_KEY`, `CATEGORIES_KEY`, `SIDEBAR_KEY` (all from `js/core/keys.js`). `RING_CIRCUMFERENCE = 2π × 34` lives in `js/ui/summary.js`.
+`app.js` is the entry ES module and the composition root. Its body is still one
+IIFE in `'use strict'`. What it does, top to bottom:
 
-**Storage:** `storageGet(key)` / `storageSet(key, value)` — localStorage wrapped in try/catch.
+**Wiring.**
+- Injects storage into core: `CoreState` / `CoreStore` / `CoreSessions` / `CoreBackup` `.configureStorage(...)`, before anything persists (see § Dependency injection at the composition root).
+- Boots state: `CoreState.initState()` returns the previous day when it detected a rollover (`_prevDayForModal`); `state` / `backlog` are mirrored into local `let`s; the unified store is built by `CoreStore.migrateToStore()` and shares the live `categories` array; `baselineGrowthStages()` runs once the categories are store-backed.
+- Calls each UI module's `configure(ctx)` in turn (Sidebar, Modals, Carryover, FocusMode, DoneToday, Backlog, Journal, Summary, Tasks, Drag, Settings, DayTransition, Intentions, blob colour source). `state` / `backlog` / `categories` are always passed as getters (§ The injected-context pattern).
+- Thin wrappers that bind core rules to the live data, so call sites stay short: `getCategoryById`, `activeCategories`, `pendingGrowthMilestones`, `intentionsAllMetToday`, `getIntentionFor`, `isBacklogItemVisible`, `backlogVisibleSlotToIndex`, `findLastActiveDay`, `rescueCarryoverToBacklog`, plus the store bindings (`syncDayToStore`, `hydrateDayType`, …). Several are function declarations rather than consts on purpose: they hoist, so a `configure()` call higher up can pass them by value (`npm run check:configure-tdz`).
+- Persistence: `saveState()` (store sync + legacy `daybyday_data`), `saveBacklog()`, `saveCategories()` (legacy key + store).
+- Category lifecycle: `archiveCategory` / `restoreCategory` / `deleteCategory` (tombstone: `deleted: true`, live backlog items and today's active goals move to General) and `accumulateCategoryHours(catId, delta)`, the **only place `totalHours` is mutated**.
+- `render()` is the orchestrator: it calls each card module's render function in turn. `getActiveGoals()` → `progress < 100`, `getCompletedGoals()` → `progress >= 100`; completed goals render in Done Today, not the goals list, which matters for drag index math (see [drag-drop.md](drag-drop.md)). `updateAddButtonVisibility()` hides the add rows at `MAX_GOALS` / `MAX_DISTRACTIONS`.
+- `permanentlyDeleteGoal(index)` pushes to the undo stack, then scrubs the goal from `state.goals`, `_carryover` and `_prevDayForModal`.
+- The "Reset day" button, kept here because it reassigns `state` (`npm run check:state-sync`).
+- Clock: `updateClock()` syncs to the minute boundary via `msUntilNextMinute`, no seconds.
+
+**Undo.** `undoStack` plus a document `keydown` listener for Cmd/Ctrl+Z. Covers goals, distractions, journal (successes / failures), backlog and quick wins. Ignored while a modal is open. Card modules push onto the same `undoStack`, which they receive through `configure()`.
+
+**Card layout.** `saveCardLayout()` / `restoreCardLayout()` persist each column's card order under `daybyday_layout`; `initCardDragHandles()` attaches `setupCardDrag` (from `js/ui/drag.js`) to every `.draggable-card`.
+
+**Modal lock.** `isModalOpen()` / `isFocusFullscreenOpen()` and one body `MutationObserver` that toggles `modal-open` and `focus-fullscreen-open` on `<html>` and calls `DayByDayBlobs.setOccluded()`. See [design-system.md](design-system.md) § Modals.
+
+**Activity monitor.** Document-level `pointerdown` / `keydown` / throttled `pointermove` listeners (capture phase) keep `lastActivityTime` fresh; `markActivity` / `getIdleMs` / `getLastActivity` are passed to focus mode and exposed on `DayByDayApp.activity`. Consumed today by focus mode's idle check (60 min → "Still working on this?" dialog, `FOCUS_IDLE_THRESHOLD_MS`); intended to feed notifications/intelligence later. Returning to the tab is deliberately not activity — only real interaction is.
+
+**New-day detection.** `checkForNewDay()` runs every 60s at the minute boundary. On a date change it closes any running focus session into the outgoing day (`closeFocusSessionForRollover`, *before* archiving), archives it, builds the fresh state with `_carryover`, and opens the day-transition modal on the last day that had work (`findLastActiveDay`). The boot path does the same through `initState()`.
+
+**`window.DayByDayApp`.** `{ getState, getGoals, getDistractions, getStore, storageGet, storageSet, activity }`. Read by the smoke and regression scripts; no module in `js/` depends on it.
+
+**Boot.** Restore card layout → `render()` → day-transition modal or legacy carryover banner → card drag handles → crashed-focus-session check → `initSidebar()` → `initNudges()`.
+
+## Module internals worth knowing
+
+Notes on code that used to live in `app.js`, kept here because they explain *why*. Each names its file.
+
+**Storage** (`js/platform/storage.js`): `storageGet(key)` / `storageSet(key, value)` — localStorage wrapped in try/catch.
 
 **Categories:**
-- `loadCategories()` — merges saved + defaults at boot. `{ ...def, ...saved }` so saved values win.
-- `getCategoryById(id)` — always returns something; falls back to `general`.
-- `accumulateCategoryHours(catId, delta)` — **only place `totalHours` is mutated.** Called on every hours-input change.
-- `createCategoryPill()` — tracks `currentCatId` in closure so picker always shows current value.
-- `makeTimeAddRing({ presets, onChange })` → `{ el, getHours, setHours, reset }` — the reusable staged time picker (ring + preset dial chips). The caller owns the commit, so it drops into anywhere time gets logged. Constants: `TIME_RING_MAX` (12h ceiling per pass), `TIME_RING_STEP` (5-minute drag snap). `makeChipDial(hours)` builds a preset's mini dial. Replaced `makeTimeAddPills`, which applied time live on every tap.
-- `openTaskContextPicker(anchor, catId, repeatable, onConfirm, { showRepeatable })` — the **single** category/context modal for every task-like row. `showRepeatable: false` gives a category-only picker (used by backlog + distractions); default shows the repeatable toggle (Top 5 goals). There is no separate popover picker.
+- `loadCategories()` (`js/core/state.js`) — merges saved + defaults at boot; saved values win.
+- `createCategoryPill()` (`js/ui/modals.js`) — tracks `currentCatId` in closure so the picker always shows the current value.
+- `openTaskContextPicker(anchor, catId, repeatable, onConfirm, { showRepeatable })` (`js/ui/modals.js`) — the **single** category/context modal for every task-like row. `showRepeatable: false` gives a category-only picker (used by backlog + distractions); default shows the repeatable toggle (Top 5 goals). There is no separate popover picker.
+- `makeTimeAddRing({ presets, onChange })` (`js/ui/time-ring.js`) → `{ el, getHours, setHours, reset }` — the reusable staged time picker (ring + preset dial chips). The caller owns the commit, so it drops into anywhere time gets logged. Constants: `TIME_RING_MAX` (12h ceiling per pass), `TIME_RING_STEP` (drag and arrow-key snap). `makeChipDial(hours)` builds a preset's mini dial. Replaced `makeTimeAddPills`, which applied time live on every tap.
 
 **Shared UI helpers** (added to kill duplication — reuse these, don't reimplement):
-- `formatHours(h, emptyLabel='+ hrs')` — the one h/m pill formatter. For minutes pass `formatHours(mins / 60, '0m')`.
-- `makeInlineHoursEditor(pillEl, { getValue, onCommit, render })` — click-to-edit hours widget (0–24, 0.25 step; blur/Enter commit, Escape cancel). Used by the goal card, focus modal, and done badge.
-- `makeEditable(spanEl, onSave)` — click-to-edit text (Enter/blur commit, Escape cancel, empty keeps the old text). In `js/ui/editable.js`; the Top 5, distraction, backlog, journal and Done Today rows all use it.
-- `updateSliderFill(slider)` — paints a range input's track up to the thumb. Also `js/ui/editable.js`.
+- `formatHours(h, emptyLabel='+ hrs')` (`js/core/format.js`) — the one h/m pill formatter. For minutes pass `formatHours(mins / 60, '0m')`.
+- `makeInlineHoursEditor(pillEl, { getValue, onCommit, render })` (`js/ui/time-ring.js`) — click-to-edit hours widget (0–24, 0.25 step; blur/Enter commit, Escape cancel). Used by the goal card, focus modal, and done badge.
+- `makeEditable(spanEl, onSave)` (`js/ui/editable.js`) — click-to-edit text (Enter/blur commit, Escape cancel, empty keeps the old text). The Top 5, distraction, backlog, journal and Done Today rows all use it.
+- `updateSliderFill(slider)` (`js/ui/editable.js`) — paints a range input's track up to the thumb.
 
 **Day transition:**
-- `getTodayString()` — local date `YYYY-MM-DD`, never UTC.
-- `loadState()` — detects new day on boot → `archiveDay()` → sets `_prevDayForModal` → builds fresh state with `_carryover`.
-- `checkForNewDay()` — runs every 60s at the minute boundary. Same logic for mid-session day change.
-- `archiveDay()` — pushes snapshot to history (max 30). Does not touch `totalHours`. The snapshot carries `focusSessions` (added so a session retired at rollover isn't dropped the moment it's recorded); days archived before that change simply have no key, and every reader defaults it to `[]`.
-- `dayHasWork(d)` — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
+- `getTodayString()` (`js/core/day.js`) — local date `YYYY-MM-DD`, never UTC.
+- `loadState(archiveDay)` (`js/core/state.js`) — detects a new day on boot → archives the stored day → builds fresh state with `_carryover` (`buildCarryover`) and returns the previous day, which `initState()` hands to app.js as `_prevDayForModal`.
+- `archiveDay()` (`js/core/state.js`) — pushes snapshot to history (max 30). Does not touch `totalHours`. The snapshot carries `focusSessions` (added so a session retired at rollover isn't dropped the moment it's recorded); days archived before that change simply have no key, and every reader defaults it to `[]`.
+- `dayHasWork(d)` (`js/core/day.js`) — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
 - Demote/promote preserve `hours` + `progress` both ways, so a shelved task resumes where it left off.
 - `rescueCarryoverToBacklog()` (app.js wrapper over `rescueItems()` in `js/core/carryover.js`) — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
 - `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — app.js binding over `findLastActiveDay(history, today, fallback)` in `js/core/day.js`. Walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
 
-**Rendering:**
-- `getActiveGoals()` → `progress < 100`; `getCompletedGoals()` → `progress === 100`
-- Completed goals go to Done Today card, not the goals list. This matters for drag index math — see [drag-drop.md](drag-drop.md).
-- `render()` stays in `app.js` as the orchestrator: it calls each card module's render function in turn.
-- `renderGoals()` (`js/ui/tasks.js`) iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
+**Rendering:** `renderGoals()` (`js/ui/tasks.js`) iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
 
-**Background blobs (performance-critical — see [design-system.md](design-system.md) § Depth & Glass):**
+**Background blobs** (`js/ui/blobs.js`; performance-critical — see [design-system.md](design-system.md) § Depth & Glass):
 - Markup is `.blob-layer > .blob-drift > .blob`. JS owns the wrapper's `transform`; CSS swirl keyframes own the inner blob's. Splitting them keeps `filter: blur(60px)` **static**, so it rasterizes once instead of every frame.
 - `_driftStep(s)` advances one blob's physics; `_writeBlob(i)` writes `translate3d()` to its wrapper. Never write `left`/`top` here — they trigger layout and force a full-screen blur re-raster.
 - `_startDrift()` / `_stopDrift()` are the **only** owners of `_rafId`; the `_rafId !== null` guard in `_startDrift` makes a duplicated (uncancellable) rAF chain impossible. Call these, never `_driftTick()` directly.
 - Three gates stop the loop: `_driftPaused` (swirl playing), `_driftHidden` (`document.hidden` or focus fullscreen open, via `_refreshDriftGate`), and `_reduceMotion` (`prefers-reduced-motion`).
 - Physics runs at `DRIFT_FPS = 24`, not per frame. Per-step constants are scaled by `_STEP_SCALE = 60 / DRIFT_FPS` so motion matches the original 60fps feel — change `DRIFT_FPS` and the scaling follows automatically.
-- `window.DayByDayBlobs.setOccluded(bool)` is called from the body `MutationObserver` when a `.focus-fullscreen-overlay` is added/removed, covering every `overlay.remove()` path without touching them.
+- `DayByDayBlobs.setOccluded(bool)` (exported from `js/ui/blobs.js`) is called from app.js's body `MutationObserver` when a `.focus-fullscreen-overlay` is added/removed, covering every `overlay.remove()` path without touching them.
 
-**Other:**
-- Clock syncs to minute boundary via `msUntilNextMinute`, no seconds.
-- Undo: `undoStack`, Cmd/Ctrl+Z. Covers goals, distractions, journal, backlog, quickDone.
-- Progress rings: SVG, `stroke-dasharray: 213.63`. Four rings: progress (green), goal hours (mint, max 8h), distraction (rose, max 4h), quick wins (orange, max 4h). The caps and fractions are in `js/core/summary.js` (`ringFractions`); painting them is `renderSummary()` in `js/ui/summary.js`.
-- Public API: `window.DayByDayApp = { getState, getGoals, getDistractions, getStore, storageGet, storageSet, activity }`
-- Activity monitor: document-level `pointerdown`/`keydown`/throttled `pointermove` listeners (capture phase) keep `lastActivityTime` fresh; `DayByDayApp.activity.getIdleMs()` / `.getLastActivity()` expose it. Consumed today by focus mode's idle check (60 min → "Still working on this?" dialog, `FOCUS_IDLE_THRESHOLD_MS`); intended to feed notifications/intelligence later. Returning to the tab is deliberately not activity — only real interaction is.
-- Focus session records (`state.focusSessions[]`, mirrored to `store.sessions`): `{ timestamp, goalName, goalIndex, category, totalMins, focusPct, focusMins, distractMins, isWin, ultraFocus, intention, entryTag, entryNote, midNotes[], exitTag, exitNote }`. `ultraFocus` is true when the user chose to keep counting after an hour-plus idle stretch; the idle dialog can also override `totalMins` (custom hours) or advance `sessionStartTime` (trim). `midNotes` entries are `{ text, at }` (epoch ms) — records saved before timestamps hold plain strings, and all renderers tolerate both. In-progress sessions snapshot to `daybyday_focus_session` (`persistSnapshot`/`clearSnapshot` in `openFullFocusMode`); `checkForCrashedFocusSession()` at boot offers Resume / Wrap up / Discard for same-day snapshots and drops stale ones.
+**Progress rings:** SVG, `stroke-dasharray: 213.63`. Four rings: progress (green), goal hours (mint, max 8h), distraction (rose, max 4h), quick wins (orange, max 4h). The caps and fractions are in `js/core/summary.js` (`ringFractions`); painting them is `renderSummary()` in `js/ui/summary.js`, which also holds `RING_CIRCUMFERENCE = 2π × 34`.
+
+**Focus session records** (`js/ui/focus-mode.js`; `state.focusSessions[]`, mirrored to `store.sessions`): `{ timestamp, goalName, goalIndex, category, totalMins, focusPct, focusMins, distractMins, isWin, ultraFocus, intention, entryTag, entryNote, midNotes[], exitTag, exitNote }`. `ultraFocus` is true when the user chose to keep counting after an hour-plus idle stretch; the idle dialog can also override `totalMins` (custom hours) or advance `sessionStartTime` (trim). `midNotes` entries are `{ text, at }` (epoch ms) — records saved before timestamps hold plain strings, and all renderers tolerate both. In-progress sessions snapshot to `daybyday_focus_session` (`persistSnapshot`/`clearSnapshot` in `openFullFocusMode`); `checkForCrashedFocusSession()` at boot offers Resume / Wrap up / Discard for same-day snapshots and drops stale ones.
 
 ## index.html structure
 

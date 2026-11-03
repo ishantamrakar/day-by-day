@@ -8,35 +8,29 @@
 import {
   storageGet, storageSet, storageRemove, isStorageAvailable, storageKeysWithPrefix,
 } from './js/platform/storage.js';
-import { formatHours, hexToRgb, hexToRgba } from './js/core/format.js';
 import {
-  HOURS_PER_STAGE, GROWTH_STAGES, getGrowthStage,
   pendingGrowthMilestones as corePendingMilestones,
   acknowledgeGrowthMilestones as coreAckMilestones,
   baselineGrowthStages as coreBaselineStages,
 } from './js/core/growth.js';
 import {
-  hoursByCategoryToday as coreHoursByCategoryToday,
   intentionsAllMetToday as coreIntentionsAllMet,
-  getIntentions as coreGetIntentions, getIntentionFor as coreGetIntentionFor,
+  getIntentionFor as coreGetIntentionFor,
 } from './js/core/intentions.js';
 import {
   getTodayString, getDefaultState, dayHasWork,
   findLastActiveDay as coreFindLastActiveDay,
 } from './js/core/day.js';
 import {
-  STORAGE_KEY, HISTORY_KEY, LAYOUT_KEY, BACKLOG_KEY, CATEGORIES_KEY,
-  SIDEBAR_KEY, FOCUS_SNAPSHOT_KEY, STORE_KEY, KEY_PREFIX,
+  STORAGE_KEY, LAYOUT_KEY, BACKLOG_KEY, CATEGORIES_KEY,
 } from './js/core/keys.js';
 import * as CoreState from './js/core/state.js';
 import * as CoreStore from './js/core/store.js';
 import {
-  applyBlobColors, pulseBlobEvent, DayByDayBlobs,
+  applyBlobColors, DayByDayBlobs,
   configureColorSource as configureBlobColorSource,
 } from './js/ui/blobs.js';
-import {
-  makeChipDial, makeTimeAddRing, makeInlineHoursEditor, DEFAULT_TIME_PRESETS,
-} from './js/ui/time-ring.js';
+import { makeTimeAddRing, makeInlineHoursEditor } from './js/ui/time-ring.js';
 import * as CoreBackup from './js/core/backup.js';
 import * as DayTransition from './js/ui/day-transition.js';
 import * as Drag from './js/ui/drag.js';
@@ -50,7 +44,6 @@ import * as Backlog from './js/ui/backlog.js';
 import * as Tasks from './js/ui/tasks.js';
 import * as Editable from './js/ui/editable.js';
 import * as Summary from './js/ui/summary.js';
-import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
 import {
   isBacklogItemVisible as coreIsBacklogItemVisible,
@@ -68,19 +61,6 @@ import { initNudges } from './js/ui/nudges.js';
   const MAX_DISTRACTIONS = 5;
   // RING_CIRCUMFERENCE: js/ui/summary.js, next to the only code that uses it.
   // Storage keys and STORE_VERSION: js/core/keys.js (imported above).
-
-  // --- Default categories ---
-  const DEFAULT_CATEGORIES = CoreState.DEFAULT_CATEGORIES;
-
-  // --- Emoji → color mapping ---
-  // Category palette + emojiToColor: js/core/palette.js
-
-  // Curated swatches shown in both category modals — ordered for visual appeal
-
-
-
-  // --- Storage ---
-  // Moved to js/platform/storage.js — imported at the top of this file.
 
   // =========================================================
   // BLOB CONTROLLER — wiring only
@@ -102,9 +82,6 @@ import { initNudges } from './js/ui/nudges.js';
 
   // Deferred: state isn't loaded yet at this point in the IIFE.
   setTimeout(applyBlobColors, 0);
-
-  // storageGet / storageSet / storageRemove now come from
-  // js/platform/storage.js (imported at the top of this file).
 
   // =========================================================
   // UNIFIED STORE (Phase 3, step 1)
@@ -134,8 +111,6 @@ import { initNudges } from './js/ui/nudges.js';
   // function takes it explicitly, which is what keeps it portable. These
   // wrappers supply this module's live `store` / `state` / `backlog` so the
   // ~40 call sites throughout app.js stay unchanged.
-  const makeEntity = CoreStore.makeEntity;
-  const entityToView = CoreStore.entityToView;
   const hydrateDayType = (day, type) => CoreStore.hydrateDayType(store, day, type);
   const hydrateBacklogFromStore = () => CoreStore.hydrateBacklogFromStore(store);
   const hydrateSessionsFromStore = () => CoreStore.hydrateSessionsFromStore(store);
@@ -165,8 +140,6 @@ import { initNudges } from './js/ui/nudges.js';
   // signature rather than arriving as a side effect.
   const _prevDayForModal = CoreState.initState();
   const categories = CoreState.getCategories();
-
-  const loadCategories = CoreState.loadCategories;
 
   // `store.categories` is the same array object, so a category change is
   // already live in memory — but the *persisted* store would keep a stale copy
@@ -261,11 +234,6 @@ import { initNudges } from './js/ui/nudges.js';
     applyBlobColors();
   }
 
-  function getCategoryColor(id) {
-    const cat = getCategoryById(id);
-    return cat ? cat.color : '#8d99ae';
-  }
-
   // =========================================================
   // GROWTH + INTENTIONS — state-bound wrappers
   // =========================================================
@@ -274,10 +242,6 @@ import { initNudges } from './js/ui/nudges.js';
   // the result. Read the core files for the reasoning behind each rule.
   function pendingGrowthMilestones() {
     return corePendingMilestones(activeCategories());
-  }
-
-  function hoursByCategoryToday() {
-    return coreHoursByCategoryToday(state);
   }
 
   function intentionsAllMetToday() {
@@ -299,10 +263,6 @@ import { initNudges } from './js/ui/nudges.js';
   // Function declarations, not consts: Sidebar.configure() and
   // DayTransition.configure() pass these by value, and declarations hoist.
   IntentionsUI.configure({ getCategoryById });
-
-  function getIntentions() {
-    return coreGetIntentions(state);
-  }
 
   function getIntentionFor(catId) {
     return coreGetIntentionFor(state, catId);
@@ -468,7 +428,7 @@ import { initNudges } from './js/ui/nudges.js';
     lifeSidebar, sidebarCategoriesEl, sidebarCatDots, sidebarScrim, sidebarFab,
     sidebarExpandBtn, sidebarCloseBtn, addCategoryBtn,
   });
-  const { isMobileLayout, setSidebarOpen, initSidebar, renderSidebar } = Sidebar;
+  const { isMobileLayout, initSidebar, renderSidebar } = Sidebar;
 
   // =========================================================
   // MODALS — wiring only
@@ -485,8 +445,8 @@ import { initNudges } from './js/ui/nudges.js';
     get accumulateCategoryHours() { return accumulateCategoryHours; },
   });
   const {
-    openCatInlineEdit, closeQuickAdd, openQuickAddModal, closePicker, closeModal,
-    openNewCategoryModal, createCategoryPill, openTaskContextPicker, openTaskDetailModal,
+    openCatInlineEdit, openQuickAddModal, closeModal,
+    openNewCategoryModal, createCategoryPill, openTaskDetailModal,
     openLogDoneModal,
   } = Modals;
 
@@ -515,8 +475,6 @@ import { initNudges } from './js/ui/nudges.js';
     saveState();
     render();
   }
-
-  const loadBacklog = CoreState.loadBacklog;
 
   function saveBacklog() {
     syncBacklogToStore();
@@ -831,7 +789,7 @@ import { initNudges } from './js/ui/nudges.js';
     get closeModal() { return closeModal; },
     get isMobileLayout() { return isMobileLayout; },
   });
-  const { downloadExport, openSettingsModal, openEditFocusModal } = Settings;
+  const { openEditFocusModal } = Settings;
 
   // =========================================================
   // MODAL LOCK — design rule: while any modal overlay is open,

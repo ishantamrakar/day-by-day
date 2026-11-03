@@ -31,7 +31,7 @@ No build. Pure static checks — see `.github/workflows/ci.yml`.
 | `npm run validate:html` | `html-validate` on `index.html`. |
 | `npm run test:smoke` | Serves the app, loads it headless, asserts no console errors and that `window.DayByDayApp` exists (`scripts/smoke-test.mjs`). |
 | `npm run check` | All three — the fast local loop. |
-| `npm run test:regression` | The four data-integrity suites below (`scripts/run-regression.mjs`). |
+| `npm run test:regression` | The data-integrity suites below (`scripts/run-regression.mjs`). |
 | `npm run check:all` | Everything: `check` + `test:regression`. What CI and the deploy gate run. |
 
 ### Regression suites
@@ -44,6 +44,7 @@ These guard **data integrity** — the invariants where a regression silently lo
 | `test-rollover.mjs` | The `rescueCarryoverToBacklog()` invariant — no unfinished task is ever dropped, on either modal exit. Completed tasks aren't rescued. |
 | `test-hours.mjs` | The time ring is *staged* (dismissing adds nothing); `totalHours` gains exactly what was committed and never double-counts. This accumulator is never recomputed from history, so corruption is permanent. |
 | `test-growth.mjs` | Pre-existing hours don't fire milestone toasts; a milestone crossed while the sidebar is collapsed waits, unconsumed. Also guards the boot-order dependency: `baselineGrowthStages()` must run after `store.categories` is wired. |
+| `test-day-logic.mjs` | What survives a new day, on both rollover paths (reload on a later date, and the tab left open across midnight via Playwright's fake clock): `_carryover` contents (progress kept, `prevHours` cumulative, done one-offs dropped, done repeatables reset), 1-day and multi-day gaps, intentions and focus areas resetting, `totalHours` never double-counted, the summary walking back past an idle day, the delete-scrub of `_carryover`, and the legacy banner exits. Written before the day-logic extraction and kept unchanged through it. |
 
 `scripts/harness.mjs` holds the shared browser/server setup and helpers (`addGoal`, `getBacklog`, `getCategoryHours`, …). New suites go in `scripts/test-*.mjs` and get added to the list in `run-regression.mjs`, which runs **all** suites and reports every failure rather than stopping at the first.
 

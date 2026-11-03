@@ -5,7 +5,7 @@
   "description": "Finitude-aware daily focus app. Vanilla JS, no build step \u2014 dependencies here are dev tooling only (lint / validate / smoke test).",
   "type": "module",
   "scripts": {
-    "lint": "eslint app.js notifications.js js",
+    "lint": "eslint app.js js",
     "validate:html": "html-validate index.html",
     "check:state-sync": "node scripts/check-state-sync.mjs",
     "check:configure-tdz": "node scripts/check-configure-tdz.mjs",

@@ -15,7 +15,6 @@ js/
   platform/   the only files that touch browser APIs.
               Swapped per target; everything else imports from here.
   ui/         DOM rendering and interaction. Rewritten for native.
-notifications.js    classic script (not yet a module) — in-app nudges only
 ```
 
 **The dependency rule:** `core/` never imports from `ui/` or `platform/` —
@@ -63,6 +62,8 @@ that section header and is headed for the named file.
 | Summary card (figures, four rings, breakdown bars, encouragement line) | ✅ `js/ui/summary.js` |
 | Summary maths (hour totals, average progress, ring fractions and caps) | ✅ `js/core/summary.js` |
 | Backlog visibility (focus filter, General as inbox, visible slot → index) | ✅ `js/core/backlog.js` |
+| Nudge banner (show, dismiss, timers, "All 5 goals set") | ✅ `js/ui/nudges.js` |
+| Nudge messages, focus-check message, nudge intervals | ✅ `js/core/nudges.js` |
 
 **Core modules take their data as arguments.** `pendingGrowthMilestones(cats)`,
 `intentionsAllMetToday(state, categories)` and friends never read module state,
@@ -282,14 +283,14 @@ IIFE, `'use strict'`. Key constants: `STORAGE_KEY`, `HISTORY_KEY`, `LAYOUT_KEY`,
 - `#main-content` padding-left: `calc(var(--sidebar-rail-w) + 40px)` → `calc(var(--sidebar-w) + 40px)` when `.sidebar-open`. Sidebar geometry lives in three `:root` vars — `--sidebar-w` (372px), `--sidebar-rail-w` (52px), and `--sidebar-panel-w` (derived) — so the panel and this offset follow the one width instead of being three magic numbers edited in lockstep.
 - Two-column CSS Grid inside `#main-content`: `col-left`, `col-right`
 - Cards have `data-card-id` + `draggable-card` for reordering
-- Script order: `app.js` is `type="module"` (auto-deferred, runs after parse); `notifications.js` is a classic script with `defer`. Its init waits for `DOMContentLoaded` plus a tick, by which point the module has published `window.DayByDayApp` — the guard it already had (`if (!window.DayByDayApp) return`) covers the rest.
+- Scripts: a single `<script type="module" src="app.js">` (auto-deferred, runs after parse). Everything else is imported from it.
 - `carryover-banner` still exists in HTML but is superseded by the Day Transition Modal. Its rendering and accept/dismiss handlers live in `js/ui/carryover.js`; boot calls `showCarryoverIfNeeded()` only when the modal is skipped
 
-## notifications.js
+## Nudges (js/core/nudges.js, js/ui/nudges.js)
 
-- Motivational nudge every 25 min, guilt-trip check every 40 min
+- Motivational nudge every 25 min, guilt-trip check every 40 min (`NUDGE_INTERVAL_MS`, `GUILT_CHECK_INTERVAL_MS` in core)
 - Nudge banner stays until dismissed; new messages replace current text
-- 15 wisdom messages (4,000 Weeks) + 10 motivational messages
+- 15 wisdom messages (4,000 Weeks) + 10 motivational messages, both in `js/core/nudges.js`. `buildGuiltTripMessage(goals, dists)` takes the day's data as arguments and returns `null` when there is nothing to reflect on; the 40-min timer then shows a wisdom line instead
 - **No browser (OS) notifications.** Removed 2026-11: the Notification API never delivered reliably, and real notifications are planned for the native macOS/iOS/Android builds instead (roadmap.md § Product Vision). The global keeps its `DayByDayNotifications` name so callers didn't change
-- Public API: `window.DayByDayNotifications = { onGoalsUpdated, showNudge, getWisdom }`
-- `setTimeout(init, 50)` — waits for app.js to finish loading
+- Public API: `window.DayByDayNotifications = { onGoalsUpdated, showNudge, getWisdom }`, published by `initNudges()`. Callers in `js/ui/` still go through the global, guarded by `if (window.DayByDayNotifications)`
+- `initNudges({ getGoals, getDistractions })` is the last call of app.js boot, so the global is absent during the boot render (as it was when the nudges lived in a classic script loaded after app.js). It starts the timers 50 ms later and shows the first nudge 1.5 s after that

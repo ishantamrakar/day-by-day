@@ -5,14 +5,13 @@ import globals from 'globals';
 
 export default [
   {
-    // app.js is now an ES module; notifications.js is still a classic script.
     files: ['app.js', 'js/**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
       globals: {
         ...globals.browser,
-        // Cross-file globals the two scripts expose to each other.
+        // Globals app.js and js/ui/nudges.js publish on window.
         DayByDayApp: 'readonly',
         DayByDayNotifications: 'readonly',
       },
@@ -27,23 +26,6 @@ export default [
       'no-func-assign': 'error',
       'valid-typeof': 'error',
       'no-unsafe-negation': 'error',
-    },
-  },
-  {
-    files: ['notifications.js'],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'script',
-      globals: {
-        ...globals.browser,
-        DayByDayApp: 'readonly',
-        DayByDayNotifications: 'readonly',
-      },
-    },
-    rules: {
-      'no-undef': 'error',
-      'no-dupe-keys': 'error',
-      'no-unreachable': 'error',
     },
   },
   {

@@ -44,7 +44,7 @@ This is not task management. It's **finitude-aware focus** — helping you feel 
 **Phases:**
 1. **Now** — vanilla web app, self-use, rapid iteration. No infra, no accounts.
 2. **PWA** — offline, home screen install. Still no backend. (Web push deliberately skipped — browser notifications were unreliable and were removed 2026-11.)
-3. **Native iOS/macOS** — SwiftUI, iCloud sync, real OS notifications (the nudge messages in `notifications.js` are the starting content). The glass design language maps directly to visionOS/iOS 26.
+3. **Native iOS/macOS** — SwiftUI, iCloud sync, real OS notifications (the nudge messages in `js/core/nudges.js` are the starting content). The glass design language maps directly to visionOS/iOS 26.
 4. **Multi-platform** — subscription for sync + AI nudges.
 
 **Architectural decisions that matter for the future:**

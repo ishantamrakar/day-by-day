@@ -59,6 +59,7 @@ import {
 import * as CoreCarryover from './js/core/carryover.js';
 import * as IntentionsUI from './js/ui/intentions.js';
 import * as CarryoverUI from './js/ui/carryover.js';
+import { initNudges } from './js/ui/nudges.js';
 
 (function () {
   'use strict';
@@ -1007,5 +1008,8 @@ import * as CarryoverUI from './js/ui/carryover.js';
   initCardDragHandles();
   checkForCrashedFocusSession();
   initSidebar();
+  // Last: nothing in the boot render may reach the nudge global (see
+  // js/ui/nudges.js).
+  initNudges({ getGoals: () => state.goals, getDistractions: () => state.distractions });
 
 })();

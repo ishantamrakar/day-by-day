@@ -16,10 +16,14 @@ import {
   baselineGrowthStages as coreBaselineStages,
 } from './js/core/growth.js';
 import {
-  MAX_INTENTION_HOURS, hoursByCategoryToday as coreHoursByCategoryToday,
+  hoursByCategoryToday as coreHoursByCategoryToday,
   intentionsAllMetToday as coreIntentionsAllMet,
+  getIntentions as coreGetIntentions, getIntentionFor as coreGetIntentionFor,
 } from './js/core/intentions.js';
-import { getTodayString, getDefaultState, dayHasWork } from './js/core/day.js';
+import {
+  getTodayString, getDefaultState, dayHasWork,
+  findLastActiveDay as coreFindLastActiveDay,
+} from './js/core/day.js';
 import {
   STORAGE_KEY, HISTORY_KEY, LAYOUT_KEY, BACKLOG_KEY, CATEGORIES_KEY,
   SIDEBAR_KEY, FOCUS_SNAPSHOT_KEY, STORE_KEY, KEY_PREFIX,
@@ -44,6 +48,9 @@ import * as DoneToday from './js/ui/done-today.js';
 import * as Journal from './js/ui/journal.js';
 import { emojiToColor, COLOR_SWATCHES } from './js/core/palette.js';
 import * as CoreSessions from './js/core/sessions.js';
+import * as CoreCarryover from './js/core/carryover.js';
+import * as IntentionsUI from './js/ui/intentions.js';
+import * as CarryoverUI from './js/ui/carryover.js';
 
 (function () {
   'use strict';
@@ -274,106 +281,26 @@ import * as CoreSessions from './js/core/sessions.js';
 
 
   // =========================================================
-  // DAILY INTENTIONS
+  // DAILY INTENTIONS — wiring only
   // =========================================================
-  // An optional "I'd like to give this area about N hours today", set when
-  // picking focus areas and shown as a quiet progress bar on the sidebar card.
+  // Rules (reading, parsing, which survive a change of selection):
+  // js/core/intentions.js. The "how much time?" rows under both focus
+  // pickers: js/ui/intentions.js. See docs/features.md § Daily intentions.
   //
-  // Deliberately soft: intentions live on the day's state (so a Tuesday
-  // intention never leaks into Wednesday), every one is optional, and nothing
-  // in the UI ever reports falling short. An unmet intention looks exactly
-  // like mid-morning progress — see docs/features.md § Daily intentions.
-  // MAX_INTENTION_HOURS: js/core/intentions.js
+  // Function declarations, not consts: Sidebar.configure() and
+  // DayTransition.configure() pass these by value, and declarations hoist.
+  IntentionsUI.configure({ getCategoryById });
 
   function getIntentions() {
-    return state.focusIntentions || {};
+    return coreGetIntentions(state);
   }
 
   function getIntentionFor(catId) {
-    const v = getIntentions()[catId];
-    return typeof v === 'number' && v > 0 ? v : null;
+    return coreGetIntentionFor(state, catId);
   }
 
-  // Builds the "how much time?" rows shown under a focus picker. Rows appear
-  // only for currently-selected areas and carry whatever was already set.
-  //   getSelected() -> array of category ids, in pick order
-  //   returns { el, refresh, collect }
   function makeIntentionFields(getSelected, initial) {
-    const draft = Object.assign({}, initial || {});
-
-    const wrap = document.createElement('div');
-    wrap.className = 'intention-fields';
-
-    const label = document.createElement('div');
-    label.className = 'day-modal-section-label';
-    label.textContent = 'Time you\'d like to give (optional)';
-
-    const rows = document.createElement('div');
-    rows.className = 'intention-rows';
-    wrap.append(label, rows);
-
-    function refresh() {
-      const ids = getSelected();
-      rows.innerHTML = '';
-      if (ids.length === 0) { wrap.classList.add('hidden'); return; }
-      wrap.classList.remove('hidden');
-
-      ids.forEach(id => {
-        const cat = getCategoryById(id);
-        if (!cat) return;
-        const row = document.createElement('label');
-        row.className = 'intention-row';
-
-        const name = document.createElement('span');
-        name.className = 'intention-row-name';
-        name.innerHTML = `<span class="intention-row-emoji">${cat.emoji}</span>`;
-        name.appendChild(document.createTextNode(cat.name));
-
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.className = 'intention-input';
-        input.min = '0';
-        input.max = String(MAX_INTENTION_HOURS);
-        // Whole hours only. `step` governs the spinner arrows; the rounding
-        // in the handler covers typed input, which ignores step entirely.
-        // An intention is a rough gesture at the day, not a schedule — half
-        // hours invite a precision the number doesn't have.
-        input.step = '1';
-        input.placeholder = '—';
-        input.value = draft[id] != null ? String(draft[id]) : '';
-        input.setAttribute('aria-label', `Hours for ${cat.name}`);
-        input.addEventListener('input', () => {
-          const v = parseFloat(input.value);
-          if (!input.value.trim() || isNaN(v) || v <= 0) delete draft[id];
-          else draft[id] = Math.round(Math.min(MAX_INTENTION_HOURS, Math.max(0, v)));
-        });
-        // Snap the visible field to the stored whole number, but only once
-        // the user is done typing — rewriting the value mid-input would fight
-        // the caret on every keystroke.
-        input.addEventListener('blur', () => {
-          input.value = draft[id] != null ? String(draft[id]) : '';
-        });
-
-        const unit = document.createElement('span');
-        unit.className = 'intention-unit';
-        unit.textContent = 'h';
-
-        row.append(name, input, unit);
-        rows.appendChild(row);
-      });
-    }
-
-    // Only keep intentions for areas still selected — deselecting an area
-    // shouldn't leave an orphaned target behind.
-    function collect() {
-      const ids = new Set(getSelected());
-      const out = {};
-      Object.keys(draft).forEach(id => { if (ids.has(id)) out[id] = draft[id]; });
-      return out;
-    }
-
-    refresh();
-    return { el: wrap, refresh, collect };
+    return IntentionsUI.makeIntentionFields(getSelected, initial);
   }
 
   // Time-add ring, chip dials, inline hours editor: js/ui/time-ring.js
@@ -555,9 +482,12 @@ import * as CoreSessions from './js/core/sessions.js';
   } = Modals;
 
   // =========================================================
-  // DATE / STATE MANAGEMENT
+  // DATE / STATE MANAGEMENT — wiring only
   // =========================================================
-  // getTodayString / getDefaultState: js/core/day.js
+  // getTodayString / getDefaultState / dayHasWork / findLastActiveDay:
+  // js/core/day.js. Loading, archiving and building the carryover:
+  // js/core/state.js. What stays here binds those to the live state, store
+  // and undo stack, and persists.
 
   // Permanently delete a goal by index — scrubs it from state.goals AND _carryover so
   // it never resurfaces in the day transition modal or anywhere else.
@@ -567,11 +497,11 @@ import * as CoreSessions from './js/core/sessions.js';
     state.goals.splice(index, 1);
     // Also remove from _carryover (built at day-rollover, not updated on subsequent deletes)
     if (state._carryover && goal) {
-      state._carryover = state._carryover.filter(g => g.name !== goal.name);
+      state._carryover = CoreCarryover.withoutGoalNamed(state._carryover, goal.name);
     }
     // Also remove from _prevDayForModal so the summary modal doesn't show it
     if (_prevDayForModal && _prevDayForModal.goals && goal) {
-      _prevDayForModal.goals = _prevDayForModal.goals.filter(g => g.name !== goal.name);
+      _prevDayForModal.goals = CoreCarryover.withoutGoalNamed(_prevDayForModal.goals, goal.name);
     }
     saveState();
     render();
@@ -588,34 +518,11 @@ import * as CoreSessions from './js/core/sessions.js';
   const archiveDay = CoreState.archiveDay;
   const loadHistory = CoreState.loadHistory;
 
-  // Did anything actually happen on this day? Used to tell a real working day
-  // apart from one where the app was merely opened (which still gets saved and
-  // archived, and would otherwise masquerade as "the previous day").
-
-  // The summary modal should reflect the last day you actually WORKED, not
-  // simply the last day the app was open. Skipping days (or opening the app
-  // and doing nothing) leaves empty days in between; walk back through history
-  // to find the most recent real one, falling back to `fallback` when there is
-  // no such day. Returns { day, gapDays, idleDays }.
+  // findLastActiveDay: js/core/day.js. This binding supplies today's date
+  // and the archived history; the rule itself takes both as arguments.
   function findLastActiveDay(fallback) {
     const today = getTodayString();
-    const candidates = loadHistory().filter(d => d && d.date && d.date < today);
-    if (fallback && fallback.date && !candidates.find(d => d.date === fallback.date)) {
-      candidates.push(fallback);
-    }
-    candidates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-    const active = candidates.filter(dayHasWork);
-    const day = active.length ? active[active.length - 1] : fallback;
-    if (!day || !day.date) return { day: fallback, gapDays: 0, idleDays: 0 };
-
-    const dayMs = 1000 * 60 * 60 * 24;
-    const gapDays = Math.round(
-      (new Date(today + 'T12:00:00') - new Date(day.date + 'T12:00:00')) / dayMs
-    );
-    // Days between that last active day and today where nothing was logged.
-    const idleDays = Math.max(0, gapDays - 1);
-    return { day, gapDays, idleDays };
+    return coreFindLastActiveDay(loadHistory(), today, fallback);
   }
 
   function saveState() {
@@ -629,73 +536,32 @@ import * as CoreSessions from './js/core/sessions.js';
   }
 
   // =========================================================
-  // CARRYOVER
+  // CARRYOVER — wiring only
   // =========================================================
+  // Rules for consuming `_carryover`: js/core/carryover.js (it is built by
+  // buildCarryover() in js/core/state.js). The legacy banner: js/ui/carryover.js.
 
   // Nothing unfinished may be silently discarded. Every path that clears
   // `_carryover` routes through here first: anything not already live in
-  // Top 5 lands in the backlog, so a task survives until the user
-  // deliberately deletes it. Returns the number of tasks rescued.
-  //
-  // Note this is deliberately NOT filtered by today's focus categories —
-  // the focus picker decides what gets pre-loaded into Top 5, not what is
-  // allowed to survive the day.
+  // Top 5 lands in the backlog. Returns the number of tasks rescued.
+  // backlog is appended to in place, never reassigned.
   function rescueCarryoverToBacklog() {
-    const leftovers = state._carryover || [];
-    if (leftovers.length === 0) { delete state._carryover; return 0; }
-    let rescued = 0;
-    leftovers.forEach(g => {
-      if (!g || !g.name) return;
-      // Already carried into today's Top 5 — nothing to rescue.
-      if (state.goals.find(eg => eg.name === g.name)) return;
-      // Already sitting in the backlog — don't duplicate it.
-      if (backlog.find(b => b.name === g.name)) return;
-      backlog.push({
-        name: g.name,
-        category: g.category || null,
-        repeatable: g.repeatable || false,
-        hours: g.hours || 0,
-        progress: g.progress || 0,
-      });
-      rescued++;
-    });
+    const rescued = CoreCarryover.rescueItems(state._carryover, state.goals, backlog);
+    rescued.forEach(item => backlog.push(item));
     delete state._carryover;
-    if (rescued > 0) saveBacklog();
-    return rescued;
+    if (rescued.length > 0) saveBacklog();
+    return rescued.length;
   }
 
-  function showCarryoverIfNeeded() {
-    if (!state._carryover || state._carryover.length === 0) {
-      if (carryoverBanner) carryoverBanner.classList.add('hidden');
-      return;
-    }
-    carryoverList.innerHTML = '';
-    state._carryover.forEach(g => {
-      const li = document.createElement('li');
-      const hrs = g.prevHours > 0 ? ` — ${g.prevHours}h invested` : '';
-      li.textContent = `${g.name} (${g.progress}% done${hrs})`;
-      carryoverList.appendChild(li);
-    });
-    carryoverBanner.classList.remove('hidden');
-  }
-
-  if (carryoverAccept) carryoverAccept.addEventListener('click', () => {
-    (state._carryover || []).forEach(g => {
-      if (state.goals.length < MAX_GOALS)
-        state.goals.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0, category: g.category || null, repeatable: g.repeatable || false });
-    });
-    rescueCarryoverToBacklog();
-    saveState();
-    carryoverBanner.classList.add('hidden');
-    render();
+  // state is a getter: rollover replaces the object (see docs/architecture.md
+  // § The injected-context pattern).
+  CarryoverUI.configure({
+    get state() { return state; },
+    carryoverBanner, carryoverList, carryoverAccept, carryoverDismiss,
+    MAX_GOALS, saveState, render, rescueCarryoverToBacklog,
   });
 
-  if (carryoverDismiss) carryoverDismiss.addEventListener('click', () => {
-    rescueCarryoverToBacklog();
-    saveState();
-    carryoverBanner.classList.add('hidden');
-    render();
-  });
+  function showCarryoverIfNeeded() { CarryoverUI.showCarryoverIfNeeded(); }
 
   if (storageWarning && !isStorageAvailable()) storageWarning.classList.remove('hidden');
 

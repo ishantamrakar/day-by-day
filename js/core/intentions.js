@@ -49,3 +49,36 @@ export function intentionsAllMetToday(state, categories) {
   const total = ids.reduce((sum, id) => sum + intentions[id], 0);
   return { count: ids.length, total };
 }
+
+// Today's intentions, keyed by category id. Absent on a fresh day: a new day
+// starts from getDefaultState(), which has no focusIntentions at all.
+export function getIntentions(state) {
+  return state.focusIntentions || {};
+}
+
+// The intention for one area, or null when none is set. Zero and junk read as
+// "no intention", never as a target of nothing.
+export function getIntentionFor(state, catId) {
+  const v = getIntentions(state)[catId];
+  return typeof v === 'number' && v > 0 ? v : null;
+}
+
+// What a typed intention field means. Blank, non-numeric and non-positive
+// input clears the intention (null); anything else is clamped to
+// 0..MAX_INTENTION_HOURS and rounded to whole hours. An intention is a rough
+// gesture at the day, not a schedule — half hours invite a precision the
+// number doesn't have.
+export function parseIntentionInput(raw) {
+  const v = parseFloat(raw);
+  if (!raw.trim() || isNaN(v) || v <= 0) return null;
+  return Math.round(Math.min(MAX_INTENTION_HOURS, Math.max(0, v)));
+}
+
+// Only keep intentions for areas still selected — deselecting an area
+// shouldn't leave an orphaned target behind.
+export function keepSelectedIntentions(draft, selectedIds) {
+  const ids = new Set(selectedIds);
+  const out = {};
+  Object.keys(draft).forEach(id => { if (ids.has(id)) out[id] = draft[id]; });
+  return out;
+}

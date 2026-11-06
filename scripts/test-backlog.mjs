@@ -6,6 +6,7 @@
 //   2. Demote/promote dropped hours and progress, silently resetting a
 //      part-done task that was shelved for later.
 import { runSuite, addGoal, addBacklogItem, getGoals, getBacklog } from './harness.mjs';
+import { describeBackup } from '../js/core/backup.js';
 
 await runSuite('Backlog integrity', 8301, async ({ page, check }) => {
   // ── 1. A newly added entry stays visible, even under a focus filter ──
@@ -211,4 +212,54 @@ await runSuite('Top 5: the moment a goal completes', 8309, async ({ page, check 
   check('the rename is saved', (await getGoals(page)).map((g) => g.name).includes('Goal B renamed'), true);
   check('the completed goal still leaves Top 5 afterwards', await page.evaluate(() =>
     [...document.querySelectorAll('#goals-list .task-name')].map((e) => e.textContent).includes('Goal A')), false);
+});
+
+await runSuite('Small UI rules', 8310, async ({ page, check }) => {
+  // ── The encouragement line agrees in number ──
+  await addGoal(page, 'Only goal');
+  await page.evaluate(() => {
+    const s = document.querySelector('#goals-list .progress-slider');
+    s.value = '100';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(600);
+  const line = await page.textContent('#encouragement-text');
+  check('one finished goal is not "All 1 goals"', /All 1 goals/.test(line), false);
+  check('the backup summary says "1 task", not "1 tasks"', describeBackup({ keys: {
+    daybyday_store: JSON.stringify({ entities: { a: {} }, sessions: [{}], categories: [{}] }),
+  } }), '1 task · 1 focus session · 1 life area');
+
+  // ── An edit that changes nothing writes nothing ──
+  await addGoal(page, 'Keep this name');
+  const writesDuring = async (fn) => {
+    await page.evaluate(() => {
+      window.__writes = 0;
+      if (!window.__origSetItem) {
+        window.__origSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (k, v) { window.__writes++; return window.__origSetItem.call(this, k, v); };
+      }
+    });
+    await fn();
+    await page.waitForTimeout(200);
+    return page.evaluate(() => window.__writes);
+  };
+  const openEditor = () => page.evaluate(() => {
+    [...document.querySelectorAll('#goals-list .task-name')].find((e) => e.textContent === 'Keep this name').click();
+  });
+  check('Escape after typing saves nothing', await writesDuring(async () => {
+    await openEditor();
+    await page.keyboard.type('Something else');
+    await page.keyboard.press('Escape');
+  }), 0);
+  check('Enter with the name unchanged saves nothing', await writesDuring(async () => {
+    await openEditor();
+    await page.keyboard.press('Enter');
+  }), 0);
+  check('the name is unchanged', (await getGoals(page)).some((g) => g.name === 'Keep this name'), true);
+  check('a real rename still saves', await writesDuring(async () => {
+    await openEditor();
+    await page.keyboard.type('New name');
+    await page.keyboard.press('Enter');
+  }) > 0, true);
+  check('…and sticks', (await getGoals(page)).some((g) => g.name === 'New name'), true);
 });

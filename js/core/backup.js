@@ -74,7 +74,8 @@ export function describeBackup(payload) {
       const tasks = Object.keys(store.entities).length;
       const sessions = (store.sessions || []).length;
       const cats = (store.categories || []).length;
-      return `${tasks} tasks · ${sessions} focus sessions · ${cats} life areas`;
+      const n = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+      return `${n(tasks, 'task', 'tasks')} · ${n(sessions, 'focus session', 'focus sessions')} · ${n(cats, 'life area', 'life areas')}`;
     }
   } catch (e) { /* unreadable store: fall through to the generic label */ }
   return 'summary unavailable';

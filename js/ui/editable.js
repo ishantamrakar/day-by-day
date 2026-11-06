@@ -28,7 +28,9 @@ export function makeEditable(spanEl, onSave) {
     function finish() {
       const newVal = input.value.trim() || current;
       spanEl.textContent = newVal;
-      onSave(newVal);
+      // Escape restores `current`, so it lands here too: nothing changed,
+      // nothing to save.
+      if (newVal !== current) onSave(newVal);
     }
     input.addEventListener('blur', finish);
     input.addEventListener('keydown', e => {

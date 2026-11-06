@@ -40,9 +40,11 @@ One shape for all task-like things, discriminated by `type`:
 {
   timestamp, goalName /* snapshot */, goalIndex, category /* id, resolved live */,
   totalMins, focusPct, focusMins, distractMins, isWin,
+  goalHoursAdded? /* since 2026-11: what the goal actually gained */,
   intention?, entryTag?, entryNote?, midNotes[], exitTag?, exitNote?
 }
 ```
+- `goalHoursAdded` is the goal's real gain after the 24h/day cap, so deleting the session can hand back exactly that (`sessionHoursOnGoal` in `js/core/journal.js`). Older records lack it and fall back to `focusMins / 60`.
 - `category` is stored as an **id only**; the emoji/color/name are resolved live at render via `getCategoryById`, so renaming or recoloring a category reflects in past journal entries.
 - `goalName` is a deliberate **snapshot** — a session is an audit-log row, and the goal may later be renamed or deleted.
 

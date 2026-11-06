@@ -920,11 +920,13 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       const distractHours = Math.round(distractMins / 60 * 100) / 100;
 
       // Log focus hours to the goal
+      let goalHoursAdded = 0;
       if (focusHours > 0 && ctx.state.goals[index]) {
         const prev = ctx.state.goals[index].hours || 0;
         ctx.state.goals[index].hours = Math.round(Math.min(24, prev + focusHours) * 100) / 100;
         // Accumulate what the goal actually gained (the 24h/day cap may
         // truncate it) — same rule as the time-add chips.
+        goalHoursAdded = Math.round((ctx.state.goals[index].hours - prev) * 100) / 100;
         ctx.accumulateCategoryHours(ctx.state.goals[index].category || 'general', ctx.state.goals[index].hours - prev);
         // Sync the pill on the card
         const cardPill = ctx.goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
@@ -969,6 +971,9 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
         focusPct,
         focusMins,
         distractMins,
+        // What the goal actually gained (after the cap), so deleting this
+        // session can hand back exactly that.
+        goalHoursAdded,
         isWin: focusPct >= 70,
         ultraFocus,
         intention: sessionIntention || null,

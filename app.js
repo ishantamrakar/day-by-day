@@ -669,7 +669,7 @@ import { initNudges } from './js/ui/nudges.js';
     get state() { return state; },
     successesListEl, failuresListEl, successInputEl, failureInputEl,
     addSuccessBtn, addFailureBtn, undoStack,
-    saveState, getCategoryById, makeEditable,
+    saveState, getCategoryById, makeEditable, accumulateCategoryHours, render,
   });
   // A function declaration, not `const { renderJournal } = Journal`:
   // FocusMode.configure() above passes renderJournal by value, and a const
@@ -858,7 +858,7 @@ import { initNudges } from './js/ui/nudges.js';
       if (isModalOpen()) return; // modal owns the keyboard (native text undo etc.)
       if (!undoStack.length) return;
       e.preventDefault();
-      const { type, item, index, catId, hoursDelta } = undoStack.pop();
+      const { type, item, index, catId, hoursDelta, goalName, goalHours } = undoStack.pop();
       // Deletes that took hours out of an area total record what they took.
       if (hoursDelta) accumulateCategoryHours(catId, -hoursDelta);
       if (type === 'goal') {
@@ -878,6 +878,14 @@ import { initNudges } from './js/ui/nudges.js';
       } else if (type === 'quickDone') {
         state.quickDone.splice(Math.min(index, state.quickDone.length), 0, item);
         saveState(); renderDone();
+      } else if (type === 'focusSession') {
+        if (!state.focusSessions) state.focusSessions = [];
+        state.focusSessions.splice(Math.min(index, state.focusSessions.length), 0, item);
+        // Give the goal back what the delete took (found by name: it may
+        // have moved since).
+        const goal = goalHours ? state.goals.find(g => g.name === goalName) : null;
+        if (goal) goal.hours = Math.round(Math.min(24, (goal.hours || 0) + goalHours) * 100) / 100;
+        saveState(); render();
       }
     }
   });

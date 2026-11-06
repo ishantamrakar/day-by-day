@@ -11,7 +11,6 @@ pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
 *Data integrity: fix first (gate G2 in product-plan.md)*
-- **Deleting a goal scrubs every `_carryover` entry with that name**, not just the one deleted.
 - **Enter-added goals get `category: null`.** The + button path and `addBacklogItem` stamp `'general'`. Nothing visible breaks, since the visibility rule treats null as General, but the stored data is inconsistent.
 - **Stale indices after a slider hits 100.** The row re-renders 350 ms later; in that window other rows still hold old array indices, so a quick delete or edit can hit the wrong goal.
 
@@ -31,6 +30,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** deleting a goal scrubbed *every* `_carryover` entry with its name, so two leftovers sharing a name both vanished. Only one is removed now (`withoutOneGoalNamed`). Guarded in `scripts/test-day-logic.mjs`.
 
 **Fixed (2026-11):** `checkForNewDay()` (tab open past midnight) built `_carryover` with its own inline copy of `buildCarryover`, so the two rollover paths could drift apart. It now calls the shared function. Verified by mutation: breaking `buildCarryover` used to fail only the reopen suite; now both day-boundary suites fail (9 and 6 checks).
 

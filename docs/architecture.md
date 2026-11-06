@@ -236,7 +236,7 @@ IIFE in `'use strict'`. What it does, top to bottom:
 - Persistence: `saveState()` (store sync + legacy `daybyday_data`), `saveBacklog()`, `saveCategories()` (legacy key + store).
 - Category lifecycle: `archiveCategory` / `restoreCategory` / `deleteCategory` (tombstone: `deleted: true`, live backlog items and today's active goals move to General) and `accumulateCategoryHours(catId, delta)`, the **only place `totalHours` is mutated**.
 - `render()` is the orchestrator: it calls each card module's render function in turn. `getActiveGoals()` → `progress < 100`, `getCompletedGoals()` → `progress >= 100`; completed goals render in Done Today, not the goals list, which matters for drag index math (see [drag-drop.md](drag-drop.md)). `updateAddButtonVisibility()` hides the add rows at `MAX_GOALS` / `MAX_DISTRACTIONS`.
-- `permanentlyDeleteGoal(index)` pushes to the undo stack, then scrubs the goal from `state.goals`, `_carryover` and `_prevDayForModal`.
+- `permanentlyDeleteGoal(index)` takes today's hours back out of the area total, pushes to the undo stack, then scrubs the goal from `state.goals`, `_carryover` and `_prevDayForModal`. The two copies are matched by name and only **one** entry is removed from each (`withoutOneGoalNamed` in `js/core/carryover.js`), so a same-named second task survives.
 - The "Reset day" button, kept here because it reassigns `state` (`npm run check:state-sync`).
 - Clock: `updateClock()` syncs to the minute boundary via `msUntilNextMinute`, no seconds.
 

@@ -301,6 +301,31 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
   check('a deleted task is not resurrected into the backlog',
     (await storedBacklog(page)).map((b) => b.name), ['Morning run', 'Stretch', 'Call mum']);
 
+  // One delete scrubs one leftover: two tasks that share a name are two
+  // tasks, and deleting today's copy of one must not wipe the other.
+  console.log('  — delete with two same-named leftovers');
+  await seed(page, { date: yesterday, goals: [
+    { name: 'Call the bank', hours: 0, progress: 20, category: 'career' },
+    { name: 'Call the bank', hours: 0.5, progress: 50, category: 'career' },
+  ] });
+  await page.evaluate(() => {
+    const input = document.getElementById('goal-input');
+    input.value = 'Call the bank';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')]
+      .find((r) => r.textContent.includes('Call the bank'));
+    row.querySelector('.task-delete').click();
+  });
+  await page.waitForTimeout(250);
+  check('deleting one goal scrubs only one same-named leftover',
+    (await appState(page))._carryover.map((g) => [g.name, g.progress]), [['Call the bank', 50]]);
+  await clickModalButton(page, 'Start fresh');
+  check('the other leftover still reaches the backlog',
+    (await storedBacklog(page)).map((b) => [b.name, b.progress]), [['Call the bank', 50]]);
+
   // ════ 5. Legacy banner: accept fills Top 5 up to the cap, rest rescued ════
   // The banner is superseded by the modal and practically unreachable from
   // boot, but its handlers are live and route through the rescue invariant.

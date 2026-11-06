@@ -61,7 +61,10 @@ export function bannerAcceptGoals(carryover, goalCount, maxGoals) {
 
 // A permanently deleted goal must not resurface from a copy of it. Carryover
 // entries (and the day snapshot behind the summary modal) are copies, not the
-// live goal objects, so they are matched by name.
-export function withoutGoalNamed(list, name) {
-  return list.filter(g => g.name !== name);
+// live goal objects, so they are matched by name — and only ONE is removed:
+// two leftovers that share a name are two tasks, and one delete must not wipe
+// both.
+export function withoutOneGoalNamed(list, name) {
+  const i = list.findIndex(g => g.name === name);
+  return i === -1 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
 }

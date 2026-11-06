@@ -474,11 +474,11 @@ import { initNudges } from './js/ui/nudges.js';
     state.goals.splice(index, 1);
     // Also remove from _carryover (built at day-rollover, not updated on subsequent deletes)
     if (state._carryover && goal) {
-      state._carryover = CoreCarryover.withoutGoalNamed(state._carryover, goal.name);
+      state._carryover = CoreCarryover.withoutOneGoalNamed(state._carryover, goal.name);
     }
     // Also remove from _prevDayForModal so the summary modal doesn't show it
     if (_prevDayForModal && _prevDayForModal.goals && goal) {
-      _prevDayForModal.goals = CoreCarryover.withoutGoalNamed(_prevDayForModal.goals, goal.name);
+      _prevDayForModal.goals = CoreCarryover.withoutOneGoalNamed(_prevDayForModal.goals, goal.name);
     }
     saveState();
     render();

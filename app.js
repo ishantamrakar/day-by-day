@@ -574,7 +574,7 @@ import { initNudges } from './js/ui/nudges.js';
     saveState, render, renderSummary, renderJournal, renderSidebar,
     goalsListEl, getCategoryById, accumulateCategoryHours,
     makeTimeAddRing, makeInlineHoursEditor, MAX_DISTRACTIONS,
-    getIdleMs, getLastActivity, markActivity,
+    markActivity,
     loadHistory, getTodayString, storageGet, storageSet, storageRemove,
     openAddToBacklogModal,
   });
@@ -818,9 +818,11 @@ import { initNudges } from './js/ui/nudges.js';
   // ACTIVITY MONITOR — app-wide attention tracking.
   // Keeps a single lastActivityTime timestamp updated from real user
   // interaction (pointer, keyboard). Consumers ask "how long has the
-  // user been away?" via getIdleMs(). Currently only focus mode's idle
-  // check uses it; later it can feed the notifications/intelligence
-  // systems (exposed on window.DayByDayApp.activity).
+  // user been away?" via getIdleMs(), exposed on window.DayByDayApp.activity
+  // for the intelligence systems later. Focus mode doesn't use it: a running
+  // session tracks its own checkpoints (js/core/checkpoints.js), where mouse
+  // movement doesn't count. It only calls markActivity() when an idle
+  // question is answered.
   // =========================================================
   let lastActivityTime = Date.now();
   let lastPointerMoveMark = 0;

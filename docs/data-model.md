@@ -42,11 +42,13 @@ One shape for all task-like things, discriminated by `type`:
   totalMins, focusPct, focusMins, distractMins, isWin,
   goalHoursAdded? /* since 2026-11: what the goal actually gained */,
   shares? /* since 2026-11, only when time was shared: [{ goalName, category, pct, hoursAdded }], main task first */,
+  confirmedMins? /* since 2026-11: start → last checkpoint */, unattended? /* closed automatically overnight */,
   intention?, entryTag?, entryNote?, midNotes[], exitTag?, exitNote?
 }
 ```
 - `goalHoursAdded` is the goal's real gain after the 24h/day cap, so deleting the session can hand back exactly that (`sessionHoursOnGoal` in `js/core/journal.js`). Older records lack it and fall back to `focusMins / 60`.
 - `shares` is present only when the session's time was **shared** across tasks. Each entry records its percent and the hours it actually added (after the cap) to that task, credited to that task's own life area. Percents total 100, and the hours total exactly the session's focused hours (`splitHours` in `js/core/shared-time.js`). Deleting the session hands every share back (`sessionReturns` in `js/core/journal.js`). `goalHoursAdded` still equals the main task's share.
+- `confirmedMins` is the time the session's **checkpoints** confirm (`js/core/checkpoints.js`): start to the last click, key press or scroll. On live sessions it's for reference; the logged time is still the session × focus %. On `unattended` records (closed automatically overnight) it *is* the logged time: the session is counted up to its last checkpoint. `unattended` records without it come from snapshots before checkpoints and hold a capped 1h estimate.
 - `category` is stored as an **id only**; the emoji/color/name are resolved live at render via `getCategoryById`, so renaming or recoloring a category reflects in past journal entries.
 - `goalName` is a deliberate **snapshot** — a session is an audit-log row, and the goal may later be renamed or deleted.
 

@@ -5,12 +5,15 @@
 // A session left running past midnight belongs to the day it STARTED on, not
 // the one you wake up in. Neither discarding it (hours genuinely worked) nor
 // crediting it to today (hours nobody worked) is honest, so it is retired onto
-// its own day, capped.
+// its own day, counted only as far as it is certain.
 //
-// THE CAP IS THE POINT. An untended clock reads as 14h when the real work was
-// maybe two, and the true figure is unknowable. We record a deliberately
-// conservative OVERNIGHT_CREDIT_HOURS and flag the record `unattended` so the
-// journal can show it as an estimate. Erring low is the only honest direction:
+// An untended clock reads as 14h when the real work was maybe two. The
+// snapshot carries the session's last checkpoint (js/core/checkpoints.js): the
+// last moment you were certainly working on it. The session is counted up to
+// there and no further, so the figure is confirmed, not guessed, and is
+// recorded as `confirmedMins`. Snapshots from before checkpoints have no such
+// moment; they keep a deliberately conservative OVERNIGHT_CREDIT_HOURS and the
+// journal shows them as an estimate. Erring low is the only honest direction:
 // overstating hours is the one outcome that would make the whole log
 // untrustworthy — see docs/features.md § Focus Mode.
 
@@ -29,12 +32,18 @@ export function configureStorage({ get, set, remove }) {
   storageRemove = remove;
 }
 
-// How much of an unattended session to credit: elapsed time from its start to
-// the end of the day it began on, capped. Returns 0 when there is nothing to
-// credit, which callers treat as "drop it".
+// How much of an unattended session to credit: from its start to its last
+// checkpoint, never past the end of the day it began on. Snapshots without a
+// checkpoint (from before they existed) fall back to the elapsed time, capped
+// at OVERNIGHT_CREDIT_HOURS. Returns 0 when there is nothing to credit, which
+// callers treat as "drop it".
 export function unattendedHours(snap, now = Date.now()) {
   if (!snap || !snap.sessionStartTime || !snap.date) return 0;
   const endOfDay = new Date(`${snap.date}T23:59:59`).getTime();
+  if (snap.lastCheckpoint != null) {
+    const until = Math.min(snap.lastCheckpoint, endOfDay, now);
+    return Math.max(0, Math.round((until - snap.sessionStartTime) / 36000) / 100);
+  }
   const ranMs = Math.max(0, Math.min(endOfDay, now) - snap.sessionStartTime);
   return Math.min(OVERNIGHT_CREDIT_HOURS, Math.round(ranMs / 36000) / 100);
 }
@@ -53,7 +62,10 @@ export function makeUnattendedSession(snap, hours) {
     distractMins: 0,
     isWin: false,
     ultraFocus: !!snap.ultraFocus,
-    unattended: true, // hours are a conservative estimate, not measured
+    unattended: true, // closed automatically, not by the user
+    // Counted up to the last checkpoint: confirmed time, not an estimate.
+    // Absent on records from snapshots without one (the capped estimate).
+    ...(snap.lastCheckpoint != null ? { confirmedMins: Math.round(hours * 60) } : {}),
     intention: snap.sessionIntention || null,
     entryTag: snap.sessionEntryTag || null,
     entryNote: snap.sessionEntryNote || null,
@@ -75,26 +87,27 @@ export function creditGoalHours(day, goalName, hours) {
 }
 
 // Path 1: the tab was reloaded on a later day and found a stale snapshot.
-// Attach the session to its own day in history.
+// Attach the session to its own day in history. Returns the goal-hours gain
+// (0 if nothing was credited) for the caller to add to the category total.
 export function retireStaleFocusSession(snap, { loadHistory }, now = Date.now()) {
-  if (!snap || !snap.sessionStartTime || !snap.date) return false;
-  if (snap.date >= getTodayString(new Date(now))) return false;
+  if (!snap || !snap.sessionStartTime || !snap.date) return 0;
+  if (snap.date >= getTodayString(new Date(now))) return 0;
   const hours = unattendedHours(snap, now);
-  if (hours <= 0) return false;
+  if (hours <= 0) return 0;
 
   try {
     const h = loadHistory();
     const day = h.find(d => d && d.date === snap.date);
     // No archived day to attach to (history trimmed past 30 days, or the
     // rollover never ran) — drop it rather than inventing a day.
-    if (!day) return false;
+    if (!day) return 0;
 
-    creditGoalHours(day, snap.goalName, hours);
+    const gain = creditGoalHours(day, snap.goalName, hours);
     day.focusSessions = day.focusSessions || [];
     day.focusSessions.push(makeUnattendedSession(snap, hours));
     storageSet(HISTORY_KEY, JSON.stringify(h));
-    return true;
-  } catch (e) { return false; }
+    return gain;
+  } catch (e) { return 0; }
 }
 
 // Path 2: the tab was open as midnight passed. Write the session straight into

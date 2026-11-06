@@ -20,6 +20,7 @@
 import { formatHours, hexToRgb } from '../core/format.js';
 import * as Sessions from '../core/sessions.js';
 import { splitHours, evenPercents, rebalancePercents } from '../core/shared-time.js';
+import { attentionCheck, canAdvanceCheckpoint, trimToCheckpoint, confirmedMinutes } from '../core/checkpoints.js';
 
 let _ctx = null;
 export function configure(c) { _ctx = c; }
@@ -75,11 +76,15 @@ let activeFocusOverlay = null;
 // handle without reaching into the binding.
 export function clearActiveOverlay() { activeFocusOverlay = null; }
 
-// Attention check: after this much time with no interaction during a
-// running session, ask (gently) whether the user is still working.
-const FOCUS_IDLE_THRESHOLD_MS = 60 * 60 * 1000;
+// Attention: how often a running session re-checks its checkpoints (the
+// thresholds themselves live in js/core/checkpoints.js), and how long a new
+// checkpoint may wait before it's saved to the crash snapshot.
 const FOCUS_IDLE_CHECK_MS = 30 * 1000;
+const CHECKPOINT_PERSIST_MS = 10 * 1000;
 const ULTRA_FOCUS_COLOR = '#D9A441'; // warm gold — ultra focus accent
+
+// "11:42 AM" — how checkpoints and session times are shown.
+const clockTime = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 
 export function openFocusModal(goal, index) {
@@ -254,7 +259,14 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
   let sessionEntryNote = snap ? (snap.sessionEntryNote || '') : '';
   let sessionNotes = snap ? (snap.sessionNotes || []) : [];
   let sessionStartTime = snap ? (snap.sessionStartTime || null) : null; // set when ambient screen opens
-  let ultraFocus = snap ? !!snap.ultraFocus : false; // user kept going after an idle check-in
+  let ultraFocus = snap ? !!snap.ultraFocus : false; // an hour confirmed (or "count it all" after the idle check)
+  // The last checkpoint: the latest moment this session was certainly being
+  // worked on (js/core/checkpoints.js). The session's start is the first;
+  // restored from the snapshot on resume (older snapshots: when last saved).
+  let lastCheckpoint = snap ? (snap.lastCheckpoint || snap.savedAt || snap.sessionStartTime || null) : null;
+  // Set when a crashed session is wrapped up: it's counted to its last
+  // checkpoint, and the exit screen says so.
+  let wrappedToCheckpoint = false;
   // Other Top 5 tasks this session's time is shared with, by name (names are
   // how the snapshot identifies tasks, so a crash-resumed session keeps them).
   let sharedWith = snap ? (snap.sharedWith || []) : [];
@@ -297,7 +309,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       goalName: goal.name,
       category: goal.category || null,
       sessionStartTime, sessionIntention, sessionEntryTag, sessionEntryNote,
-      sessionNotes, ultraFocus, sharedWith,
+      sessionNotes, ultraFocus, sharedWith, lastCheckpoint,
       savedAt: Date.now(),
     }));
   }
@@ -480,6 +492,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
 
   function buildAmbientScreen() {
     if (!sessionStartTime) sessionStartTime = Date.now(); // preserved on crash-resume
+    if (!lastCheckpoint) lastCheckpoint = sessionStartTime; // starting is the first checkpoint
     persistSnapshot();
 
     const screen = document.createElement('div');
@@ -582,22 +595,71 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     tick();
     const clockInterval = setInterval(tick, 10000);
 
-    // ── Attention check ────────────────────────────────────
-    // No interaction for FOCUS_IDLE_THRESHOLD_MS while the session runs
-    // → gently ask what to do with the away time. Timestamp-based, so a
-    // late tick after machine sleep still sees the full gap. The
-    // isConnected guard self-clears the interval on every teardown path.
+    // ── Attention: checkpoints, the idle question, Ultra Focus ──
+    // Every click, key press or scroll inside the running session is a
+    // checkpoint (js/core/checkpoints.js): proof you were here, working.
+    // Mouse movement and returning to the tab are not. Nor is the done
+    // button: finishing says nothing about the time before it, and the exit
+    // screen shows how much of the session the checkpoints confirm. The idle
+    // dialog sits outside this screen, so its clicks never count either; its
+    // answers set the checkpoint themselves.
+    //
+    // Timestamp-based throughout, so a late tick after machine sleep still
+    // sees the full gap. The isConnected guards self-clear on every teardown
+    // path, including the midnight rollover, which removes the overlay.
     let idleDialogEl = null;
-    const idleCheckInterval = setInterval(() => {
-      if (!screen.isConnected) { clearInterval(idleCheckInterval); return; }
+    let checkpointPersistTimer = null;
+
+    function markCheckpoint() {
       if (idleDialogEl) return;
-      if (ctx.getIdleMs() >= FOCUS_IDLE_THRESHOLD_MS) showIdleDialog();
+      const now = Date.now();
+      // An hour or more since the last one (say, the first click after the
+      // laptop wakes): ask about that time rather than counting it silently.
+      if (!canAdvanceCheckpoint(lastCheckpoint, now)) { showIdleDialog(); return; }
+      lastCheckpoint = now;
+      // Saved to the crash snapshot within CHECKPOINT_PERSIST_MS: a crash or
+      // the midnight rollover loses seconds of certainty, not more.
+      if (!checkpointPersistTimer) {
+        checkpointPersistTimer = setTimeout(() => {
+          checkpointPersistTimer = null;
+          if (screen.isConnected) persistSnapshot();
+        }, CHECKPOINT_PERSIST_MS);
+      }
+      checkAttention();
+    }
+    const onExplicitAction = e => {
+      if (e.target && e.target.closest && e.target.closest('.focus-done-btn')) return;
+      markCheckpoint();
+    };
+    ['pointerdown', 'keydown', 'wheel'].forEach(type =>
+      screen.addEventListener(type, onExplicitAction, { capture: true, passive: true }));
+
+    // An hour without a checkpoint → ask; an hour confirmed → Ultra Focus,
+    // quietly, with no question.
+    function checkAttention() {
+      if (!screen.isConnected || idleDialogEl) return;
+      const verdict = attentionCheck({ sessionStart: sessionStartTime, lastCheckpoint, now: Date.now(), ultra: ultraFocus });
+      if (verdict === 'ask') showIdleDialog();
+      else if (verdict === 'ultra') applyUltraFocus();
+    }
+    const attentionInterval = setInterval(() => {
+      if (!screen.isConnected) { clearInterval(attentionInterval); return; }
+      checkAttention();
     }, FOCUS_IDLE_CHECK_MS);
+    // Once on arrival too, so a session resumed after a long gap asks straight
+    // away. Deferred: this screen isn't in the document until it's returned.
+    setTimeout(checkAttention, 50);
 
     function stopAmbientIntervals() {
-      clearInterval(idleCheckInterval);
+      clearInterval(attentionInterval);
       clearInterval(clockInterval);
       if (breatheInterval) clearInterval(breatheInterval);
+      // Leaving the running session: save a checkpoint still waiting to be.
+      if (checkpointPersistTimer) {
+        clearTimeout(checkpointPersistTimer);
+        checkpointPersistTimer = null;
+        persistSnapshot();
+      }
     }
 
     function applyUltraFocus() {
@@ -616,10 +678,9 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     }
 
     function showIdleDialog() {
-      // Anchor the away period to the last real interaction. Clicking
-      // the dialog itself marks activity globally, but the away math
-      // stays frozen to this anchor until a choice is made.
-      const awayStart = ctx.getLastActivity();
+      // Anchored to the last checkpoint, frozen here until a choice is made:
+      // everything before it is certain, only the time since is in question.
+      const awayStart = lastCheckpoint;
 
       const scrim = document.createElement('div');
       scrim.className = 'focus-idle-scrim';
@@ -635,7 +696,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       const away = document.createElement('p');
       away.className = 'focus-idle-away';
       const updateAway = () => {
-        away.textContent = `No activity for ${formatHours((Date.now() - awayStart) / 3600000, 'a little while')}.`;
+        away.textContent = `Your last activity here was at ${clockTime(awayStart)}, ${formatHours((Date.now() - awayStart) / 3600000, 'a little while')} ago.`;
       };
       updateAway();
       const awayInterval = setInterval(() => {
@@ -660,15 +721,18 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       // 1. Keep counting — this is a marathon. Acknowledge it.
       const stillBtn = makeIdleBtn('I\'m still focusing — count it all', 'focus-idle-btn--primary');
       stillBtn.addEventListener('click', () => {
+        lastCheckpoint = Date.now(); // all of it counts, so all of it is confirmed
         applyUltraFocus();
+        persistSnapshot();
         closeIdleDialog();
       });
 
-      // 2. Trim the away time, keep the session going.
-      const trimBtn = makeIdleBtn('I stepped away — trim that time');
+      // 2. Trim the time since the last checkpoint, keep the session going.
+      const trimBtn = makeIdleBtn(`I stepped away — don't count the time since ${clockTime(awayStart)}`);
       trimBtn.addEventListener('click', () => {
-        const gapMs = Date.now() - awayStart;
-        sessionStartTime = Math.min(Date.now(), sessionStartTime + gapMs);
+        const now = Date.now();
+        sessionStartTime = trimToCheckpoint(sessionStartTime, awayStart, now);
+        lastCheckpoint = now; // back now
         persistSnapshot();
         closeIdleDialog();
       });
@@ -870,6 +934,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       const rgb = getComputedStyle(overlay).getPropertyValue('--focus-cat-color-rgb').trim();
       const theme = { dark: true, accent: rgb ? `rgb(${rgb})` : catColor };
       ctx.openAddToBacklogModal('', item => {
+        markCheckpoint(); // the modal sits outside this screen; adding is still work
         parkText.textContent = `“${item.name}” is in your backlog ✓`;
         clearTimeout(parkResetTimer);
         parkResetTimer = setTimeout(() => { parkText.textContent = PARK_HINT; }, 5000);
@@ -982,7 +1047,26 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     const timeBreakdown = document.createElement('p');
     timeBreakdown.className = 'focus-entry-sublabel';
 
-    sliderSection.append(sliderLabel, sliderRow, timeBreakdown);
+    // What the checkpoints confirm: a quiet reference while setting the
+    // focus %, nothing applied automatically. Hidden when hours were typed in.
+    const confirmedLine = document.createElement('p');
+    confirmedLine.className = 'focus-entry-sublabel focus-confirmed-line';
+    const asTime = m => formatHours(m / 60, '0m');
+    if (wrappedToCheckpoint) {
+      confirmedLine.textContent = `Counted up to your last activity at ${clockTime(lastCheckpoint)}.`;
+    } else if (overrideTotalMins === null && totalMins > 0 && sessionStartTime && lastCheckpoint) {
+      const confirmed = Math.min(totalMins, confirmedMinutes(sessionStartTime, lastCheckpoint));
+      const since = totalMins - confirmed;
+      confirmedLine.textContent = confirmed === 0
+        ? `No activity here since you started, ${asTime(since)} ago`
+        : since === 0
+          ? `${asTime(confirmed)} confirmed by your activity`
+          : `${asTime(confirmed)} confirmed by your activity · ${asTime(since)} since your last activity`;
+    } else {
+      confirmedLine.classList.add('hidden');
+    }
+
+    sliderSection.append(sliderLabel, sliderRow, timeBreakdown, confirmedLine);
 
     // ── Shared time: did this session cover other tasks too? ──
     // Pick them and split the focused time by percent; each task (and its own
@@ -1171,6 +1255,10 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
         goalHoursAdded,
         // When the time was shared: every task's share, main task first.
         ...(shares ? { shares } : {}),
+        // Minutes the checkpoints confirm (start → last checkpoint). For the
+        // record: the logged time is still the session × focus %.
+        confirmedMins: sessionStartTime && lastCheckpoint
+          ? Math.min(totalMins, confirmedMinutes(sessionStartTime, lastCheckpoint)) : null,
         isWin: focusPct >= 70,
         ultraFocus,
         intention: sessionIntention || null,
@@ -1210,7 +1298,13 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
   // ── Boot ─────────────────────────────────────────────────
 
   if (resume && resume.toExit) {
-    // Crash recovery, "wrap up": straight to the reflection screen.
+    // Crash recovery, "wrap up": straight to the reflection screen, counted
+    // up to the last checkpoint. The time after it is unknown: the tab may
+    // have been closed, the laptop asleep.
+    if (sessionStartTime && lastCheckpoint) {
+      overrideTotalMins = confirmedMinutes(sessionStartTime, lastCheckpoint);
+      wrappedToCheckpoint = true;
+    }
     const exitScreen = buildExitScreen();
     overlay.appendChild(exitScreen);
     requestAnimationFrame(() => exitScreen.classList.add('focus-screen-enter'));
@@ -1254,7 +1348,10 @@ export function checkForCrashedFocusSession() {
   if (snap.date !== getTodayString()) {
     // From an earlier day: retire it onto the day it was worked (js/core/
     // sessions.js) rather than resuming a clock that has been running unwatched.
-    Sessions.retireStaleFocusSession(snap, { loadHistory: ctx.loadHistory });
+    const gain = Sessions.retireStaleFocusSession(snap, { loadHistory: ctx.loadHistory });
+    // The hours go to the goal on its own day; the life area's all-time total
+    // takes them too, as the live midnight path does (app.js).
+    if (gain > 0) ctx.accumulateCategoryHours(snap.category || 'general', gain);
     storageRemove(FOCUS_SNAPSHOT_KEY);
     return;
   }
@@ -1280,8 +1377,11 @@ export function checkForCrashedFocusSession() {
 
   const info = document.createElement('p');
   info.className = 'focus-idle-away';
-  const startedAt = new Date(snap.sessionStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  info.textContent = `A focus session on “${snap.goalName}” has been running since ${startedAt}.`;
+  // The last checkpoint (older snapshots: when last saved) is as far as the
+  // session is certain; the time after it is unknown.
+  const lastAt = snap.lastCheckpoint || snap.savedAt || snap.sessionStartTime;
+  info.textContent = `A focus session on “${snap.goalName}” has been running since ${clockTime(snap.sessionStartTime)}. Your last activity in it was at ${clockTime(lastAt)}.`;
+  const confirmed = confirmedMinutes(snap.sessionStartTime, lastAt);
 
   function makeBtn(text, extraClass) {
     const b = document.createElement('button');
@@ -1296,7 +1396,9 @@ export function checkForCrashedFocusSession() {
     openFullFocusMode(goalObj, goalIdx, catColor, catEmoji, catObj, { snap });
   });
 
-  const wrapBtn = makeBtn('Wrap it up — log the time');
+  const wrapBtn = makeBtn(confirmed > 0
+    ? `Wrap it up — log ${formatHours(confirmed / 60)} (up to your last activity)`
+    : 'Wrap it up');
   wrapBtn.addEventListener('click', () => {
     overlay.remove();
     openFullFocusMode(goalObj, goalIdx, catColor, catEmoji, catObj, { snap, toExit: true });

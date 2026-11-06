@@ -100,8 +100,16 @@ function createFocusSessionEntry(session, index) {
   if (session.unattended) {
     const estMark = document.createElement('span');
     estMark.className = 'focus-session-estimate';
-    estMark.textContent = '~';
-    estMark.title = 'Session was left running overnight and closed automatically — these hours are a conservative estimate';
+    if (session.confirmedMins != null) {
+      // Counted up to its last checkpoint: confirmed, not estimated.
+      const until = new Date(session.timestamp + session.confirmedMins * 60000)
+        .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      estMark.textContent = '🌙';
+      estMark.title = `Left running overnight and closed automatically — counted up to your last activity, around ${until}`;
+    } else {
+      estMark.textContent = '~';
+      estMark.title = 'Session was left running overnight and closed automatically — these hours are a conservative estimate';
+    }
     pillLeft.appendChild(estMark);
   }
 

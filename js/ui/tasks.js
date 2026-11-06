@@ -128,9 +128,12 @@ function createGoalElement(goal, index, displayNumber) {
   demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
   demoteBtn.title = 'Move to backlog';
   demoteBtn.addEventListener('click', () => {
-    ctx.backlog.push(goalToBacklogItem(ctx.state.goals[index]));
+    const goal = ctx.state.goals[index];
+    const backlogItem = goalToBacklogItem(goal);
+    ctx.backlog.push(backlogItem);
     ctx.state.goals.splice(index, 1);
-    ctx.saveState(); ctx.saveBacklog(); ctx.render(); ctx.renderSidebar();
+    ctx.undoStack.push({ type: 'demote', item: goal, index, backlogItem });
+    ctx.saveState(); ctx.saveBacklog(); ctx.render(); // render() includes the sidebar
   });
   trailing.push(demoteBtn);
   trailing.push(focusBtn);

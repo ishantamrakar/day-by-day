@@ -454,7 +454,9 @@ function onTaskDragEnd(e) {
         const slot = activeDrag.crossSlot >= 0 ? ctx.backlogVisibleSlotToIndex(activeDrag.crossSlot) : ctx.backlog.length;
         ctx.backlog.splice(Math.min(slot, ctx.backlog.length), 0, newItem);
         ctx.state.goals.splice(goalIndex, 1);
-        ctx.saveState(); ctx.saveBacklog(); ctx.render(); ctx.renderSidebar();
+        // Same undo entry as the row's Backlog button.
+        ctx.undoStack.push({ type: 'demote', item: g, index: goalIndex, backlogItem: newItem });
+        ctx.saveState(); ctx.saveBacklog(); ctx.render(); // render() includes the sidebar
       }
     } else if (droppedOnGoals && goalData) {
       // ── Drop back onto Top 5 ──

@@ -77,6 +77,56 @@ await runSuite('Backlog integrity', 8301, async ({ page, check }) => {
     const e = Object.values(s.entities || {}).find((x) => x.name === 'Book the dentist');
     return e ? e.category : 'missing';
   }), 'general');
+
+  // ── 4. Demoting a goal can be undone, by button or by drag ──
+  await page.evaluate(() => localStorage.clear());
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(300);
+  for (const n of ['Alpha', 'Bravo', 'Charlie']) await addGoal(page, n);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')].find((r) => r.textContent.includes('Bravo'));
+    const sl = row.querySelector('.progress-slider');
+    sl.value = '40';
+    sl.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const goalNames = async () => (await getGoals(page)).map((g) => g.name);
+  const backlogNames = async () => (await getBacklog(page)).map((b) => b.name);
+  const undo = async () => { await page.keyboard.press('Control+z'); await page.waitForTimeout(300); };
+
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')].find((r) => r.textContent.includes('Bravo'));
+    row.querySelector('.btn-demote').click();
+  });
+  await page.waitForTimeout(300);
+  check('demote button moves the goal to the backlog', [await goalNames(), await backlogNames()],
+    [['Alpha', 'Charlie'], ['Bravo']]);
+  await undo();
+  check('undo puts it back in its old place', [await goalNames(), await backlogNames()],
+    [['Alpha', 'Bravo', 'Charlie'], []]);
+  check('…with its progress', (await getGoals(page)).find((g) => g.name === 'Bravo').progress, 40);
+
+  // Drag Charlie out of Top 5 onto the backlog card.
+  const from = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')].find((r) => r.textContent.includes('Charlie'));
+    const r = row.querySelector('.task-drag-handle').getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const to = await page.evaluate(() => {
+    const r = document.getElementById('backlog-list').getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + 10 };
+  });
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) {
+    await page.mouse.move(from.x + ((to.x - from.x) * i) / 20, from.y + ((to.y - from.y) * i) / 20);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  check('dragging a goal onto the backlog demotes it', [await goalNames(), await backlogNames()],
+    [['Alpha', 'Bravo'], ['Charlie']]);
+  await undo();
+  check('undo reverses the drag too', [await goalNames(), await backlogNames()],
+    [['Alpha', 'Bravo', 'Charlie'], []]);
 });
 
 function visibleRows(page) {

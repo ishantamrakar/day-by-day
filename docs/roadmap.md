@@ -15,7 +15,6 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 
 *UX*
 - **Undoing a goal delete doesn't restore its `_carryover` entry.** The delete scrubs one same-named leftover; Cmd+Z brings the goal back but not the leftover. Harmless today (the restored goal is in Top 5, and rescue skips names already there), but the two are no longer symmetric. Found 2026-11.
-- **Demoting a goal can't be undone.** **Decision:** make Cmd+Z restore it to Top 5 at its old position with hours and progress. The demote handler also calls `renderSidebar()` redundantly right after `render()`.
 - **Top 5 fills while the add-goal modal is open:** confirming silently does nothing and the typed text stays put.
 - **"All 1 goals done."** The encouragement line doesn't pluralize.
 - **`makeEditable` saves after Escape or an unchanged edit.** Nothing visible goes wrong; it's a needless storage write.
@@ -23,6 +22,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** demoting a goal to the backlog couldn't be undone. Cmd+Z now puts it back in its old Top 5 position, for both the row's Backlog button and a drag onto the backlog card. Also drops a redundant `renderSidebar()` after `render()` on both paths. Guarded in `scripts/test-backlog.mjs`.
 
 **Removed (2026-11):** the legacy carryover banner. It wasn't unreachable after all: with the tab open past midnight the new day (and its `_carryover`) is saved at once, and a reload before answering the modal showed the banner instead. Simply deleting it would have left leftovers pending unseen, to be dropped at the next rollover. Per the maintainer's decision, boot now reopens the day-transition modal in that case (`settlePendingCarryover()`), so the modal is the only carryover flow. Guarded in `scripts/test-day-logic.mjs`.
 

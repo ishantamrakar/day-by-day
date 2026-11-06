@@ -725,7 +725,7 @@ import { initNudges } from './js/ui/nudges.js';
     goalsListEl, distractionsListEl, backlogListEl,
     saveState, saveBacklog, render, renderSidebar, renderBacklog,
     getCategoryById, saveCardLayout, backlogVisibleSlotToIndex,
-    getActiveGoals, getCompletedGoals, MAX_GOALS,
+    getActiveGoals, getCompletedGoals, MAX_GOALS, undoStack,
   });
   const { setupCardDrag, setupTaskDrag, setupSidebarBacklogDrag, setupBacklogItemDrag } = Drag;
 
@@ -845,7 +845,7 @@ import { initNudges } from './js/ui/nudges.js';
       if (isModalOpen()) return; // modal owns the keyboard (native text undo etc.)
       if (!undoStack.length) return;
       e.preventDefault();
-      const { type, item, index, catId, hoursDelta, goalName, goalHours } = undoStack.pop();
+      const { type, item, index, catId, hoursDelta, goalName, goalHours, backlogItem } = undoStack.pop();
       // Deletes that took hours out of an area total record what they took.
       if (hoursDelta) accumulateCategoryHours(catId, -hoursDelta);
       if (type === 'goal') {
@@ -865,6 +865,16 @@ import { initNudges } from './js/ui/nudges.js';
       } else if (type === 'quickDone') {
         state.quickDone.splice(Math.min(index, state.quickDone.length), 0, item);
         saveState(); renderDone();
+      } else if (type === 'demote') {
+        // Take the backlog copy out again and put the goal back where it was.
+        // If that copy is gone (promoted or deleted since) or Top 5 has filled
+        // up, there's nothing safe to reverse.
+        const bi = backlog.indexOf(backlogItem);
+        if (bi !== -1 && getActiveGoals().length < MAX_GOALS) {
+          backlog.splice(bi, 1);
+          state.goals.splice(Math.min(index, state.goals.length), 0, item);
+          saveState(); saveBacklog(); render();
+        }
       } else if (type === 'focusSession') {
         if (!state.focusSessions) state.focusSessions = [];
         state.focusSessions.splice(Math.min(index, state.focusSessions.length), 0, item);

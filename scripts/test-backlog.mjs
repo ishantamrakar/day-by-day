@@ -263,3 +263,76 @@ await runSuite('Small UI rules', 8310, async ({ page, check }) => {
   }) > 0, true);
   check('…and sticks', (await getGoals(page)).some((g) => g.name === 'New name'), true);
 });
+
+// Adding to the backlog through the task modal: from the backlog card's +,
+// and from focus mode, so a task remembered mid-session can be parked
+// without leaving the session.
+await runSuite('Adding to the backlog', 8311, async ({ page, check }) => {
+  const modalTitle = () => page.evaluate(() => {
+    const t = document.querySelector('.quick-add-modal-overlay .quick-add-title');
+    return t ? t.textContent : null;
+  });
+  const stored = (name) => page.evaluate((n) => {
+    const s = JSON.parse(localStorage.getItem('daybyday_store') || '{}');
+    const e = (s.backlogIds || []).map((id) => s.entities[id]).find((x) => x && x.name === n);
+    return e ? { category: e.category, repeatable: !!e.repeatable } : null;
+  }, name);
+  const pickSecondArea = () => page.evaluate(() => {
+    const chips = [...document.querySelectorAll('.task-modal-cat-chip:not(.task-modal-cat-new)')];
+    const chip = chips.find((c) => !c.classList.contains('selected'));
+    chip.click();
+    return chips.indexOf(chip);
+  });
+  const areaIds = () => page.evaluate(() =>
+    JSON.parse(localStorage.getItem('daybyday_store') || '{}').categories.filter((c) => !c.archived && !c.deleted).map((c) => c.id));
+
+  // ── 1. The backlog card's + opens the modal ──
+  await page.click('#add-backlog-btn');
+  await page.waitForTimeout(300);
+  check('+ with nothing typed opens the modal, titled for the backlog', await modalTitle(), 'Add to Backlog');
+  await page.fill('.quick-add-input', 'Fix the bike light');
+  const chipIndex = await pickSecondArea();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  check('the task lands in the backlog with the chosen area',
+    (await stored('Fix the bike light')).category, (await areaIds())[chipIndex]);
+  check('nothing was added to Top 5', (await getGoals(page)).length, 0);
+
+  // ── 2. Typed text carries into the modal ──
+  await page.fill('#backlog-input', 'Call the plumber');
+  await page.click('#add-backlog-btn');
+  await page.waitForTimeout(300);
+  check('typed text is pre-filled', await page.inputValue('.quick-add-input'), 'Call the plumber');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  check('…saved to the backlog', (await stored('Call the plumber')) !== null, true);
+  check('…and the backlog input is cleared', await page.inputValue('#backlog-input'), '');
+
+  // ── 3. Enter in the backlog input is still the quick path ──
+  await addBacklogItem(page, 'Water the plants');
+  check('Enter still adds directly, no modal', [await modalTitle(), (await stored('Water the plants')) !== null], [null, true]);
+
+  // ── 4. From focus mode, without leaving the session ──
+  await addGoal(page, 'Deep work');
+  await page.click('#goals-list .task-focus-btn');
+  await page.waitForTimeout(400);
+  await page.click('.focus-enter-btn--secondary');
+  await page.waitForTimeout(500);
+  await page.click('.focus-skip-btn'); // skip intention
+  await page.waitForTimeout(500);
+  await page.click('.focus-skip-btn'); // skip entry check-in
+  await page.waitForTimeout(600);
+  check('a backlog card sits under Focus tools',
+    await page.evaluate(() => !!document.querySelector('.focus-col-right .focus-park-card')), true);
+  await page.click('.focus-park-card .focus-tool-btn');
+  await page.waitForTimeout(300);
+  check('it opens the same modal, titled for the backlog', await modalTitle(), 'Add to Backlog');
+  await page.fill('.quick-add-input', 'Email Sam about the trip');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('the task is in the backlog', (await stored('Email Sam about the trip')) !== null, true);
+  check('the session is still running',
+    await page.evaluate(() => !!document.querySelector('body > .focus-fullscreen-overlay .focus-col-right')), true);
+  check('the card confirms it quietly', await page.evaluate(() =>
+    document.querySelector('.focus-park-card').textContent.includes('Email Sam about the trip')), true);
+});

@@ -795,7 +795,35 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     groundText.textContent = 'Name 5 things you see · 4 you can touch · 3 you hear · 2 you smell · 1 you taste. Brings you back to now.';
     groundCard.append(groundIcon, groundTitle, groundText);
 
-    rightCol.append(rightTitle, wisdomCard, breatheCard, groundCard);
+    // Something else surfaced mid-session? Park it in the backlog through the
+    // usual task modal (it stacks above this screen) and carry on — no need to
+    // hold it in your head or write it down somewhere else.
+    const parkCard = document.createElement('div');
+    parkCard.className = 'focus-tool-card focus-park-card';
+    const parkIcon = document.createElement('span');
+    parkIcon.className = 'focus-tool-icon';
+    parkIcon.textContent = '📝';
+    const parkTitle = document.createElement('p');
+    parkTitle.className = 'focus-tool-label';
+    parkTitle.textContent = 'Remembered something?';
+    const PARK_HINT = 'Park it in the backlog and come back to this.';
+    const parkText = document.createElement('p');
+    parkText.className = 'focus-tool-text';
+    parkText.textContent = PARK_HINT;
+    const parkBtn = document.createElement('button');
+    parkBtn.className = 'focus-tool-btn';
+    parkBtn.textContent = 'Add to backlog';
+    let parkResetTimer = null;
+    parkBtn.addEventListener('click', () => {
+      ctx.openAddToBacklogModal('', item => {
+        parkText.textContent = `“${item.name}” is in your backlog ✓`;
+        clearTimeout(parkResetTimer);
+        parkResetTimer = setTimeout(() => { parkText.textContent = PARK_HINT; }, 5000);
+      });
+    });
+    parkCard.append(parkIcon, parkTitle, parkText, parkBtn);
+
+    rightCol.append(rightTitle, wisdomCard, breatheCard, groundCard, parkCard);
 
     const grid = document.createElement('div');
     grid.className = 'focus-ambient-grid';

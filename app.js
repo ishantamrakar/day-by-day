@@ -576,6 +576,7 @@ import { initNudges } from './js/ui/nudges.js';
     makeTimeAddRing, makeInlineHoursEditor, MAX_DISTRACTIONS,
     getIdleMs, getLastActivity, markActivity,
     loadHistory, getTodayString, storageGet, storageSet, storageRemove,
+    openAddToBacklogModal,
   });
   const { openFocusModal, checkForCrashedFocusSession } = FocusMode;
 
@@ -638,7 +639,7 @@ import { initNudges } from './js/ui/nudges.js';
     get backlog() { return backlog; },
     backlogListEl, backlogInputEl, addBacklogBtn, undoStack,
     saveState, saveBacklog, render, renderSidebar, updateAddButtonVisibility,
-    getActiveGoals, MAX_GOALS, createCategoryPill, makeEditable,
+    getActiveGoals, MAX_GOALS, createCategoryPill, makeEditable, openTaskDetailModal,
     // Getter: destructured from js/ui/drag.js further down (TDZ).
     get setupBacklogItemDrag() { return setupBacklogItemDrag; },
   });
@@ -646,6 +647,8 @@ import { initNudges } from './js/ui/nudges.js';
   // Sidebar, Modals and Settings configure() calls pass renderBacklog by
   // value, and a const here would still be in its temporal dead zone then.
   function renderBacklog() { Backlog.renderBacklog(); }
+  // Same reason: FocusMode.configure() above passes it by value.
+  function openAddToBacklogModal(name, onAdded) { Backlog.openAddToBacklogModal(name, onAdded); }
 
   // =========================================================
   // JOURNAL — wiring only

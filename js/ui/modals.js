@@ -826,7 +826,8 @@ export function openTaskDetailModal(initial, onConfirm) {
   header.className = 'quick-add-header';
   const titleEl = document.createElement('div');
   titleEl.className = 'quick-add-title';
-  titleEl.textContent = 'Add to Today\'s Top 5';
+  // Callers that add somewhere other than Top 5 pass their own title.
+  titleEl.textContent = initial.title || 'Add to Today\'s Top 5';
   const closeBtn = document.createElement('button');
   closeBtn.className = 'cat-modal-close';
   closeBtn.style.marginLeft = 'auto';
@@ -877,7 +878,7 @@ export function openTaskDetailModal(initial, onConfirm) {
       closeModal();
       openNewCategoryModal(newId => {
         // Re-open this modal with the new category selected
-        openTaskDetailModal({ name: taskInput.value, category: newId, repeatable: toggleInput.checked }, onConfirm);
+        openTaskDetailModal({ name: taskInput.value, category: newId, repeatable: toggleInput.checked, title: initial.title }, onConfirm);
       });
     });
     catGrid.appendChild(newChip);

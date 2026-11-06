@@ -4910,9 +4910,14 @@ footer {
 
 .focus-col-right {
   gap: 16px;
-  justify-content: center;
-  align-items: flex-start;
+  /* Every card takes the column's width, whatever its text length. */
+  align-items: stretch;
 }
+/* Vertically centred with auto margins rather than justify-content: center,
+   which clips overflow at the top of a scrolling column (unreachable). On a
+   short viewport the tools now scroll from their title instead. */
+.focus-col-right > :first-child { margin-top: auto; }
+.focus-col-right > :last-child { margin-bottom: auto; }
 
 .focus-col-title {
   font-size: 0.68rem;

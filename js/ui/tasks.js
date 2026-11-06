@@ -15,6 +15,8 @@ import { formatHours } from '../core/format.js';
 import { pulseBlobEvent } from './blobs.js';
 import { makeInlineHoursEditor } from './time-ring.js';
 import { makeEditable, updateSliderFill } from './editable.js';
+import { goalToBacklogItem } from '../core/backlog.js';
+import { isDragging } from './drag.js';
 
 let _ctx = null;
 export function configure(c) {
@@ -25,28 +27,18 @@ export function configure(c) {
     const n = goalInputEl.value.trim();
     if (n) {
       // Name already typed — open splash with name pre-filled
-      ctx.openTaskDetailModal({ name: n, category: null, repeatable: false }, (result) => {
-        if (ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-        ctx.state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        goalInputEl.value = '';
-        ctx.saveState(); ctx.render(); pulseBlobEvent('add');
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
-      });
+      ctx.openTaskDetailModal({ name: n, category: null, repeatable: false }, addFromModal);
     } else {
       // Nothing typed — open blank splash
-      ctx.openTaskDetailModal({ name: '', category: null, repeatable: false }, (result) => {
-        if (!result.name || ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-        ctx.state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        ctx.saveState(); ctx.render(); pulseBlobEvent('add');
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
-      });
+      ctx.openTaskDetailModal({ name: '', category: null, repeatable: false }, addFromModal);
     }
   });
   goalInputEl.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       const n = goalInputEl.value.trim();
       if (!n || ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-      ctx.state.goals.push({ name: n, hours: 0, progress: 0 });
+      // Filed under General, like the + button and backlog adds.
+      ctx.state.goals.push({ name: n, hours: 0, progress: 0, category: 'general' });
       goalInputEl.value = '';
       ctx.saveState(); ctx.render();
       pulseBlobEvent('add');
@@ -58,13 +50,26 @@ export function configure(c) {
 }
 const ctx = new Proxy({}, { get: (_, k) => _ctx[k] });
 
-export function addGoal() {
+// The add-goal modal's confirm. If Top 5 is full by then, the task goes to
+// the backlog (the quick-add modal's rule) and the Top 5 card gives the same
+// small shake as a drop onto a full Top 5. Nothing typed is thrown away.
+function addFromModal(result) {
+  if (!result.name) return;
   const goalInputEl = ctx.goalInputEl;
-  const n = goalInputEl.value.trim();
-  if (!n || ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-  ctx.state.goals.push({ name: n, hours: 0, progress: 0 }); goalInputEl.value = '';
-  ctx.saveState(); ctx.render();
-  pulseBlobEvent('add');
+  if (ctx.getActiveGoals().length >= ctx.MAX_GOALS) {
+    ctx.backlog.push({ name: result.name, category: result.category || null, repeatable: result.repeatable });
+    goalInputEl.value = '';
+    ctx.saveBacklog(); ctx.render();
+    const goalsCard = document.getElementById('goals-section');
+    if (goalsCard) {
+      goalsCard.classList.add('goals-drop-full');
+      setTimeout(() => goalsCard.classList.remove('goals-drop-full'), 600);
+    }
+    return;
+  }
+  ctx.state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
+  goalInputEl.value = '';
+  ctx.saveState(); ctx.render(); pulseBlobEvent('add');
   if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
 }
 
@@ -135,13 +140,12 @@ function createGoalElement(goal, index, displayNumber) {
   demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
   demoteBtn.title = 'Move to backlog';
   demoteBtn.addEventListener('click', () => {
-    const g = ctx.state.goals[index];
-    ctx.backlog.push({
-      name: g.name, category: g.category || null, repeatable: g.repeatable || false,
-      hours: g.hours || 0, progress: g.progress || 0,
-    });
+    const goal = ctx.state.goals[index];
+    const backlogItem = goalToBacklogItem(goal);
+    ctx.backlog.push(backlogItem);
     ctx.state.goals.splice(index, 1);
-    ctx.saveState(); ctx.saveBacklog(); ctx.render(); ctx.renderSidebar();
+    ctx.undoStack.push({ type: 'demote', item: goal, index, backlogItem });
+    ctx.saveState(); ctx.saveBacklog(); ctx.render(); // render() includes the sidebar
   });
   trailing.push(demoteBtn);
   trailing.push(focusBtn);
@@ -191,7 +195,16 @@ function createGoalElement(goal, index, displayNumber) {
     if (val >= 100) {
       item.classList.add('task-completing');
       pulseBlobEvent('complete');
-      setTimeout(() => ctx.render(), 350);
+      // Let the completion animation play, then re-render — but never under
+      // a drag or an open inline editor, which the rebuild would tear down
+      // (losing the edit). Those finish first; then the row leaves Top 5.
+      setTimeout(function settle() {
+        if (isDragging() || ctx.goalsListEl.querySelector('.inline-edit-input, .done-hours-input')) {
+          setTimeout(settle, 200);
+          return;
+        }
+        ctx.render();
+      }, 350);
     } else {
       ctx.renderSummary();
     }

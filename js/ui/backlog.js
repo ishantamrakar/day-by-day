@@ -7,7 +7,7 @@
 // index into the full backlog array, not the visible subset, so a hidden
 // item never shifts what a click acts on.
 
-import { isBacklogItemVisible } from '../core/backlog.js';
+import { isBacklogItemVisible, backlogItemToGoal } from '../core/backlog.js';
 
 let _ctx = null;
 export function configure(c) {
@@ -75,7 +75,7 @@ function createBacklogElement(item, index) {
     promoteBtn.title = 'Move to active goals';
     promoteBtn.addEventListener('click', () => {
       if (ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-      ctx.state.goals.push({ name: item.name, hours: item.hours || 0, progress: item.progress || 0, fromBacklog: true, category: item.category || null, repeatable: item.repeatable || false });
+      ctx.state.goals.push(backlogItemToGoal(item));
       ctx.backlog.splice(index, 1);
       ctx.saveState(); ctx.saveBacklog(); ctx.render();
       if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);

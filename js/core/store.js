@@ -57,6 +57,7 @@ export function makeEntity(type, src) {
     // Progress survives a trip through the backlog so a part-done task can be
     // shelved and resumed where it left off (hours are carried generically).
     e.progress = src.progress || 0;
+    if (src.prevHours != null) e.prevHours = src.prevHours;
   }
   return e;
 }
@@ -72,6 +73,7 @@ export function entityToView(e) {
   } else if (e.type === 'backlog') {
     v.repeatable = e.repeatable || false;
     v.progress = e.progress || 0;
+    if (e.prevHours != null) v.prevHours = e.prevHours;
   }
   return v;
 }
@@ -90,6 +92,7 @@ export function applyViewToEntity(e, v, type, now) {
   } else if (type === 'backlog') {
     e.repeatable = v.repeatable || false;
     e.progress = v.progress || 0;
+    if (v.prevHours != null) e.prevHours = v.prevHours; else delete e.prevHours;
   }
   e.updatedAt = now;
 }

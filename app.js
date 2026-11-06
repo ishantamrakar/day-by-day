@@ -51,7 +51,6 @@ import {
 } from './js/core/backlog.js';
 import * as CoreCarryover from './js/core/carryover.js';
 import * as IntentionsUI from './js/ui/intentions.js';
-import * as CarryoverUI from './js/ui/carryover.js';
 import { initNudges } from './js/ui/nudges.js';
 
 (function () {
@@ -274,14 +273,18 @@ import { initNudges } from './js/ui/nudges.js';
 
   // Time-add ring, chip dials, inline hours editor: js/ui/time-ring.js
 
-  // Accumulate hours into category totals — called when hours change on a task
+  // Accumulate hours into category totals — called when hours change on a task.
+  // Returns the change actually applied: a negative delta is clamped at zero,
+  // and undo must re-add exactly what was taken, not the nominal amount.
   function accumulateCategoryHours(catId, delta) {
-    if (!catId || delta === 0) return;
+    if (!catId || !delta) return 0;
     const cat = getCategoryById(catId);
-    if (!cat) return;
-    cat.totalHours = Math.max(0, (cat.totalHours || 0) + delta);
+    if (!cat) return 0;
+    const before = cat.totalHours || 0;
+    cat.totalHours = Math.max(0, before + delta);
     saveCategories();
     renderSidebar();
+    return cat.totalHours - before;
   }
 
   // Sidebar + toast state: js/ui/sidebar.js
@@ -361,10 +364,6 @@ import { initNudges } from './js/ui/nudges.js';
   const failureInputEl = document.getElementById('failure-input');
   const addSuccessBtn = document.getElementById('add-success-btn');
   const addFailureBtn = document.getElementById('add-failure-btn');
-  const carryoverBanner = document.getElementById('carryover-banner');
-  const carryoverList = document.getElementById('carryover-list');
-  const carryoverAccept = document.getElementById('carryover-accept');
-  const carryoverDismiss = document.getElementById('carryover-dismiss');
   const storageWarning = document.getElementById('storage-warning');
   const backlogListEl = document.getElementById('backlog-list');
   const backlogInputEl = document.getElementById('backlog-input');
@@ -462,15 +461,19 @@ import { initNudges } from './js/ui/nudges.js';
   // it never resurfaces in the day transition modal or anywhere else.
   function permanentlyDeleteGoal(index) {
     const goal = state.goals[index];
-    undoStack.push({ type: 'goal', item: goal, index });
+    // Take today's hours back out of the area total (prevHours were credited
+    // on earlier days and stay); undo re-adds exactly what was taken.
+    const catId = (goal && goal.category) || 'general';
+    const hoursDelta = goal ? accumulateCategoryHours(catId, -(goal.hours || 0)) : 0;
+    undoStack.push({ type: 'goal', item: goal, index, catId, hoursDelta });
     state.goals.splice(index, 1);
     // Also remove from _carryover (built at day-rollover, not updated on subsequent deletes)
     if (state._carryover && goal) {
-      state._carryover = CoreCarryover.withoutGoalNamed(state._carryover, goal.name);
+      state._carryover = CoreCarryover.withoutOneGoalNamed(state._carryover, goal.name);
     }
     // Also remove from _prevDayForModal so the summary modal doesn't show it
     if (_prevDayForModal && _prevDayForModal.goals && goal) {
-      _prevDayForModal.goals = CoreCarryover.withoutGoalNamed(_prevDayForModal.goals, goal.name);
+      _prevDayForModal.goals = CoreCarryover.withoutOneGoalNamed(_prevDayForModal.goals, goal.name);
     }
     saveState();
     render();
@@ -506,7 +509,8 @@ import { initNudges } from './js/ui/nudges.js';
   // CARRYOVER — wiring only
   // =========================================================
   // Rules for consuming `_carryover`: js/core/carryover.js (it is built by
-  // buildCarryover() in js/core/state.js). The legacy banner: js/ui/carryover.js.
+  // buildCarryover() in js/core/state.js). The day-transition modal is the only
+  // UI that consumes it (js/ui/day-transition.js).
 
   // Nothing unfinished may be silently discarded. Every path that clears
   // `_carryover` routes through here first: anything not already live in
@@ -520,15 +524,6 @@ import { initNudges } from './js/ui/nudges.js';
     return rescued.length;
   }
 
-  // state is a getter: rollover replaces the object (see docs/architecture.md
-  // § The injected-context pattern).
-  CarryoverUI.configure({
-    get state() { return state; },
-    carryoverBanner, carryoverList, carryoverAccept, carryoverDismiss,
-    MAX_GOALS, saveState, render, rescueCarryoverToBacklog,
-  });
-
-  function showCarryoverIfNeeded() { CarryoverUI.showCarryoverIfNeeded(); }
 
   if (storageWarning && !isStorageAvailable()) storageWarning.classList.remove('hidden');
 
@@ -661,7 +656,7 @@ import { initNudges } from './js/ui/nudges.js';
     get state() { return state; },
     successesListEl, failuresListEl, successInputEl, failureInputEl,
     addSuccessBtn, addFailureBtn, undoStack,
-    saveState, getCategoryById, makeEditable,
+    saveState, getCategoryById, makeEditable, accumulateCategoryHours, render,
   });
   // A function declaration, not `const { renderJournal } = Journal`:
   // FocusMode.configure() above passes renderJournal by value, and a const
@@ -730,7 +725,7 @@ import { initNudges } from './js/ui/nudges.js';
     goalsListEl, distractionsListEl, backlogListEl,
     saveState, saveBacklog, render, renderSidebar, renderBacklog,
     getCategoryById, saveCardLayout, backlogVisibleSlotToIndex,
-    getActiveGoals, getCompletedGoals, MAX_GOALS,
+    getActiveGoals, getCompletedGoals, MAX_GOALS, undoStack,
   });
   const { setupCardDrag, setupTaskDrag, setupSidebarBacklogDrag, setupBacklogItemDrag } = Drag;
 
@@ -850,7 +845,9 @@ import { initNudges } from './js/ui/nudges.js';
       if (isModalOpen()) return; // modal owns the keyboard (native text undo etc.)
       if (!undoStack.length) return;
       e.preventDefault();
-      const { type, item, index } = undoStack.pop();
+      const { type, item, index, catId, hoursDelta, goalName, goalHours, backlogItem } = undoStack.pop();
+      // Deletes that took hours out of an area total record what they took.
+      if (hoursDelta) accumulateCategoryHours(catId, -hoursDelta);
       if (type === 'goal') {
         state.goals.splice(Math.min(index, state.goals.length), 0, item);
         saveState(); render();
@@ -868,6 +865,24 @@ import { initNudges } from './js/ui/nudges.js';
       } else if (type === 'quickDone') {
         state.quickDone.splice(Math.min(index, state.quickDone.length), 0, item);
         saveState(); renderDone();
+      } else if (type === 'demote') {
+        // Take the backlog copy out again and put the goal back where it was.
+        // If that copy is gone (promoted or deleted since) or Top 5 has filled
+        // up, there's nothing safe to reverse.
+        const bi = backlog.indexOf(backlogItem);
+        if (bi !== -1 && getActiveGoals().length < MAX_GOALS) {
+          backlog.splice(bi, 1);
+          state.goals.splice(Math.min(index, state.goals.length), 0, item);
+          saveState(); saveBacklog(); render();
+        }
+      } else if (type === 'focusSession') {
+        if (!state.focusSessions) state.focusSessions = [];
+        state.focusSessions.splice(Math.min(index, state.focusSessions.length), 0, item);
+        // Give the goal back what the delete took (found by name: it may
+        // have moved since).
+        const goal = goalHours ? state.goals.find(g => g.name === goalName) : null;
+        if (goal) goal.hours = Math.round(Math.min(24, (goal.hours || 0) + goalHours) * 100) / 100;
+        saveState(); render();
       }
     }
   });
@@ -903,18 +918,9 @@ import { initNudges } from './js/ui/nudges.js';
       closeFocusSessionForRollover(prev);
       archiveDay(prev);
       const ns = getDefaultState();
-      ns._carryover = prev.goals
-        ? prev.goals.map(g => {
-            const done = (g.progress || 0) >= 100;
-            if (done && !g.repeatable) return null;
-            return {
-              name: g.name, hours: 0,
-              progress: done ? 0 : (g.progress || 0),
-              prevHours: (g.prevHours || 0) + (g.hours || 0), // cumulative, matches loadState
-              category: g.category || null, repeatable: g.repeatable || false
-            };
-          }).filter(Boolean)
-        : [];
+      // The same builder loadState uses on reopen, so both rollover paths
+      // (reopen on a later date / tab open past midnight) can't drift apart.
+      ns._carryover = CoreState.buildCarryover(prev);
       state = ns;
       CoreState.setState(state); // keep core's binding in step (see above)
       saveState();
@@ -948,6 +954,22 @@ import { initNudges } from './js/ui/nudges.js';
     },
   };
 
+  // Leftovers can be pending at boot with no new day to announce: the tab
+  // crossed midnight (which saves the new day and its _carryover at once) and
+  // the page was reloaded before the modal was answered. Bring the modal back
+  // for the most recent archived day. Leaving them pending would be silent
+  // loss: the next rollover rebuilds _carryover from that day's goals.
+  function settlePendingCarryover() {
+    if (!state._carryover || state._carryover.length === 0) return;
+    const today = getTodayString();
+    const latest = loadHistory().filter(d => d && d.date && d.date < today)
+      .sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
+    const { day } = findLastActiveDay(latest || null);
+    if (day) { showDayTransitionModal(day); return; }
+    // No archived day to show (shouldn't happen): rescue rather than strand.
+    rescueCarryoverToBacklog(); saveState(); render();
+  }
+
   // =========================================================
   // BOOT
   // =========================================================
@@ -961,8 +983,8 @@ import { initNudges } from './js/ui/nudges.js';
     const hasData = dayHasWork(summaryDay) ||
                     (summaryDay.goals && summaryDay.goals.length > 0);
     if (gapDays === 1 || hasData) showDayTransitionModal(summaryDay);
-    else showCarryoverIfNeeded();
-  } else showCarryoverIfNeeded();
+    else settlePendingCarryover();
+  } else settlePendingCarryover();
   initCardDragHandles();
   checkForCrashedFocusSession();
   initSidebar();

@@ -214,7 +214,10 @@ function createDoneQuickItem(item, index, isLatest) {
   del.innerHTML = DELETE_ICON;
   del.addEventListener('click', () => {
     const state = ctx.state;
-    ctx.undoStack.push({ type: 'quickDone', item: state.quickDone[index], index });
+    const item = state.quickDone[index];
+    const catId = item.category || 'general';
+    const hoursDelta = ctx.accumulateCategoryHours(catId, -(item.hours || 0));
+    ctx.undoStack.push({ type: 'quickDone', item, index, catId, hoursDelta });
     state.quickDone.splice(index, 1); ctx.saveState(); renderDone();
   });
 

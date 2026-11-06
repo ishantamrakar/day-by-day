@@ -36,8 +36,7 @@ that section header and is headed for the named file.
 | Dates, `dayHasWork`, `findLastActiveDay`, default state | ✅ `js/core/day.js` |
 | Storage key names, `STORE_VERSION` | ✅ `js/core/keys.js` |
 | Loading/saving state, categories, history, building carryover (`buildCarryover`) | ✅ `js/core/state.js` |
-| Consuming carryover: rescue to backlog, banner accept, delete-scrub | ✅ `js/core/carryover.js` |
-| Legacy carryover banner | ✅ `js/ui/carryover.js` |
+| Consuming carryover: rescue to backlog, delete-scrub | ✅ `js/core/carryover.js` |
 | Store shape, entities, hydrate/sync adapter | ✅ `js/core/store.js` |
 | Which colours the blobs wear | ✅ `js/core/blob-colors.js` |
 | Blob motion, drift, swirl pulses | ✅ `js/ui/blobs.js` |
@@ -236,7 +235,7 @@ IIFE in `'use strict'`. What it does, top to bottom:
 - Persistence: `saveState()` (store sync + legacy `daybyday_data`), `saveBacklog()`, `saveCategories()` (legacy key + store).
 - Category lifecycle: `archiveCategory` / `restoreCategory` / `deleteCategory` (tombstone: `deleted: true`, live backlog items and today's active goals move to General) and `accumulateCategoryHours(catId, delta)`, the **only place `totalHours` is mutated**.
 - `render()` is the orchestrator: it calls each card module's render function in turn. `getActiveGoals()` → `progress < 100`, `getCompletedGoals()` → `progress >= 100`; completed goals render in Done Today, not the goals list, which matters for drag index math (see [drag-drop.md](drag-drop.md)). `updateAddButtonVisibility()` hides the add rows at `MAX_GOALS` / `MAX_DISTRACTIONS`.
-- `permanentlyDeleteGoal(index)` pushes to the undo stack, then scrubs the goal from `state.goals`, `_carryover` and `_prevDayForModal`.
+- `permanentlyDeleteGoal(index)` takes today's hours back out of the area total, pushes to the undo stack, then scrubs the goal from `state.goals`, `_carryover` and `_prevDayForModal`. The two copies are matched by name and only **one** entry is removed from each (`withoutOneGoalNamed` in `js/core/carryover.js`), so a same-named second task survives.
 - The "Reset day" button, kept here because it reassigns `state` (`npm run check:state-sync`).
 - Clock: `updateClock()` syncs to the minute boundary via `msUntilNextMinute`, no seconds.
 
@@ -248,7 +247,7 @@ IIFE in `'use strict'`. What it does, top to bottom:
 
 **Activity monitor.** Document-level `pointerdown` / `keydown` / throttled `pointermove` listeners (capture phase) keep `lastActivityTime` fresh; `markActivity` / `getIdleMs` / `getLastActivity` are passed to focus mode and exposed on `DayByDayApp.activity`. Consumed today by focus mode's idle check (60 min → "Still working on this?" dialog, `FOCUS_IDLE_THRESHOLD_MS`); intended to feed notifications/intelligence later. Returning to the tab is deliberately not activity — only real interaction is.
 
-**New-day detection.** `checkForNewDay()` runs every 60s at the minute boundary. On a date change it closes any running focus session into the outgoing day (`closeFocusSessionForRollover`, *before* archiving), archives it, builds the fresh state with `_carryover`, and opens the day-transition modal on the last day that had work (`findLastActiveDay`). The boot path does the same through `initState()`.
+**New-day detection.** `checkForNewDay()` runs every 60s at the minute boundary. On a date change it closes any running focus session into the outgoing day (`closeFocusSessionForRollover`, *before* archiving), archives it, builds the fresh state with `_carryover` (via `buildCarryover` in `js/core/state.js`, the same function the boot path uses), and opens the day-transition modal on the last day that had work (`findLastActiveDay`). The boot path does the same through `initState()`.
 
 **`window.DayByDayApp`.** `{ getState, getGoals, getDistractions, getStore, storageGet, storageSet, activity }`. Read by the smoke and regression scripts; no module in `js/` depends on it.
 
@@ -278,7 +277,7 @@ Notes on code that used to live in `app.js`, kept here because they explain *why
 - `archiveDay()` (`js/core/state.js`) — pushes snapshot to history (max 30). Does not touch `totalHours`. The snapshot carries `focusSessions` (added so a session retired at rollover isn't dropped the moment it's recorded); days archived before that change simply have no key, and every reader defaults it to `[]`.
 - `dayHasWork(d)` (`js/core/day.js`) — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
 - Demote/promote preserve `hours` + `progress` both ways, so a shelved task resumes where it left off.
-- `rescueCarryoverToBacklog()` (app.js wrapper over `rescueItems()` in `js/core/carryover.js`) — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
+- `rescueCarryoverToBacklog()` (app.js wrapper over `rescueItems()` in `js/core/carryover.js`) — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. Both exit paths (day-modal "Start my day" / "Start fresh") call it, as does boot's last-resort fallback in `settlePendingCarryover()`, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
 - `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — app.js binding over `findLastActiveDay(history, today, fallback)` in `js/core/day.js`. Walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
 
 **Rendering:** `renderGoals()` (`js/ui/tasks.js`) iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
@@ -296,7 +295,7 @@ Notes on code that used to live in `app.js`, kept here because they explain *why
 
 **Progress rings:** SVG, `stroke-dasharray: 213.63`. Four rings: progress (green), goal hours (mint, max 8h), distraction (rose, max 4h), quick wins (orange, max 4h). The caps and fractions are in `js/core/summary.js` (`ringFractions`); painting them is `renderSummary()` in `js/ui/summary.js`, which also holds `RING_CIRCUMFERENCE = 2π × 34`.
 
-**Focus session records** (`js/ui/focus-mode.js`; `state.focusSessions[]`, mirrored to `store.sessions`): `{ timestamp, goalName, goalIndex, category, totalMins, focusPct, focusMins, distractMins, isWin, ultraFocus, intention, entryTag, entryNote, midNotes[], exitTag, exitNote }`. `ultraFocus` is true when the user chose to keep counting after an hour-plus idle stretch; the idle dialog can also override `totalMins` (custom hours) or advance `sessionStartTime` (trim). `midNotes` entries are `{ text, at }` (epoch ms) — records saved before timestamps hold plain strings, and all renderers tolerate both. In-progress sessions snapshot to `daybyday_focus_session` (`persistSnapshot`/`clearSnapshot` in `openFullFocusMode`); `checkForCrashedFocusSession()` at boot offers Resume / Wrap up / Discard for same-day snapshots and drops stale ones.
+**Focus session records** (`js/ui/focus-mode.js`; `state.focusSessions[]`, mirrored to `store.sessions`): `{ timestamp, goalName, goalIndex, category, totalMins, focusPct, focusMins, distractMins, goalHoursAdded, isWin, ultraFocus, intention, entryTag, entryNote, midNotes[], exitTag, exitNote }`. `goalHoursAdded` (since 2026-11) is what the goal actually gained after the cap; deleting a session hands it back and is undoable. `ultraFocus` is true when the user chose to keep counting after an hour-plus idle stretch; the idle dialog can also override `totalMins` (custom hours) or advance `sessionStartTime` (trim). `midNotes` entries are `{ text, at }` (epoch ms) — records saved before timestamps hold plain strings, and all renderers tolerate both. In-progress sessions snapshot to `daybyday_focus_session` (`persistSnapshot`/`clearSnapshot` in `openFullFocusMode`); `checkForCrashedFocusSession()` at boot offers Resume / Wrap up / Discard for same-day snapshots and drops stale ones.
 
 ## index.html structure
 
@@ -307,7 +306,7 @@ Notes on code that used to live in `app.js`, kept here because they explain *why
 - Two-column CSS Grid inside `#main-content`: `col-left`, `col-right`
 - Cards have `data-card-id` + `draggable-card` for reordering
 - Scripts: a single `<script type="module" src="app.js">` (auto-deferred, runs after parse). Everything else is imported from it.
-- `carryover-banner` still exists in HTML but is superseded by the Day Transition Modal. Its rendering and accept/dismiss handlers live in `js/ui/carryover.js`; boot calls `showCarryoverIfNeeded()` only when the modal is skipped
+- **No carryover banner** (removed 2026-11). The day-transition modal is the only UI that consumes `_carryover`. If leftovers are pending at boot with no new day to announce (the tab crossed midnight, which saves the new day at once, then the page reloaded before the modal was answered), `settlePendingCarryover()` in app.js reopens the modal for the most recent archived day; if there were none, it rescues to the backlog rather than leave leftovers pending.
 
 ## Nudges (js/core/nudges.js, js/ui/nudges.js)
 

@@ -25,3 +25,27 @@ export function backlogVisibleSlotToIndex(slot, backlog, focusCategoryIds) {
   }
   return backlog.length;
 }
+
+// The shapes a task takes crossing between Top 5 and the backlog. Every
+// promote/demote path builds its copy here, so a field can't go missing on
+// one route: hours and progress let a shelved task resume where it left off,
+// and prevHours keeps its "Xh prev" history (earlier days' hours). prevHours
+// is only written when there is some, so untouched items keep their shape.
+export function goalToBacklogItem(g) {
+  const item = {
+    name: g.name, category: g.category || null, repeatable: g.repeatable || false,
+    hours: g.hours || 0, progress: g.progress || 0,
+  };
+  if (g.prevHours > 0) item.prevHours = g.prevHours;
+  return item;
+}
+
+export function backlogItemToGoal(item) {
+  const goal = {
+    name: item.name, hours: item.hours || 0, progress: item.progress || 0,
+    category: item.category || null, repeatable: item.repeatable || false,
+    fromBacklog: true,
+  };
+  if (item.prevHours > 0) goal.prevHours = item.prevHours;
+  return goal;
+}

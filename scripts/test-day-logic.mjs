@@ -1,9 +1,10 @@
 // What survives a new day.
 //
 // Pins the CURRENT behaviour of the day-boundary code: building `_carryover`
-// from the day that ended, the two places it is consumed (the day-transition
-// modal and the legacy banner), the delete-scrub, intentions resetting, and
-// the summary picking the last day that actually had work. It was written
+// from the day that ended, where it is consumed (the day-transition modal,
+// including after a reload before it was answered), the delete-scrub,
+// intentions resetting, and the summary picking the last day that actually
+// had work. It was written
 // before that code moved out of app.js, so a failure after the move means the
 // move changed behaviour.
 //
@@ -74,6 +75,7 @@ const storedBacklog = (page) => page.evaluate(() => {
   return (s.backlogIds || []).map((id) => s.entities[id]).filter(Boolean).map((e) => ({
     name: e.name, hours: e.hours || 0, progress: e.progress || 0,
     repeatable: !!e.repeatable, category: e.category || null,
+    ...(e.prevHours > 0 ? { prevHours: e.prevHours } : {}),
   }));
 });
 
@@ -197,12 +199,12 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
 
   check('Top 5: checked repeatables first, then focused carryover, hours reset, progress + prevHours kept',
     await goalsView(page), [
-      { name: 'Morning run', hours: 0, progress: 0, repeatable: true, category: 'fitness' },
-      { name: 'Stretch', hours: 0, progress: 30, repeatable: true, category: 'fitness' },
+      { name: 'Morning run', hours: 0, progress: 0, repeatable: true, prevHours: 0.5, category: 'fitness' },
+      { name: 'Stretch', hours: 0, progress: 30, repeatable: true, prevHours: 0.25, category: 'fitness' },
       { name: 'Write the report', hours: 0, progress: 60, repeatable: false, prevHours: 3.5, category: 'career' },
     ]);
-  // Known gap, pinned: a task rescued to the backlog keeps progress but not
-  // prevHours (rescue copies `hours`, which is 0 on a carryover entry).
+  // Rescued tasks keep progress AND prevHours (asserted with real hours in
+  // the live suite; 'Call mum' has none to keep).
   check('unfocused leftover rescued to backlog', await storedBacklog(page), [
     { name: 'Call mum', hours: 0, progress: 0, repeatable: false, category: 'relationships' },
   ]);
@@ -252,7 +254,7 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
   await selectFocus(page, ['career', 'chores']);
   await clickModalButton(page, 'Start my day');
   check('multi-day: part-done goal resumes with progress and prevHours', await goalsView(page), [
-    { name: 'Water plants', hours: 0, progress: 0, repeatable: true, category: 'chores' },
+    { name: 'Water plants', hours: 0, progress: 0, repeatable: true, prevHours: 0.25, category: 'chores' },
     { name: 'Draft chapter', hours: 0, progress: 40, repeatable: false, prevHours: 2.5, category: 'career' },
   ]);
   check('multi-day: totals untouched', await categoryTotals(page), ORIGINAL_TOTALS);
@@ -300,36 +302,30 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
   check('a deleted task is not resurrected into the backlog',
     (await storedBacklog(page)).map((b) => b.name), ['Morning run', 'Stretch', 'Call mum']);
 
-  // ════ 5. Legacy banner: accept fills Top 5 up to the cap, rest rescued ════
-  // The banner is superseded by the modal and practically unreachable from
-  // boot, but its handlers are live and route through the rescue invariant.
-  console.log('  — legacy carryover banner');
-  const SIX = ['A', 'B', 'C', 'D', 'E', 'F'].map((n, i) => ({
-    name: `Task ${n}`, hours: i * 0.5, progress: i * 10, category: 'career', repeatable: i === 1,
-  }));
-  await seed(page, { date: yesterday, goals: SIX }, {
-    backlog: [{ name: 'Task F', category: 'career', hours: 0, progress: 0 }],
+  // One delete scrubs one leftover: two tasks that share a name are two
+  // tasks, and deleting today's copy of one must not wipe the other.
+  console.log('  — delete with two same-named leftovers');
+  await seed(page, { date: yesterday, goals: [
+    { name: 'Call the bank', hours: 0, progress: 20, category: 'career' },
+    { name: 'Call the bank', hours: 0.5, progress: 50, category: 'career' },
+  ] });
+  await page.evaluate(() => {
+    const input = document.getElementById('goal-input');
+    input.value = 'Call the bank';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   });
-  await page.evaluate(() => document.getElementById('carryover-accept').click());
-  await page.waitForTimeout(300);
-  check('banner accept: first five carried with prevHours, hours reset', await goalsView(page),
-    SIX.slice(0, 5).map((g) => ({
-      name: g.name, hours: 0, progress: g.progress, repeatable: g.repeatable, prevHours: g.hours, category: 'career',
-    })));
-  check('banner accept: overflow already in backlog is not duplicated',
-    (await storedBacklog(page)).map((b) => b.name), ['Task F']);
-  check('banner accept: _carryover cleared', '_carryover' in (await appState(page)), false);
-  check('banner accept: banner hidden', await page.evaluate(() =>
-    document.getElementById('carryover-banner').classList.contains('hidden')), true);
-
-  await seed(page, { date: yesterday, goals: SIX.slice(0, 3) });
-  await page.evaluate(() => document.getElementById('carryover-dismiss').click());
-  await page.waitForTimeout(300);
-  check('banner dismiss: nothing added to Top 5', await goalsView(page), []);
-  check('banner dismiss: every leftover rescued with progress', await storedBacklog(page),
-    SIX.slice(0, 3).map((g) => ({
-      name: g.name, hours: 0, progress: g.progress, repeatable: g.repeatable, category: 'career',
-    })));
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')]
+      .find((r) => r.textContent.includes('Call the bank'));
+    row.querySelector('.task-delete').click();
+  });
+  await page.waitForTimeout(250);
+  check('deleting one goal scrubs only one same-named leftover',
+    (await appState(page))._carryover.map((g) => [g.name, g.progress]), [['Call the bank', 50]]);
+  await clickModalButton(page, 'Start fresh');
+  check('the other leftover still reaches the backlog',
+    (await storedBacklog(page)).map((b) => [b.name, b.progress]), [['Call the bank', 50]]);
 });
 
 // ════ 6. Tab left open across midnight (checkForNewDay, fake clock) ════
@@ -371,9 +367,9 @@ await runSuite('Day boundary: live rollover with the tab open', 8306, async ({ p
     { name: 'Write the report', hours: 0, progress: 60, repeatable: false, prevHours: 3.5, category: 'career' },
   ]);
   // Repeatables outside today's focus are rescued as repeatables.
-  check('live: everything else rescued to backlog', await storedBacklog(page), [
-    { name: 'Morning run', hours: 0, progress: 0, repeatable: true, category: 'fitness' },
-    { name: 'Stretch', hours: 0, progress: 30, repeatable: true, category: 'fitness' },
+  check('live: everything else rescued to backlog, prevHours kept', await storedBacklog(page), [
+    { name: 'Morning run', hours: 0, progress: 0, repeatable: true, category: 'fitness', prevHours: 0.5 },
+    { name: 'Stretch', hours: 0, progress: 30, repeatable: true, category: 'fitness', prevHours: 0.25 },
     { name: 'Call mum', hours: 0, progress: 0, repeatable: false, category: 'relationships' },
   ]);
 
@@ -398,4 +394,47 @@ await runSuite('Day boundary: live rollover with the tab open', 8306, async ({ p
   check('live multi-day: Start fresh rescues the carried goal',
     (await storedBacklog(page)).map((b) => b.name), ['Morning run', 'Stretch', 'Call mum', 'Write the report']);
   check('live multi-day: totals untouched', await categoryTotals(page), ORIGINAL_TOTALS);
+
+  // ── prevHours survives a round trip through the backlog ──
+  console.log('  — promote and demote a rescued task');
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#backlog-list .backlog-item')]
+      .find((r) => r.textContent.includes('Write the report'));
+    row.querySelector('.btn-promote').click();
+  });
+  await page.waitForTimeout(300);
+  check('promoted from backlog: prevHours back on the goal',
+    (await goalsView(page)).find((g) => g.name === 'Write the report').prevHours, 3.5);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')]
+      .find((r) => r.textContent.includes('Write the report'));
+    row.querySelector('.btn-demote').click();
+  });
+  await page.waitForTimeout(300);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  check('demoted again: prevHours stored on the backlog item',
+    (await storedBacklog(page)).find((b) => b.name === 'Write the report').prevHours, 3.5);
+
+  // ── Reloading before answering the modal brings the modal back ──
+  // With the tab open, the new day (and its _carryover) is saved the moment
+  // midnight passes. A reload before the modal is answered used to show the
+  // legacy banner instead; leftovers must never sit there unseen, because
+  // the next rollover rebuilds _carryover from that day's goals and would
+  // drop them.
+  console.log('  — reload while the transition modal is still unanswered');
+  await seed(page, { date: await pageDate(page, 0), goals: [
+    { name: 'Half-done essay', hours: 1, progress: 40, category: 'career' },
+  ] });
+  await page.clock.fastForward(24 * 3600 * 1000);
+  await page.waitForTimeout(600);
+  check('modal opened at midnight', await modalOpen(page), true);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  check('after a reload the modal is back', await modalOpen(page), true);
+  check('the leftover is still pending', (await appState(page))._carryover.map((g) => g.name), ['Half-done essay']);
+  await clickModalButton(page, 'Start fresh');
+  check('answering it rescues the leftover to the backlog',
+    (await storedBacklog(page)).map((b) => b.name).includes('Half-done essay'), true);
+  check('_carryover cleared', '_carryover' in (await appState(page)), false);
 });

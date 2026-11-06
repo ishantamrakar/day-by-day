@@ -39,26 +39,20 @@ export function rescueItems(carryover, goals, backlog) {
       repeatable: g.repeatable || false,
       hours: g.hours || 0,
       progress: g.progress || 0,
+      // Earlier days' hours: the task's "Xh prev" history must survive the
+      // rescue (and later promotes — see js/core/backlog.js).
+      ...(g.prevHours > 0 ? { prevHours: g.prevHours } : {}),
     });
-  });
-  return out;
-}
-
-// Goals the legacy carryover banner's "accept" adds to Top 5: leftovers in
-// order, until `goalCount` reaches `maxGoals`. Hours restart at 0 (they were
-// credited yesterday); earlier days' hours ride along as `prevHours`.
-export function bannerAcceptGoals(carryover, goalCount, maxGoals) {
-  const out = [];
-  (carryover || []).forEach(g => {
-    if (goalCount + out.length < maxGoals)
-      out.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0, category: g.category || null, repeatable: g.repeatable || false });
   });
   return out;
 }
 
 // A permanently deleted goal must not resurface from a copy of it. Carryover
 // entries (and the day snapshot behind the summary modal) are copies, not the
-// live goal objects, so they are matched by name.
-export function withoutGoalNamed(list, name) {
-  return list.filter(g => g.name !== name);
+// live goal objects, so they are matched by name — and only ONE is removed:
+// two leftovers that share a name are two tasks, and one delete must not wipe
+// both.
+export function withoutOneGoalNamed(list, name) {
+  const i = list.findIndex(g => g.name === name);
+  return i === -1 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
 }

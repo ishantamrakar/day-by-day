@@ -12,6 +12,24 @@ export function sessionsNewestFirst(sessions) {
   return sessions.map((session, index) => ({ session, index })).reverse();
 }
 
+// The hours a session gave its goal, and which goal holds them now. Deleting
+// the session hands these back. Sessions saved since 2026-11 record the exact
+// gain (`goalHoursAdded`, after the 24h/day cap); older ones fall back to
+// their focused minutes. Never more than the goal still holds, and nothing
+// when the goal is gone — deleting a goal already took its hours out.
+export function sessionHoursOnGoal(session, goals) {
+  const byIndex = goals[session.goalIndex];
+  const goalIndex = byIndex && byIndex.name === session.goalName
+    ? session.goalIndex
+    : goals.findIndex(g => g && g.name === session.goalName);
+  if (goalIndex === -1) return { goalIndex: -1, hours: 0 };
+  const recorded = session.goalHoursAdded != null
+    ? session.goalHoursAdded
+    : Math.round((session.focusMins || 0) / 60 * 100) / 100;
+  const hours = Math.max(0, Math.min(recorded, goals[goalIndex].hours || 0));
+  return { goalIndex, hours };
+}
+
 const defaultFormatTime = at =>
   new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

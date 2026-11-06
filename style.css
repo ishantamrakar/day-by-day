@@ -1226,55 +1226,6 @@ footer {
   line-height: 1.6;
 }
 
-/* === Carryover Banner === */
-.carryover-banner {
-  background: linear-gradient(135deg, var(--primary-light) 0%, var(--accent-light) 100%);
-  border-radius: var(--radius);
-  padding: 24px 28px;
-  margin-bottom: 24px;
-  box-shadow: var(--shadow);
-  animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.carryover-header {
-  font-size: 0.92rem;
-  color: var(--text);
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.carryover-icon {
-  font-size: 1.1rem;
-}
-
-.carryover-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 16px 0;
-}
-
-.carryover-list li {
-  font-size: 0.88rem;
-  color: var(--primary);
-  padding: 6px 0 6px 20px;
-  position: relative;
-  font-weight: 500;
-}
-
-.carryover-list li::before {
-  content: '→';
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-}
-
-.carryover-actions {
-  display: flex;
-  gap: 10px;
-}
-
 /* === Carried-over goal hours badge === */
 .prev-hours-badge {
   font-size: 0.7rem;

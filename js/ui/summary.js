@@ -65,7 +65,8 @@ function updateEncouragement(ap, gh, dh) {
   const state = ctx.state;
   const completed = ctx.getCompletedGoals();
   if (completed.length > 0 && completed.length === state.goals.length) {
-    el.textContent = `All ${completed.length} goals done. You didn't just plan a good day — you lived one. That's rare.`;
+    const done = completed.length === 1 ? 'Your goal is done.' : `All ${completed.length} goals done.`;
+    el.textContent = `${done} You didn't just plan a good day — you lived one. That's rare.`;
     return;
   }
 

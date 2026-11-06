@@ -10,32 +10,37 @@
 pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
-*Data integrity: fix first (gate G2 in product-plan.md)*
-- **Quick-win delete leaves area hours too high.** The log-done modal adds a quick win's hours to its life area's `totalHours` on create; delete (and its undo) never subtract or re-add them. Deleting a completed goal from Done Today very likely has the same leak.
-- **Focus-session delete keeps its hours and can't be undone.** **Decision:** deleting a session subtracts its hours from the goal and the area total, and Cmd+Z restores the session and the hours, like every other delete.
-- **Rescue-to-backlog at rollover drops `prevHours`.** A part-done task keeps its progress, but its "Xh invested" badge disappears. Category totals are unaffected. `scripts/test-day-logic.mjs` pins the current behaviour in a commented assertion, which the fix should update.
-- **Carried-over repeatables lose `prevHours`** when they're added through "Start my day".
-- **Two copies of the carryover builder.** `checkForNewDay()` (tab open past midnight) has an inline copy of `buildCarryover` (`js/core/state.js`, used on reopen), so the two rollover paths can drift apart. Breaking `buildCarryover` fails only the reopen path.
-- **Deleting a goal scrubs every `_carryover` entry with that name**, not just the one deleted.
-- **Enter-added goals get `category: null`.** The + button path and `addBacklogItem` stamp `'general'`. Nothing visible breaks, since the visibility rule treats null as General, but the stored data is inconsistent.
-- **Stale indices after a slider hits 100.** The row re-renders 350 ms later; in that window other rows still hold old array indices, so a quick delete or edit can hit the wrong goal.
-
 *Deliberate behaviour: not a bug*
-- **Distraction hours count toward the life area's `totalHours`.** **Decision:** intended; keep it. Should be documented in features.md § Life Areas.
-
-*Remove*
-- **Legacy carryover banner** (`js/ui/carryover.js`). It's superseded by the Day Transition modal, effectively unreachable (it needs a non-empty `_carryover` and a saved day with no goals, which contradict each other), and its accept can create duplicate goals. **Decision:** remove it entirely; the modal is the only carryover flow.
-- **`addGoal()` in `js/ui/tasks.js` is dead code.** Nothing calls it; the Enter handler inlines its body.
+- Distraction hours count toward the life area's `totalHours`. **Decision:** intended; documented in features.md § Life Areas.
 
 *UX*
-- **Demoting a goal can't be undone.** **Decision:** make Cmd+Z restore it to Top 5 at its old position with hours and progress. The demote handler also calls `renderSidebar()` redundantly right after `render()`.
-- **Top 5 fills while the add-goal modal is open:** confirming silently does nothing and the typed text stays put.
-- **"All 1 goals done."** The encouragement line doesn't pluralize.
-- **`makeEditable` saves after Escape or an unchanged edit.** Nothing visible goes wrong; it's a needless storage write.
+- **Undoing a goal delete doesn't restore its `_carryover` entry.** The delete scrubs one same-named leftover; Cmd+Z brings the goal back but not the leftover. Harmless today (the restored goal is in Top 5, and rescue skips names already there), but the two are no longer symmetric. Found 2026-11.
 
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** the encouragement line said "All 1 goals done." (now "Your goal is done."), and the Settings backup summary could say "1 tasks · 1 focus sessions". Inline edits (`makeEditable`) no longer save when Escape is pressed or the text is unchanged. Guarded by "Small UI rules" in `scripts/test-backlog.mjs`.
+
+**Fixed (2026-11, defensive):** if Top 5 were full by the time the add-goal modal was confirmed, the task was silently dropped. Not reachable today (the add row hides at five goals and the page behind a modal is inert), but the guard now follows the quick-add modal's rule: the task goes to the backlog, and the Top 5 card gives the same shake as a drop onto a full Top 5. Guarded in `scripts/test-backlog.mjs`.
+
+**Fixed (2026-11):** demoting a goal to the backlog couldn't be undone. Cmd+Z now puts it back in its old Top 5 position, for both the row's Backlog button and a drag onto the backlog card. Also drops a redundant `renderSidebar()` after `render()` on both paths. Guarded in `scripts/test-backlog.mjs`.
+
+**Removed (2026-11):** the legacy carryover banner. It wasn't unreachable after all: with the tab open past midnight the new day (and its `_carryover`) is saved at once, and a reload before answering the modal showed the banner instead. Simply deleting it would have left leftovers pending unseen, to be dropped at the next rollover. Per the maintainer's decision, boot now reopens the day-transition modal in that case (`settlePendingCarryover()`), so the modal is the only carryover flow. Guarded in `scripts/test-day-logic.mjs`.
+
+**Fixed (2026-11):** the ~350 ms after a slider hits 100. The completing row is still drawn but no longer an active goal, so drag's screen positions and `getActiveGoals()` disagreed: dragging the row below it moved the *next* goal instead. The delayed re-render also tore down any drag or inline rename in progress, losing the edit. Drag now finds the moved goal by identity and skips completing rows, and the re-render waits for drags and editors. (Delete, slider and rename targeting were checked and were already correct; the original report blamed those.) Guarded by "Top 5: the moment a goal completes" in `scripts/test-backlog.mjs`.
+
+**Fixed (2026-11):** goals added with Enter were stored with `category: null`, while the + button and backlog adds stored `'general'`. Every read already treated null as General, so nothing looked different; the Enter path now stores `'general'` too. Existing null values are left alone. Guarded in `scripts/test-backlog.mjs`.
+
+**Fixed (2026-11):** deleting a goal scrubbed *every* `_carryover` entry with its name, so two leftovers sharing a name both vanished. Only one is removed now (`withoutOneGoalNamed`). Guarded in `scripts/test-day-logic.mjs`.
+
+**Fixed (2026-11):** `checkForNewDay()` (tab open past midnight) built `_carryover` with its own inline copy of `buildCarryover`, so the two rollover paths could drift apart. It now calls the shared function. Verified by mutation: breaking `buildCarryover` used to fail only the reopen suite; now both day-boundary suites fail (9 and 6 checks).
+
+**Fixed (2026-11):** a task's `prevHours` (its "Xh prev" history) was lost whenever it went through the backlog: rescue at rollover, any promote or demote, and repeatables pre-loaded by "Start my day". Backlog items didn't store the field at all. The store now persists it on backlog entities, and all six promote/demote copies go through `goalToBacklogItem` / `backlogItemToGoal` (`js/core/backlog.js`). Category totals were never affected. Guarded in `scripts/test-day-logic.mjs`, including a promote → demote → reload round trip.
+
+**Fixed (2026-11):** deleting a focus session kept its hours on the goal and the area and couldn't be undone. Per the maintainer's decision, delete now hands the hours back and Cmd+Z restores the session and both totals. Sessions now record `goalHoursAdded` so the amount is exact. Guarded by "Hours: focus-session delete and undo" in `scripts/test-hours.mjs`.
+
+**Fixed (2026-11):** deleting a quick win, an active goal or a completed goal left its hours in the life area's `totalHours`, since hours were added on create but never taken out on delete. Delete now subtracts today's hours and undo re-adds exactly what was taken. Guarded by the "Hours: deletes and undo" suite in `scripts/test-hours.mjs`.
 
 **Removed (2026-11):** browser notifications. The permission flow worked but notifications didn't appear in some browsers, so the Notification API code, the "Enable Notifications" prompt and the `daybyday_prefs` dismissed flag were removed. The in-app nudge banner stays. OS notifications come back with the native builds (see Product Vision), where each platform's notification system is reliable.
 

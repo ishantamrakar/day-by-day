@@ -9,7 +9,7 @@
 // recolouring an area reflects in past rows.
 
 import { formatHours } from '../core/format.js';
-import { sessionsNewestFirst, sessionDetailBlocks, sessionHoursOnGoal } from '../core/journal.js';
+import { sessionsNewestFirst, sessionDetailBlocks, sessionReturns } from '../core/journal.js';
 
 let _ctx = null;
 export function configure(c) {
@@ -80,7 +80,9 @@ function createFocusSessionEntry(session, index) {
   // category reflects in past journal entries. goalName stays a snapshot since
   // the goal itself may be renamed or deleted (this is an audit-log row).
   const sessCat = ctx.getCategoryById(session.category || 'general');
-  pillName.textContent = (sessCat.emoji || session.catEmoji || '⚡') + ' ' + session.goalName;
+  const sharedCount = session.shares && session.shares.length > 1 ? session.shares.length - 1 : 0;
+  pillName.textContent = (sessCat.emoji || session.catEmoji || '⚡') + ' ' + session.goalName +
+    (sharedCount ? ` + ${sharedCount} task${sharedCount === 1 ? '' : 's'}` : '');
 
   pillLeft.append(badge, pillName);
 
@@ -123,24 +125,22 @@ function createFocusSessionEntry(session, index) {
   delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>';
   delBtn.addEventListener('click', e => {
     e.stopPropagation();
-    // Hand back the hours this session gave its goal and that goal's area;
-    // undo restores the session and both totals.
+    // Hand back the hours this session gave each of its tasks (one, or
+    // several if its time was shared) and their life areas; undo restores
+    // the session and every share.
     const state = ctx.state;
-    const { goalIndex, hours } = sessionHoursOnGoal(session, state.goals);
-    const goal = goalIndex !== -1 ? state.goals[goalIndex] : null;
-    let catId = null, hoursDelta = 0;
-    if (goal && hours > 0) {
+    const returns = sessionReturns(session, state.goals).map(({ goalIndex, hours }) => {
+      const goal = goalIndex !== -1 ? state.goals[goalIndex] : null;
+      if (!goal || hours <= 0) return null;
       goal.hours = Math.round(((goal.hours || 0) - hours) * 100) / 100;
-      catId = goal.category || 'general';
-      hoursDelta = ctx.accumulateCategoryHours(catId, -hours);
-    }
-    ctx.undoStack.push({
-      type: 'focusSession', item: session, index,
-      goalName: goal ? goal.name : null, goalHours: goal ? hours : 0, catId, hoursDelta,
-    });
+      const catId = goal.category || 'general';
+      const hoursDelta = ctx.accumulateCategoryHours(catId, -hours);
+      return { goalName: goal.name, goalHours: hours, catId, hoursDelta };
+    }).filter(Boolean);
+    ctx.undoStack.push({ type: 'focusSession', item: session, index, returns });
     state.focusSessions.splice(index, 1);
     ctx.saveState();
-    if (goal && hours > 0) ctx.render(); else renderJournal();
+    if (returns.length > 0) ctx.render(); else renderJournal();
   });
 
   pillRight.append(timePill, pctPill, expandBtn, delBtn);

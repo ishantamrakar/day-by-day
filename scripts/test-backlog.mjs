@@ -324,6 +324,11 @@ await runSuite('Adding to the backlog', 8311, async ({ page, check }) => {
   await page.waitForTimeout(600);
   check('a backlog card sits under Focus tools',
     await page.evaluate(() => !!document.querySelector('.focus-col-right .focus-park-card')), true);
+  check('breathing and grounding sit side by side, and the tools fit without scrolling', await page.evaluate(() => {
+    const [a, b] = [...document.querySelectorAll('.focus-tool-pair .focus-tool-card')].map((e) => e.getBoundingClientRect());
+    const col = document.querySelector('.focus-col-right');
+    return { sideBySide: !!a && !!b && Math.abs(a.top - b.top) < 1 && b.left > a.right, fits: col.scrollHeight <= col.clientHeight + 1 };
+  }), { sideBySide: true, fits: true });
   await page.click('.focus-park-card .focus-tool-btn');
   await page.waitForTimeout(300);
   check('it opens the same modal, titled for the backlog', await modalTitle(), 'Add to Backlog');

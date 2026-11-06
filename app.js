@@ -848,7 +848,7 @@ import { initNudges } from './js/ui/nudges.js';
       if (isModalOpen()) return; // modal owns the keyboard (native text undo etc.)
       if (!undoStack.length) return;
       e.preventDefault();
-      const { type, item, index, catId, hoursDelta, goalName, goalHours, backlogItem } = undoStack.pop();
+      const { type, item, index, catId, hoursDelta, backlogItem, returns } = undoStack.pop();
       // Deletes that took hours out of an area total record what they took.
       if (hoursDelta) accumulateCategoryHours(catId, -hoursDelta);
       if (type === 'goal') {
@@ -881,10 +881,13 @@ import { initNudges } from './js/ui/nudges.js';
       } else if (type === 'focusSession') {
         if (!state.focusSessions) state.focusSessions = [];
         state.focusSessions.splice(Math.min(index, state.focusSessions.length), 0, item);
-        // Give the goal back what the delete took (found by name: it may
-        // have moved since).
-        const goal = goalHours ? state.goals.find(g => g.name === goalName) : null;
-        if (goal) goal.hours = Math.round(Math.min(24, (goal.hours || 0) + goalHours) * 100) / 100;
+        // Give each task back what the delete took (found by name: it may
+        // have moved since), and its life area the same.
+        (returns || []).forEach(r => {
+          const goal = state.goals.find(g => g.name === r.goalName);
+          if (goal) goal.hours = Math.round(Math.min(24, (goal.hours || 0) + r.goalHours) * 100) / 100;
+          if (r.hoursDelta) accumulateCategoryHours(r.catId, -r.hoursDelta);
+        });
         saveState(); render();
       }
     }

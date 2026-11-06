@@ -105,9 +105,10 @@ function createBacklogElement(item, index) {
 // The task modal, saving to the backlog: name, life area (General unless
 // changed — the backlog's inbox) and repeatable. Used by the card's + and by
 // focus mode, so a task remembered mid-session can be parked without leaving
-// the session. `onAdded(item)` runs after it's saved.
-export function openAddToBacklogModal(name = '', onAdded) {
-  ctx.openTaskDetailModal({ name, category: null, repeatable: false, title: 'Add to Backlog' }, result => {
+// the session. `onAdded(item)` runs after it's saved; `theme` is passed
+// through to the modal (see openTaskDetailModal).
+export function openAddToBacklogModal(name = '', onAdded, theme) {
+  ctx.openTaskDetailModal({ name, category: null, repeatable: false, title: 'Add to Backlog', theme }, result => {
     if (!result.name) return;
     const item = { name: result.name, category: result.category || 'general', repeatable: result.repeatable || false };
     ctx.backlog.push(item);

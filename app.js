@@ -648,7 +648,7 @@ import { initNudges } from './js/ui/nudges.js';
   // value, and a const here would still be in its temporal dead zone then.
   function renderBacklog() { Backlog.renderBacklog(); }
   // Same reason: FocusMode.configure() above passes it by value.
-  function openAddToBacklogModal(name, onAdded) { Backlog.openAddToBacklogModal(name, onAdded); }
+  function openAddToBacklogModal(name, onAdded, theme) { Backlog.openAddToBacklogModal(name, onAdded, theme); }
 
   // =========================================================
   // JOURNAL — wiring only

@@ -696,6 +696,14 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     const noteInputWrapper = document.createElement('div');
     noteInputWrapper.className = 'focus-note-input-wrapper';
     const noteInput = makeTextarea('Capture a thought, a blocker, a breakthrough…', 3, 'focus-lesson-input focus-notes-input');
+    // No length limit: the box grows with what you write (up to a cap, past
+    // which it scrolls with its scrollbar hidden), rather than hiding the
+    // text in a fixed little window.
+    const fitNoteInput = () => {
+      noteInput.style.height = 'auto';
+      noteInput.style.height = Math.min(noteInput.scrollHeight + 2, window.innerHeight * 0.4) + 'px';
+    };
+    noteInput.addEventListener('input', fitNoteInput);
     const saveNoteBtn = document.createElement('button');
     saveNoteBtn.className = 'focus-note-save-btn';
     saveNoteBtn.textContent = 'Save note';
@@ -704,6 +712,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       if (text) {
         sessionNotes.push({ text, at: Date.now() });
         noteInput.value = '';
+        noteInput.style.height = '';
         renderNotesList();
         persistSnapshot();
       }
@@ -815,11 +824,15 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     parkBtn.textContent = 'Add to backlog';
     let parkResetTimer = null;
     parkBtn.addEventListener('click', () => {
+      // Dressed to match this session: dark, in its colour — read live, so an
+      // Ultra Focus session's gold carries through too.
+      const rgb = getComputedStyle(overlay).getPropertyValue('--focus-cat-color-rgb').trim();
+      const theme = { dark: true, accent: rgb ? `rgb(${rgb})` : catColor };
       ctx.openAddToBacklogModal('', item => {
         parkText.textContent = `“${item.name}” is in your backlog ✓`;
         clearTimeout(parkResetTimer);
         parkResetTimer = setTimeout(() => { parkText.textContent = PARK_HINT; }, 5000);
-      });
+      }, theme);
     });
     parkCard.append(parkIcon, parkTitle, parkText, parkBtn);
 

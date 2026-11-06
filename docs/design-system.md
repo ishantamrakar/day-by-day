@@ -137,3 +137,17 @@ page behind it locks.
 them as an absolutely-positioned scrim *inside* the existing `.modal-overlay`
 (`position: absolute; inset: 0` + blur), not as a second body-level overlay — they
 inherit the modal lock automatically and stack correctly. See `.focus-idle-scrim`.
+The one exception is the **shared task modal** (`openTaskDetailModal`), reused
+from focus mode's "Remembered something?" card: it is a general-purpose dialog,
+so it stays body-level and stacks above the focus screen by z-index (9500 vs
+1200) rather than being rebuilt inside it.
+
+**One task modal, themed — not copied.** `openTaskDetailModal(initial, onConfirm)`
+serves Top 5's +, the backlog's + and focus mode. Callers vary it through
+`initial`: `title` (e.g. "Add to Backlog") and `theme: { accent, dark }`.
+`accent` is any CSS colour and sets `--modal-accent` (primary button, toggle,
+focus ring); `dark` adds `.task-modal--dark`, the same modal recoloured for dark
+surroundings and tinted with the accent. Focus mode passes `dark` plus its live
+session colour (so Ultra Focus's gold carries through). With no `theme` the
+modal looks exactly as before. Add a new look as another `theme` field, never a
+second modal.

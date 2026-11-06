@@ -20,6 +20,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
 
+**Fixed (2026-11):** a focus session left running overnight and retired on the next day's *reload* added its hours to the goal on its own day but not to the life area's total; the tab-open midnight path always did. Both paths now credit the area. Guarded in `scripts/test-checkpoints.mjs`.
+
 **Fixed (2026-11):** the encouragement line said "All 1 goals done." (now "Your goal is done."), and the Settings backup summary could say "1 tasks · 1 focus sessions". Inline edits (`makeEditable`) no longer save when Escape is pressed or the text is unchanged. Guarded by "Small UI rules" in `scripts/test-backlog.mjs`.
 
 **Fixed (2026-11, defensive):** if Top 5 were full by the time the add-goal modal was confirmed, the task was silently dropped. Not reachable today (the add row hides at five goals and the page behind a modal is inert), but the guard now follows the quick-add modal's rule: the task goes to the backlog, and the Top 5 card gives the same shake as a drop onto a full Top 5. Guarded in `scripts/test-backlog.mjs`.

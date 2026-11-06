@@ -11,6 +11,7 @@ const SUITES = [
   'scripts/test-growth.mjs',
   'scripts/test-day-logic.mjs',
   'scripts/test-shared-time.mjs',
+  'scripts/test-checkpoints.mjs',
 ];
 
 const failed = [];

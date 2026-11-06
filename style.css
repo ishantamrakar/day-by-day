@@ -4976,7 +4976,7 @@ footer {
 }
 
 .focus-col-right {
-  gap: 16px;
+  gap: 12px;
   /* Every card takes the column's width, whatever its text length. */
   align-items: stretch;
 }
@@ -5114,6 +5114,14 @@ footer {
   border-radius: var(--radius-sm);
   padding: 14px 16px;
 }
+/* Two small tools side by side (box breathing, grounding). */
+.focus-tool-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.focus-tool-card--tile { padding: 12px 14px; gap: 4px; }
+.focus-tool-card--tile .focus-tool-icon { font-size: 0.95rem; margin-right: 6px; vertical-align: -1px; }
 
 .focus-tool-icon {
   font-size: 1.1rem;
@@ -5166,7 +5174,18 @@ footer {
 /* Exit screen */
 .focus-exit-screen {
   gap: 14px;
+  /* The exit check-in can outgrow a short window (shared-time rows, an open
+     reflection box). It scrolls within itself, scrollbar hidden like the rest
+     of focus mode, and is centred with auto margins so nothing is clipped at
+     the top where it couldn't be scrolled to. */
+  justify-content: flex-start;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+.focus-exit-screen::-webkit-scrollbar { display: none; }
+.focus-exit-screen > :first-child { margin-top: auto; }
+.focus-exit-screen > :last-child { margin-bottom: auto; }
 
 .focus-lesson-area {
   width: 100%;
@@ -5804,6 +5823,45 @@ footer {
   font-weight: 700;
   color: rgba(255,255,255,0.85);
   min-width: 42px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Shared session time: a compact version of the focus tag chip (task names in
+   the tools card and the exit screen), and one row per task in the split. */
+.focus-entry-tag--compact {
+  min-width: 0;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 0.78rem;
+}
+.focus-entry-tag--compact.selected { transform: none; }
+.focus-share-chips { justify-content: flex-start; gap: 8px; }
+.focus-share-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.focus-share-section .focus-share-chips { justify-content: center; }
+.focus-share-rows { display: flex; flex-direction: column; gap: 10px; }
+.focus-share-row {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) 1fr 7.5rem;
+  align-items: center;
+  gap: 12px;
+}
+.focus-share-name {
+  color: rgba(255,255,255,0.8);
+  font-size: 0.85rem;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.focus-share-amount {
+  color: rgba(255,255,255,0.75);
+  font-size: 0.85rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }

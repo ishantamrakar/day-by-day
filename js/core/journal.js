@@ -6,6 +6,8 @@
 // shapes: midNotes were plain strings before they carried a timestamp, and
 // most reflection fields are optional.
 
+import { formatHours } from './format.js';
+
 // Sessions newest first, each paired with its position in the stored array
 // (deletes splice by that index).
 export function sessionsNewestFirst(sessions) {
@@ -28,6 +30,27 @@ export function sessionHoursOnGoal(session, goals) {
     : Math.round((session.focusMins || 0) / 60 * 100) / 100;
   const hours = Math.max(0, Math.min(recorded, goals[goalIndex].hours || 0));
   return { goalIndex, hours };
+}
+
+// What deleting a session hands back: one { goalIndex, hours } per task it
+// credited. Sessions that shared their time across tasks (since 2026-11)
+// carry `shares`, each with the exact hours it added; older sessions credited
+// one goal (see sessionHoursOnGoal). A share is never handed back beyond what
+// its task still holds, and a task that's gone gets nothing (deleting a goal
+// already took its hours out).
+export function sessionReturns(session, goals) {
+  if (!session.shares || session.shares.length === 0) return [sessionHoursOnGoal(session, goals)];
+  const used = new Set();
+  return session.shares.map((share, i) => {
+    let goalIndex = -1;
+    const hinted = goals[session.goalIndex];
+    if (i === 0 && hinted && hinted.name === share.goalName) goalIndex = session.goalIndex;
+    if (goalIndex === -1) goalIndex = goals.findIndex((g, k) => g && g.name === share.goalName && !used.has(k));
+    if (goalIndex === -1) return { goalIndex: -1, hours: 0 };
+    used.add(goalIndex);
+    const hours = Math.max(0, Math.min(share.hoursAdded || 0, goals[goalIndex].hours || 0));
+    return { goalIndex, hours };
+  });
 }
 
 const defaultFormatTime = at =>
@@ -53,6 +76,9 @@ export function sessionDetailBlocks(session, formatTime = defaultFormatTime) {
       ? session.midNotes.map(n => formatMidNote(n, formatTime)).join(' · ')
       : null],
     ['Exit note', session.exitTag ? tagWithNote(session.exitTag, session.exitNote) : session.exitNote],
+    ['Time shared', session.shares && session.shares.length > 1
+      ? session.shares.map(sh => `${sh.goalName} ${sh.pct}% · ${formatHours(sh.hoursAdded, '0m')}`).join(' · ')
+      : null],
   ];
   return blocks.filter(([, text]) => text).map(([label, text]) => ({ label, text }));
 }

@@ -19,6 +19,7 @@
 
 import { formatHours, hexToRgb } from '../core/format.js';
 import * as Sessions from '../core/sessions.js';
+import { splitHours, evenPercents, rebalancePercents } from '../core/shared-time.js';
 
 let _ctx = null;
 export function configure(c) { _ctx = c; }
@@ -254,6 +255,37 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
   let sessionNotes = snap ? (snap.sessionNotes || []) : [];
   let sessionStartTime = snap ? (snap.sessionStartTime || null) : null; // set when ambient screen opens
   let ultraFocus = snap ? !!snap.ultraFocus : false; // user kept going after an idle check-in
+  // Other Top 5 tasks this session's time is shared with, by name (names are
+  // how the snapshot identifies tasks, so a crash-resumed session keeps them).
+  let sharedWith = snap ? (snap.sharedWith || []) : [];
+  // The other active Top 5 tasks, the one in focus excluded.
+  const otherActiveGoals = () => {
+    const main = ctx.state.goals[index];
+    return ctx.state.goals.filter(g => g !== main && (g.progress || 0) < 100);
+  };
+  // Chips for picking tasks to share time with, in the focus screens' tag
+  // style. `onChange(names)` runs after every toggle.
+  const makeShareChips = (onChange) => {
+    const grid = document.createElement('div');
+    grid.className = 'focus-entry-tags focus-share-chips';
+    otherActiveGoals().forEach(g => {
+      const chip = document.createElement('button');
+      chip.className = 'focus-entry-tag focus-entry-tag--compact' + (sharedWith.includes(g.name) ? ' selected' : '');
+      const label = document.createElement('span');
+      label.className = 'focus-tag-label';
+      label.textContent = g.name;
+      chip.appendChild(label);
+      chip.addEventListener('click', () => {
+        sharedWith = sharedWith.includes(g.name)
+          ? sharedWith.filter(n => n !== g.name)
+          : [...sharedWith, g.name];
+        chip.classList.toggle('selected', sharedWith.includes(g.name));
+        onChange(sharedWith);
+      });
+      grid.appendChild(chip);
+    });
+    return grid;
+  };
   let overrideTotalMins = null; // set when user logs custom hours from the idle dialog
 
   // Crash backup: while a session runs, a snapshot lives in localStorage.
@@ -265,7 +297,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       goalName: goal.name,
       category: goal.category || null,
       sessionStartTime, sessionIntention, sessionEntryTag, sessionEntryNote,
-      sessionNotes, ultraFocus,
+      sessionNotes, ultraFocus, sharedWith,
       savedAt: Date.now(),
     }));
   }
@@ -754,8 +786,11 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     wisdomText.textContent = FOCUS_WISDOM[Math.floor(Math.random() * FOCUS_WISDOM.length)];
     wisdomCard.append(wisdomIcon, wisdomText);
 
+    // Box breathing and grounding sit side by side as compact tiles (little
+    // text each), so the whole tools column fits without scrolling.
+    const BREATHE_HINT = 'In 4 · Hold 4 · Out 4 · Hold 4';
     const breatheCard = document.createElement('div');
-    breatheCard.className = 'focus-tool-card focus-breathe-card';
+    breatheCard.className = 'focus-tool-card focus-tool-card--tile focus-breathe-card';
     const breatheIcon = document.createElement('span');
     breatheIcon.className = 'focus-tool-icon';
     breatheIcon.textContent = '🌬️';
@@ -764,10 +799,10 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     breatheTitle.textContent = 'Box breathing';
     const breatheDesc = document.createElement('p');
     breatheDesc.className = 'focus-tool-text';
-    breatheDesc.textContent = 'In 4s · Hold 4s · Out 4s · Hold 4s. Repeat 4×. Resets the nervous system in under 2 minutes.';
+    breatheDesc.textContent = BREATHE_HINT;
     const breatheBtn = document.createElement('button');
     breatheBtn.className = 'focus-tool-btn';
-    breatheBtn.textContent = 'Start guide';
+    breatheBtn.textContent = 'Start';
     let breatheInterval = null;
     let breathePhase = 0;
     const breathePhases = ['Breathe in…', 'Hold…', 'Breathe out…', 'Hold…'];
@@ -775,8 +810,8 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       if (breatheInterval) {
         clearInterval(breatheInterval);
         breatheInterval = null;
-        breatheBtn.textContent = 'Start guide';
-        breatheDesc.textContent = 'In 4s · Hold 4s · Out 4s · Hold 4s. Repeat 4×. Resets the nervous system in under 2 minutes.';
+        breatheBtn.textContent = 'Start';
+        breatheDesc.textContent = BREATHE_HINT;
         breatheDesc.classList.remove('focus-breathe-active');
       } else {
         breathePhase = 0;
@@ -789,20 +824,26 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
         }, 4000);
       }
     });
-    breatheCard.append(breatheIcon, breatheTitle, breatheDesc, breatheBtn);
+    breatheTitle.prepend(breatheIcon); // icon beside the title: tiles are short
+    breatheCard.append(breatheTitle, breatheDesc, breatheBtn);
 
     const groundCard = document.createElement('div');
-    groundCard.className = 'focus-tool-card';
+    groundCard.className = 'focus-tool-card focus-tool-card--tile';
     const groundIcon = document.createElement('span');
     groundIcon.className = 'focus-tool-icon';
     groundIcon.textContent = '🌿';
     const groundTitle = document.createElement('p');
     groundTitle.className = 'focus-tool-label';
-    groundTitle.textContent = '5-4-3-2-1 grounding';
+    groundTitle.textContent = 'Grounding';
     const groundText = document.createElement('p');
     groundText.className = 'focus-tool-text';
-    groundText.textContent = 'Name 5 things you see · 4 you can touch · 3 you hear · 2 you smell · 1 you taste. Brings you back to now.';
-    groundCard.append(groundIcon, groundTitle, groundText);
+    groundText.textContent = '5 see · 4 touch · 3 hear · 2 smell · 1 taste';
+    groundTitle.prepend(groundIcon);
+    groundCard.append(groundTitle, groundText);
+
+    const tilePair = document.createElement('div');
+    tilePair.className = 'focus-tool-pair';
+    tilePair.append(breatheCard, groundCard);
 
     // Something else surfaced mid-session? Park it in the backlog through the
     // usual task modal (it stacks above this screen) and carry on — no need to
@@ -836,7 +877,41 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     });
     parkCard.append(parkIcon, parkTitle, parkText, parkBtn);
 
-    rightCol.append(rightTitle, wisdomCard, breatheCard, groundCard, parkCard);
+    // Working on more than this task? Pick the others now and the session's
+    // time is split between them at the end (the exit screen asks how much).
+    const shareCard = document.createElement('div');
+    shareCard.className = 'focus-tool-card focus-share-card';
+    const shareIcon = document.createElement('span');
+    shareIcon.className = 'focus-tool-icon';
+    shareIcon.textContent = '🔗';
+    const shareTitle = document.createElement('p');
+    shareTitle.className = 'focus-tool-label';
+    shareTitle.textContent = 'Working on more than one thing?';
+    const shareText = document.createElement('p');
+    shareText.className = 'focus-tool-text';
+    const shareHint = () => {
+      shareText.textContent = sharedWith.length
+        ? `Sharing this session with ${sharedWith.join(', ')}. You'll split the time at the end.`
+        : 'Bring in other Top 5 tasks and split this session\'s time at the end.';
+    };
+    shareHint();
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'focus-tool-btn';
+    shareBtn.textContent = 'Bring in a task';
+    let shareChips = null;
+    shareBtn.addEventListener('click', () => {
+      if (shareChips) { shareChips.remove(); shareChips = null; shareBtn.textContent = 'Bring in a task'; return; }
+      if (otherActiveGoals().length === 0) {
+        shareText.textContent = 'No other tasks in Top 5 right now.';
+        return;
+      }
+      shareChips = makeShareChips(() => { shareHint(); persistSnapshot(); });
+      shareCard.insertBefore(shareChips, shareBtn);
+      shareBtn.textContent = 'Done';
+    });
+    shareCard.append(shareIcon, shareTitle, shareText, shareBtn);
+
+    rightCol.append(rightTitle, wisdomCard, tilePair, shareCard, parkCard);
 
     const grid = document.createElement('div');
     grid.className = 'focus-ambient-grid';
@@ -898,6 +973,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       slider.style.background = `linear-gradient(to right, rgba(var(--focus-cat-color-rgb,64,145,108),0.8) 0%, rgba(var(--focus-cat-color-rgb,64,145,108),0.8) ${pct}%, rgba(255,255,255,0.12) ${pct}%)`;
       // Show distraction capture if ≥50% distracted
       distractionCapture.classList.toggle('hidden', pct > 50);
+      if (sharePcts.length) renderShareAmounts();
     };
 
     slider.addEventListener('input', updateSlider);
@@ -907,6 +983,63 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     timeBreakdown.className = 'focus-entry-sublabel';
 
     sliderSection.append(sliderLabel, sliderRow, timeBreakdown);
+
+    // ── Shared time: did this session cover other tasks too? ──
+    // Pick them and split the focused time by percent; each task (and its own
+    // life area) is credited its share. Starts with tasks brought in during
+    // the session; none picked means the main task gets it all, as before.
+    const shareSection = document.createElement('div');
+    shareSection.className = 'focus-share-section';
+    const shareLabel = document.createElement('p');
+    shareLabel.className = 'focus-lesson-label';
+    shareLabel.textContent = 'Did you work on anything else?';
+    const shareRows = document.createElement('div');
+    shareRows.className = 'focus-share-rows';
+    let sharePcts = [];
+    const shareNames = () => [goal.name, ...sharedWith];
+    const focusedHours = () => {
+      const mins = Math.round(totalMins * parseInt(slider.value) / 100);
+      return Math.round(mins / 60 * 100) / 100;
+    };
+    function renderShareAmounts() {
+      const hours = splitHours(focusedHours(), sharePcts);
+      shareRows.querySelectorAll('.focus-share-row').forEach((row, i) => {
+        const range = row.querySelector('.focus-pct-slider');
+        range.value = String(sharePcts[i]);
+        range.style.background = `linear-gradient(to right, rgba(var(--focus-cat-color-rgb,64,145,108),0.8) 0%, rgba(var(--focus-cat-color-rgb,64,145,108),0.8) ${sharePcts[i]}%, rgba(255,255,255,0.12) ${sharePcts[i]}%)`;
+        row.querySelector('.focus-share-amount').textContent = `${sharePcts[i]}% · ${formatHours(hours[i], '0m')}`;
+      });
+    }
+    function renderShareRows() {
+      shareRows.innerHTML = '';
+      if (sharedWith.length === 0) { sharePcts = []; return; }
+      sharePcts = evenPercents(shareNames().length);
+      shareNames().forEach((name, i) => {
+        const row = document.createElement('div');
+        row.className = 'focus-share-row';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'focus-share-name';
+        nameEl.textContent = name;
+        const range = document.createElement('input');
+        range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '1';
+        range.className = 'focus-pct-slider';
+        range.setAttribute('aria-label', `Share of this session for ${name}`);
+        range.addEventListener('input', () => {
+          sharePcts = rebalancePercents(sharePcts, i, parseInt(range.value));
+          renderShareAmounts();
+        });
+        const amount = document.createElement('span');
+        amount.className = 'focus-share-amount';
+        row.append(nameEl, range, amount);
+        shareRows.appendChild(row);
+      });
+      renderShareAmounts();
+    }
+    if (otherActiveGoals().length > 0) {
+      const shareChipsEl = makeShareChips(() => renderShareRows());
+      shareSection.append(shareLabel, shareChipsEl, shareRows);
+      renderShareRows();
+    }
 
     // ── Distraction capture (shown when focus < 50%) ─────────
     const distractionCapture = document.createElement('div');
@@ -960,15 +1093,36 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
       const focusHours = Math.round(focusMins / 60 * 100) / 100;
       const distractHours = Math.round(distractMins / 60 * 100) / 100;
 
+      // Add hours to a goal, capped at 24h/day, and accumulate what it
+      // actually gained (the cap may truncate it) into its own life area —
+      // same rule as the time-add chips. Returns the gain.
+      const credit = (g, h) => {
+        if (!g || h <= 0) return 0;
+        const prev = g.hours || 0;
+        g.hours = Math.round(Math.min(24, prev + h) * 100) / 100;
+        const gain = Math.round((g.hours - prev) * 100) / 100;
+        ctx.accumulateCategoryHours(g.category || 'general', g.hours - prev);
+        return gain;
+      };
+
+      // Shared with other tasks: each gets its share of the focused hours.
+      // Tasks are found by name now (the list may have changed meanwhile);
+      // one that has since gone is simply skipped.
+      let shares = null;
+      if (sharePcts.length > 1) {
+        const hoursEach = splitHours(focusHours, sharePcts);
+        const used = new Set([ctx.state.goals[index]]);
+        shares = shareNames().map((name, i) => {
+          let g = i === 0 ? ctx.state.goals[index] : ctx.state.goals.find(x => x.name === name && !used.has(x));
+          if (g) used.add(g);
+          return { goalName: name, category: g ? (g.category || 'general') : null, pct: sharePcts[i], hoursAdded: credit(g, hoursEach[i]) };
+        });
+      }
+
       // Log focus hours to the goal
-      let goalHoursAdded = 0;
-      if (focusHours > 0 && ctx.state.goals[index]) {
-        const prev = ctx.state.goals[index].hours || 0;
-        ctx.state.goals[index].hours = Math.round(Math.min(24, prev + focusHours) * 100) / 100;
-        // Accumulate what the goal actually gained (the 24h/day cap may
-        // truncate it) — same rule as the time-add chips.
-        goalHoursAdded = Math.round((ctx.state.goals[index].hours - prev) * 100) / 100;
-        ctx.accumulateCategoryHours(ctx.state.goals[index].category || 'general', ctx.state.goals[index].hours - prev);
+      let goalHoursAdded = shares ? shares[0].hoursAdded : 0;
+      if (!shares && focusHours > 0 && ctx.state.goals[index]) {
+        goalHoursAdded = credit(ctx.state.goals[index], focusHours);
         // Sync the pill on the card
         const cardPill = ctx.goalsListEl.querySelector(`.goal-hours-pill[data-goal-index="${index}"]`);
         if (cardPill && !cardPill.querySelector('input')) {
@@ -1015,6 +1169,8 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
         // What the goal actually gained (after the cap), so deleting this
         // session can hand back exactly that.
         goalHoursAdded,
+        // When the time was shared: every task's share, main task first.
+        ...(shares ? { shares } : {}),
         isWin: focusPct >= 70,
         ultraFocus,
         intention: sessionIntention || null,
@@ -1047,7 +1203,7 @@ export function openFullFocusMode(goal, index, catColor, catEmoji, cat, resume) 
     // Init slider display
     updateSlider();
 
-    screen.append(makeCloseBtn(), label, sub, sliderSection, distractionCapture, tagGrid, reflectionArea, customExitArea, actions);
+    screen.append(makeCloseBtn(), label, sub, sliderSection, shareSection, distractionCapture, tagGrid, reflectionArea, customExitArea, actions);
     return screen;
   }
 

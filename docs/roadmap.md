@@ -60,6 +60,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 - Surface common pitfalls from journal history — "last time you worked on X, you noted Y"
 
 **Larger**
+- Merging tasks (idea, 2026-11): drag one Top 5 task onto another in the same life area to combine them ("A + B", hours added together, undoable). Needs a distinct drop-onto zone so reordering doesn't merge by accident. Deferred until shared session time has been used for a while.
+- Persistent cross-area task groups sharing one time entry (idea, 2026-11). Deliberately not built: it touches rendering, the 5-goal cap, drag, completion, Done Today and carryover, and shared session time already covers splitting time across areas.
 - Task snowball visualization — compounding progress shown as a growing metaphor (fire, sun)
 - Weekly/monthly views from archive history
 - ~~Export data as JSON~~ — shipped 2026-07 (Settings → Data); CSV still open

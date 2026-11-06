@@ -53,7 +53,8 @@ that section header and is headed for the named file.
 | Done Today card (completed Top 5, quick wins) | ✅ `js/ui/done-today.js` |
 | Done Today ordering, fold counts, quick-win record | ✅ `js/core/done-today.js` |
 | Journal card (focus sessions, wins & lessons) | ✅ `js/ui/journal.js` |
-| Session detail text, newest-first session order | ✅ `js/core/journal.js` |
+| Session detail text, newest-first session order, what a delete hands back (`sessionReturns`) | ✅ `js/core/journal.js` |
+| Sharing a session's time across tasks: even split, slider rebalance, percent → hours | ✅ `js/core/shared-time.js` |
 | Backlog card (rows, promote/delete, hidden-items note, add input, `openAddToBacklogModal`) | ✅ `js/ui/backlog.js` |
 | Adding Top 5 goals and distractions (inputs, + buttons) | ✅ `js/ui/tasks.js` |
 | Top 5 goal rows and distraction rows (`renderGoals`, `renderDistractions`) | ✅ `js/ui/tasks.js` |

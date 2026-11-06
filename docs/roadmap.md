@@ -13,9 +13,6 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Deliberate behaviour: not a bug*
 - Distraction hours count toward the life area's `totalHours`. **Decision:** intended; documented in features.md § Life Areas.
 
-*Remove*
-- **Legacy carryover banner** (`js/ui/carryover.js`). It's superseded by the Day Transition modal, effectively unreachable (it needs a non-empty `_carryover` and a saved day with no goals, which contradict each other), and its accept can create duplicate goals. **Decision:** remove it entirely; the modal is the only carryover flow.
-
 *UX*
 - **Undoing a goal delete doesn't restore its `_carryover` entry.** The delete scrubs one same-named leftover; Cmd+Z brings the goal back but not the leftover. Harmless today (the restored goal is in Top 5, and rescue skips names already there), but the two are no longer symmetric. Found 2026-11.
 - **Demoting a goal can't be undone.** **Decision:** make Cmd+Z restore it to Top 5 at its old position with hours and progress. The demote handler also calls `renderSidebar()` redundantly right after `render()`.
@@ -26,6 +23,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Removed (2026-11):** the legacy carryover banner. It wasn't unreachable after all: with the tab open past midnight the new day (and its `_carryover`) is saved at once, and a reload before answering the modal showed the banner instead. Simply deleting it would have left leftovers pending unseen, to be dropped at the next rollover. Per the maintainer's decision, boot now reopens the day-transition modal in that case (`settlePendingCarryover()`), so the modal is the only carryover flow. Guarded in `scripts/test-day-logic.mjs`.
 
 **Fixed (2026-11):** the ~350 ms after a slider hits 100. The completing row is still drawn but no longer an active goal, so drag's screen positions and `getActiveGoals()` disagreed: dragging the row below it moved the *next* goal instead. The delayed re-render also tore down any drag or inline rename in progress, losing the edit. Drag now finds the moved goal by identity and skips completing rows, and the re-render waits for drags and editors. (Delete, slider and rename targeting were checked and were already correct; the original report blamed those.) Guarded by "Top 5: the moment a goal completes" in `scripts/test-backlog.mjs`.
 

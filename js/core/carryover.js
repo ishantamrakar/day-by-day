@@ -47,18 +47,6 @@ export function rescueItems(carryover, goals, backlog) {
   return out;
 }
 
-// Goals the legacy carryover banner's "accept" adds to Top 5: leftovers in
-// order, until `goalCount` reaches `maxGoals`. Hours restart at 0 (they were
-// credited yesterday); earlier days' hours ride along as `prevHours`.
-export function bannerAcceptGoals(carryover, goalCount, maxGoals) {
-  const out = [];
-  (carryover || []).forEach(g => {
-    if (goalCount + out.length < maxGoals)
-      out.push({ name: g.name, hours: 0, progress: g.progress, prevHours: g.prevHours || 0, category: g.category || null, repeatable: g.repeatable || false });
-  });
-  return out;
-}
-
 // A permanently deleted goal must not resurface from a copy of it. Carryover
 // entries (and the day snapshot behind the summary modal) are copies, not the
 // live goal objects, so they are matched by name — and only ONE is removed:

@@ -1,9 +1,10 @@
 // What survives a new day.
 //
 // Pins the CURRENT behaviour of the day-boundary code: building `_carryover`
-// from the day that ended, the two places it is consumed (the day-transition
-// modal and the legacy banner), the delete-scrub, intentions resetting, and
-// the summary picking the last day that actually had work. It was written
+// from the day that ended, where it is consumed (the day-transition modal,
+// including after a reload before it was answered), the delete-scrub,
+// intentions resetting, and the summary picking the last day that actually
+// had work. It was written
 // before that code moved out of app.js, so a failure after the move means the
 // move changed behaviour.
 //
@@ -325,38 +326,6 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
   await clickModalButton(page, 'Start fresh');
   check('the other leftover still reaches the backlog',
     (await storedBacklog(page)).map((b) => [b.name, b.progress]), [['Call the bank', 50]]);
-
-  // ════ 5. Legacy banner: accept fills Top 5 up to the cap, rest rescued ════
-  // The banner is superseded by the modal and practically unreachable from
-  // boot, but its handlers are live and route through the rescue invariant.
-  console.log('  — legacy carryover banner');
-  const SIX = ['A', 'B', 'C', 'D', 'E', 'F'].map((n, i) => ({
-    name: `Task ${n}`, hours: i * 0.5, progress: i * 10, category: 'career', repeatable: i === 1,
-  }));
-  await seed(page, { date: yesterday, goals: SIX }, {
-    backlog: [{ name: 'Task F', category: 'career', hours: 0, progress: 0 }],
-  });
-  await page.evaluate(() => document.getElementById('carryover-accept').click());
-  await page.waitForTimeout(300);
-  check('banner accept: first five carried with prevHours, hours reset', await goalsView(page),
-    SIX.slice(0, 5).map((g) => ({
-      name: g.name, hours: 0, progress: g.progress, repeatable: g.repeatable, prevHours: g.hours, category: 'career',
-    })));
-  check('banner accept: overflow already in backlog is not duplicated',
-    (await storedBacklog(page)).map((b) => b.name), ['Task F']);
-  check('banner accept: _carryover cleared', '_carryover' in (await appState(page)), false);
-  check('banner accept: banner hidden', await page.evaluate(() =>
-    document.getElementById('carryover-banner').classList.contains('hidden')), true);
-
-  await seed(page, { date: yesterday, goals: SIX.slice(0, 3) });
-  await page.evaluate(() => document.getElementById('carryover-dismiss').click());
-  await page.waitForTimeout(300);
-  check('banner dismiss: nothing added to Top 5', await goalsView(page), []);
-  check('banner dismiss: every leftover rescued with progress and prevHours', await storedBacklog(page),
-    SIX.slice(0, 3).map((g) => ({
-      name: g.name, hours: 0, progress: g.progress, repeatable: g.repeatable, category: 'career',
-      ...(g.hours > 0 ? { prevHours: g.hours } : {}),
-    })));
 });
 
 // ════ 6. Tab left open across midnight (checkForNewDay, fake clock) ════
@@ -446,4 +415,26 @@ await runSuite('Day boundary: live rollover with the tab open', 8306, async ({ p
   await page.waitForTimeout(500);
   check('demoted again: prevHours stored on the backlog item',
     (await storedBacklog(page)).find((b) => b.name === 'Write the report').prevHours, 3.5);
+
+  // ── Reloading before answering the modal brings the modal back ──
+  // With the tab open, the new day (and its _carryover) is saved the moment
+  // midnight passes. A reload before the modal is answered used to show the
+  // legacy banner instead; leftovers must never sit there unseen, because
+  // the next rollover rebuilds _carryover from that day's goals and would
+  // drop them.
+  console.log('  — reload while the transition modal is still unanswered');
+  await seed(page, { date: await pageDate(page, 0), goals: [
+    { name: 'Half-done essay', hours: 1, progress: 40, category: 'career' },
+  ] });
+  await page.clock.fastForward(24 * 3600 * 1000);
+  await page.waitForTimeout(600);
+  check('modal opened at midnight', await modalOpen(page), true);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  check('after a reload the modal is back', await modalOpen(page), true);
+  check('the leftover is still pending', (await appState(page))._carryover.map((g) => g.name), ['Half-done essay']);
+  await clickModalButton(page, 'Start fresh');
+  check('answering it rescues the leftover to the backlog',
+    (await storedBacklog(page)).map((b) => b.name).includes('Half-done essay'), true);
+  check('_carryover cleared', '_carryover' in (await appState(page)), false);
 });

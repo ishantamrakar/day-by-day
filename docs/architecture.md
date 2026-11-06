@@ -36,8 +36,7 @@ that section header and is headed for the named file.
 | Dates, `dayHasWork`, `findLastActiveDay`, default state | ✅ `js/core/day.js` |
 | Storage key names, `STORE_VERSION` | ✅ `js/core/keys.js` |
 | Loading/saving state, categories, history, building carryover (`buildCarryover`) | ✅ `js/core/state.js` |
-| Consuming carryover: rescue to backlog, banner accept, delete-scrub | ✅ `js/core/carryover.js` |
-| Legacy carryover banner | ✅ `js/ui/carryover.js` |
+| Consuming carryover: rescue to backlog, delete-scrub | ✅ `js/core/carryover.js` |
 | Store shape, entities, hydrate/sync adapter | ✅ `js/core/store.js` |
 | Which colours the blobs wear | ✅ `js/core/blob-colors.js` |
 | Blob motion, drift, swirl pulses | ✅ `js/ui/blobs.js` |
@@ -278,7 +277,7 @@ Notes on code that used to live in `app.js`, kept here because they explain *why
 - `archiveDay()` (`js/core/state.js`) — pushes snapshot to history (max 30). Does not touch `totalHours`. The snapshot carries `focusSessions` (added so a session retired at rollover isn't dropped the moment it's recorded); days archived before that change simply have no key, and every reader defaults it to `[]`.
 - `dayHasWork(d)` (`js/core/day.js`) — true if a day has any goal hours/progress, quick wins, distraction hours, or successes. Distinguishes a real working day from one where the app was merely opened.
 - Demote/promote preserve `hours` + `progress` both ways, so a shelved task resumes where it left off.
-- `rescueCarryoverToBacklog()` (app.js wrapper over `rescueItems()` in `js/core/carryover.js`) — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. All four exit paths (day-modal "Start my day" / "Start fresh", legacy banner accept / dismiss) call it, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
+- `rescueCarryoverToBacklog()` (app.js wrapper over `rescueItems()` in `js/core/carryover.js`) — **the only place `_carryover` may be cleared.** Moves every leftover unfinished task into `backlog` (skipping ones already in Top 5 or already in the backlog), then deletes `_carryover`. Returns the count rescued. Both exit paths (day-modal "Start my day" / "Start fresh") call it, as does boot's last-resort fallback in `settlePendingCarryover()`, so unfinished work can never be silently dropped. Not filtered by focus categories — see [features.md](features.md) § Unfinished task rollover.
 - `findLastActiveDay(fallback)` → `{ day, gapDays, idleDays }` — app.js binding over `findLastActiveDay(history, today, fallback)` in `js/core/day.js`. Walks history backwards for the most recent day passing `dayHasWork()`. **The day-transition modal must use this, not the raw stored state:** an idle day still gets saved and archived, so `_prevDayForModal` alone would summarise a blank day after any skipped stretch. Both the boot path and `checkForNewDay()` route through it.
 
 **Rendering:** `renderGoals()` (`js/ui/tasks.js`) iterates `getActiveGoals()`, passing both `realIndex` (state array position) and display number.
@@ -307,7 +306,7 @@ Notes on code that used to live in `app.js`, kept here because they explain *why
 - Two-column CSS Grid inside `#main-content`: `col-left`, `col-right`
 - Cards have `data-card-id` + `draggable-card` for reordering
 - Scripts: a single `<script type="module" src="app.js">` (auto-deferred, runs after parse). Everything else is imported from it.
-- `carryover-banner` still exists in HTML but is superseded by the Day Transition Modal. Its rendering and accept/dismiss handlers live in `js/ui/carryover.js`; boot calls `showCarryoverIfNeeded()` only when the modal is skipped
+- **No carryover banner** (removed 2026-11). The day-transition modal is the only UI that consumes `_carryover`. If leftovers are pending at boot with no new day to announce (the tab crossed midnight, which saves the new day at once, then the page reloaded before the modal was answered), `settlePendingCarryover()` in app.js reopens the modal for the most recent archived day; if there were none, it rescues to the backlog rather than leave leftovers pending.
 
 ## Nudges (js/core/nudges.js, js/ui/nudges.js)
 

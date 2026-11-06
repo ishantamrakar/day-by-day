@@ -51,7 +51,6 @@ import {
 } from './js/core/backlog.js';
 import * as CoreCarryover from './js/core/carryover.js';
 import * as IntentionsUI from './js/ui/intentions.js';
-import * as CarryoverUI from './js/ui/carryover.js';
 import { initNudges } from './js/ui/nudges.js';
 
 (function () {
@@ -365,10 +364,6 @@ import { initNudges } from './js/ui/nudges.js';
   const failureInputEl = document.getElementById('failure-input');
   const addSuccessBtn = document.getElementById('add-success-btn');
   const addFailureBtn = document.getElementById('add-failure-btn');
-  const carryoverBanner = document.getElementById('carryover-banner');
-  const carryoverList = document.getElementById('carryover-list');
-  const carryoverAccept = document.getElementById('carryover-accept');
-  const carryoverDismiss = document.getElementById('carryover-dismiss');
   const storageWarning = document.getElementById('storage-warning');
   const backlogListEl = document.getElementById('backlog-list');
   const backlogInputEl = document.getElementById('backlog-input');
@@ -514,7 +509,8 @@ import { initNudges } from './js/ui/nudges.js';
   // CARRYOVER — wiring only
   // =========================================================
   // Rules for consuming `_carryover`: js/core/carryover.js (it is built by
-  // buildCarryover() in js/core/state.js). The legacy banner: js/ui/carryover.js.
+  // buildCarryover() in js/core/state.js). The day-transition modal is the only
+  // UI that consumes it (js/ui/day-transition.js).
 
   // Nothing unfinished may be silently discarded. Every path that clears
   // `_carryover` routes through here first: anything not already live in
@@ -528,15 +524,6 @@ import { initNudges } from './js/ui/nudges.js';
     return rescued.length;
   }
 
-  // state is a getter: rollover replaces the object (see docs/architecture.md
-  // § The injected-context pattern).
-  CarryoverUI.configure({
-    get state() { return state; },
-    carryoverBanner, carryoverList, carryoverAccept, carryoverDismiss,
-    MAX_GOALS, saveState, render, rescueCarryoverToBacklog,
-  });
-
-  function showCarryoverIfNeeded() { CarryoverUI.showCarryoverIfNeeded(); }
 
   if (storageWarning && !isStorageAvailable()) storageWarning.classList.remove('hidden');
 
@@ -957,6 +944,22 @@ import { initNudges } from './js/ui/nudges.js';
     },
   };
 
+  // Leftovers can be pending at boot with no new day to announce: the tab
+  // crossed midnight (which saves the new day and its _carryover at once) and
+  // the page was reloaded before the modal was answered. Bring the modal back
+  // for the most recent archived day. Leaving them pending would be silent
+  // loss: the next rollover rebuilds _carryover from that day's goals.
+  function settlePendingCarryover() {
+    if (!state._carryover || state._carryover.length === 0) return;
+    const today = getTodayString();
+    const latest = loadHistory().filter(d => d && d.date && d.date < today)
+      .sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
+    const { day } = findLastActiveDay(latest || null);
+    if (day) { showDayTransitionModal(day); return; }
+    // No archived day to show (shouldn't happen): rescue rather than strand.
+    rescueCarryoverToBacklog(); saveState(); render();
+  }
+
   // =========================================================
   // BOOT
   // =========================================================
@@ -970,8 +973,8 @@ import { initNudges } from './js/ui/nudges.js';
     const hasData = dayHasWork(summaryDay) ||
                     (summaryDay.goals && summaryDay.goals.length > 0);
     if (gapDays === 1 || hasData) showDayTransitionModal(summaryDay);
-    else showCarryoverIfNeeded();
-  } else showCarryoverIfNeeded();
+    else settlePendingCarryover();
+  } else settlePendingCarryover();
   initCardDragHandles();
   checkForCrashedFocusSession();
   initSidebar();

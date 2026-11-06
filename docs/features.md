@@ -63,6 +63,8 @@ Unfinished Top 5 tasks used to be lost on three paths: "Skip, start fresh" disca
 
 Deliberately **not** filtered by focus categories: the focus picker decides what gets pre-loaded into Top 5, not what is allowed to survive the day. A task now disappears only when the user explicitly deletes it.
 
+The day-transition modal is the **only** carryover UI (the old "Continue These Goals" banner was removed 2026-11). Reloading before answering it brings the modal back (`settlePendingCarryover()`), so leftovers are never left pending unseen, where the next rollover would drop them.
+
 ## Categories System
 
 - `loadCategories()` — merges saved + defaults. `{ ...def, ...saved }` so user edits always win.

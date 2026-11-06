@@ -11,13 +11,13 @@ pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
 *Deliberate behaviour: not a bug*
-- **Distraction hours count toward the life area's `totalHours`.** **Decision:** intended; keep it. Should be documented in features.md § Life Areas.
+- Distraction hours count toward the life area's `totalHours`. **Decision:** intended; documented in features.md § Life Areas.
 
 *Remove*
 - **Legacy carryover banner** (`js/ui/carryover.js`). It's superseded by the Day Transition modal, effectively unreachable (it needs a non-empty `_carryover` and a saved day with no goals, which contradict each other), and its accept can create duplicate goals. **Decision:** remove it entirely; the modal is the only carryover flow.
-- **`addGoal()` in `js/ui/tasks.js` is dead code.** Nothing calls it; the Enter handler inlines its body.
 
 *UX*
+- **Undoing a goal delete doesn't restore its `_carryover` entry.** The delete scrubs one same-named leftover; Cmd+Z brings the goal back but not the leftover. Harmless today (the restored goal is in Top 5, and rescue skips names already there), but the two are no longer symmetric. Found 2026-11.
 - **Demoting a goal can't be undone.** **Decision:** make Cmd+Z restore it to Top 5 at its old position with hours and progress. The demote handler also calls `renderSidebar()` redundantly right after `render()`.
 - **Top 5 fills while the add-goal modal is open:** confirming silently does nothing and the typed text stays put.
 - **"All 1 goals done."** The encouragement line doesn't pluralize.

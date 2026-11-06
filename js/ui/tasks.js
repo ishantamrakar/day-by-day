@@ -61,16 +61,6 @@ export function configure(c) {
 }
 const ctx = new Proxy({}, { get: (_, k) => _ctx[k] });
 
-export function addGoal() {
-  const goalInputEl = ctx.goalInputEl;
-  const n = goalInputEl.value.trim();
-  if (!n || ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-  ctx.state.goals.push({ name: n, hours: 0, progress: 0 }); goalInputEl.value = '';
-  ctx.saveState(); ctx.render();
-  pulseBlobEvent('add');
-  if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
-}
-
 export function addDistraction() {
   const distractionInputEl = ctx.distractionInputEl;
   const n = distractionInputEl.value.trim(); if (!n || ctx.state.distractions.length >= ctx.MAX_DISTRACTIONS) return;

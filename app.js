@@ -921,18 +921,9 @@ import { initNudges } from './js/ui/nudges.js';
       closeFocusSessionForRollover(prev);
       archiveDay(prev);
       const ns = getDefaultState();
-      ns._carryover = prev.goals
-        ? prev.goals.map(g => {
-            const done = (g.progress || 0) >= 100;
-            if (done && !g.repeatable) return null;
-            return {
-              name: g.name, hours: 0,
-              progress: done ? 0 : (g.progress || 0),
-              prevHours: (g.prevHours || 0) + (g.hours || 0), // cumulative, matches loadState
-              category: g.category || null, repeatable: g.repeatable || false
-            };
-          }).filter(Boolean)
-        : [];
+      // The same builder loadState uses on reopen, so both rollover paths
+      // (reopen on a later date / tab open past midnight) can't drift apart.
+      ns._carryover = CoreState.buildCarryover(prev);
       state = ns;
       CoreState.setState(state); // keep core's binding in step (see above)
       saveState();

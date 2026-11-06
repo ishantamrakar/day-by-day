@@ -248,7 +248,7 @@ IIFE in `'use strict'`. What it does, top to bottom:
 
 **Activity monitor.** Document-level `pointerdown` / `keydown` / throttled `pointermove` listeners (capture phase) keep `lastActivityTime` fresh; `markActivity` / `getIdleMs` / `getLastActivity` are passed to focus mode and exposed on `DayByDayApp.activity`. Consumed today by focus mode's idle check (60 min → "Still working on this?" dialog, `FOCUS_IDLE_THRESHOLD_MS`); intended to feed notifications/intelligence later. Returning to the tab is deliberately not activity — only real interaction is.
 
-**New-day detection.** `checkForNewDay()` runs every 60s at the minute boundary. On a date change it closes any running focus session into the outgoing day (`closeFocusSessionForRollover`, *before* archiving), archives it, builds the fresh state with `_carryover`, and opens the day-transition modal on the last day that had work (`findLastActiveDay`). The boot path does the same through `initState()`.
+**New-day detection.** `checkForNewDay()` runs every 60s at the minute boundary. On a date change it closes any running focus session into the outgoing day (`closeFocusSessionForRollover`, *before* archiving), archives it, builds the fresh state with `_carryover` (via `buildCarryover` in `js/core/state.js`, the same function the boot path uses), and opens the day-transition modal on the last day that had work (`findLastActiveDay`). The boot path does the same through `initState()`.
 
 **`window.DayByDayApp`.** `{ getState, getGoals, getDistractions, getStore, storageGet, storageSet, activity }`. Read by the smoke and regression scripts; no module in `js/` depends on it.
 

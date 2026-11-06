@@ -11,7 +11,6 @@ pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
 *Data integrity: fix first (gate G2 in product-plan.md)*
-- **Two copies of the carryover builder.** `checkForNewDay()` (tab open past midnight) has an inline copy of `buildCarryover` (`js/core/state.js`, used on reopen), so the two rollover paths can drift apart. Breaking `buildCarryover` fails only the reopen path.
 - **Deleting a goal scrubs every `_carryover` entry with that name**, not just the one deleted.
 - **Enter-added goals get `category: null`.** The + button path and `addBacklogItem` stamp `'general'`. Nothing visible breaks, since the visibility rule treats null as General, but the stored data is inconsistent.
 - **Stale indices after a slider hits 100.** The row re-renders 350 ms later; in that window other rows still hold old array indices, so a quick delete or edit can hit the wrong goal.
@@ -32,6 +31,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** `checkForNewDay()` (tab open past midnight) built `_carryover` with its own inline copy of `buildCarryover`, so the two rollover paths could drift apart. It now calls the shared function. Verified by mutation: breaking `buildCarryover` used to fail only the reopen suite; now both day-boundary suites fail (9 and 6 checks).
 
 **Fixed (2026-11):** a task's `prevHours` (its "Xh prev" history) was lost whenever it went through the backlog: rescue at rollover, any promote or demote, and repeatables pre-loaded by "Start my day". Backlog items didn't store the field at all. The store now persists it on backlog entities, and all six promote/demote copies go through `goalToBacklogItem` / `backlogItemToGoal` (`js/core/backlog.js`). Category totals were never affected. Guarded in `scripts/test-day-logic.mjs`, including a promote → demote → reload round trip.
 

@@ -65,6 +65,18 @@ await runSuite('Backlog integrity', 8301, async ({ page, check }) => {
   const restored = (await getGoals(page)).find((g) => g.name === 'Write the report');
   check('promote restores hours + progress', restored && { h: restored.hours, p: restored.progress },
     { h: 2.5, p: 60 });
+
+  // ── 3. Every add path files a new goal under General ──
+  // Enter used to save category: null while the + button saved 'general'.
+  // Reads treat null as General, but the stored data should be one shape.
+  await page.fill('#goal-input', 'Book the dentist');
+  await page.press('#goal-input', 'Enter');
+  await page.waitForTimeout(300);
+  check('a goal added with Enter is stored under General', await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('daybyday_store') || '{}');
+    const e = Object.values(s.entities || {}).find((x) => x.name === 'Book the dentist');
+    return e ? e.category : 'missing';
+  }), 'general');
 });
 
 function visibleRows(page) {

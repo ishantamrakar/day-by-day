@@ -47,7 +47,8 @@ export function configure(c) {
     if (e.key === 'Enter') {
       const n = goalInputEl.value.trim();
       if (!n || ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-      ctx.state.goals.push({ name: n, hours: 0, progress: 0 });
+      // Filed under General, like the + button and backlog adds.
+      ctx.state.goals.push({ name: n, hours: 0, progress: 0, category: 'general' });
       goalInputEl.value = '';
       ctx.saveState(); ctx.render();
       pulseBlobEvent('add');

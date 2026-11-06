@@ -127,6 +127,22 @@ await runSuite('Backlog integrity', 8301, async ({ page, check }) => {
   await undo();
   check('undo reverses the drag too', [await goalNames(), await backlogNames()],
     [['Alpha', 'Bravo', 'Charlie'], []]);
+
+  // ── 5. If Top 5 is full by the time the add-goal modal is confirmed, the
+  // task goes to the backlog (quick-add's rule) instead of vanishing. A user
+  // can't fill Top 5 while the modal is open, so the test does it directly.
+  await page.fill('#goal-input', 'Renew passport');
+  await page.click('#add-goal-btn');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    const goals = window.DayByDayApp.getGoals();
+    goals.push({ name: 'Filler 1', hours: 0, progress: 0 }, { name: 'Filler 2', hours: 0, progress: 0 });
+  });
+  await page.keyboard.press('Enter'); // confirms the modal
+  await page.waitForTimeout(400);
+  check('nothing beyond five goals in Top 5', (await getGoals(page)).filter((g) => g.progress < 100).length, 5);
+  check('the task went to the backlog instead', (await backlogNames()).includes('Renew passport'), true);
+  check('the add input is cleared', await page.inputValue('#goal-input'), '');
 });
 
 function visibleRows(page) {

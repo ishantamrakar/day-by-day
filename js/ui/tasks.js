@@ -27,21 +27,10 @@ export function configure(c) {
     const n = goalInputEl.value.trim();
     if (n) {
       // Name already typed — open splash with name pre-filled
-      ctx.openTaskDetailModal({ name: n, category: null, repeatable: false }, (result) => {
-        if (ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-        ctx.state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        goalInputEl.value = '';
-        ctx.saveState(); ctx.render(); pulseBlobEvent('add');
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
-      });
+      ctx.openTaskDetailModal({ name: n, category: null, repeatable: false }, addFromModal);
     } else {
       // Nothing typed — open blank splash
-      ctx.openTaskDetailModal({ name: '', category: null, repeatable: false }, (result) => {
-        if (!result.name || ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
-        ctx.state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
-        ctx.saveState(); ctx.render(); pulseBlobEvent('add');
-        if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
-      });
+      ctx.openTaskDetailModal({ name: '', category: null, repeatable: false }, addFromModal);
     }
   });
   goalInputEl.addEventListener('keydown', e => {
@@ -60,6 +49,29 @@ export function configure(c) {
   distractionInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addDistraction(); });
 }
 const ctx = new Proxy({}, { get: (_, k) => _ctx[k] });
+
+// The add-goal modal's confirm. If Top 5 is full by then, the task goes to
+// the backlog (the quick-add modal's rule) and the Top 5 card gives the same
+// small shake as a drop onto a full Top 5. Nothing typed is thrown away.
+function addFromModal(result) {
+  if (!result.name) return;
+  const goalInputEl = ctx.goalInputEl;
+  if (ctx.getActiveGoals().length >= ctx.MAX_GOALS) {
+    ctx.backlog.push({ name: result.name, category: result.category || null, repeatable: result.repeatable });
+    goalInputEl.value = '';
+    ctx.saveBacklog(); ctx.render();
+    const goalsCard = document.getElementById('goals-section');
+    if (goalsCard) {
+      goalsCard.classList.add('goals-drop-full');
+      setTimeout(() => goalsCard.classList.remove('goals-drop-full'), 600);
+    }
+    return;
+  }
+  ctx.state.goals.push({ name: result.name, hours: 0, progress: 0, category: result.category || null, repeatable: result.repeatable });
+  goalInputEl.value = '';
+  ctx.saveState(); ctx.render(); pulseBlobEvent('add');
+  if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);
+}
 
 export function addDistraction() {
   const distractionInputEl = ctx.distractionInputEl;

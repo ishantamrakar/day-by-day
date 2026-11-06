@@ -274,14 +274,18 @@ import { initNudges } from './js/ui/nudges.js';
 
   // Time-add ring, chip dials, inline hours editor: js/ui/time-ring.js
 
-  // Accumulate hours into category totals — called when hours change on a task
+  // Accumulate hours into category totals — called when hours change on a task.
+  // Returns the change actually applied: a negative delta is clamped at zero,
+  // and undo must re-add exactly what was taken, not the nominal amount.
   function accumulateCategoryHours(catId, delta) {
-    if (!catId || delta === 0) return;
+    if (!catId || !delta) return 0;
     const cat = getCategoryById(catId);
-    if (!cat) return;
-    cat.totalHours = Math.max(0, (cat.totalHours || 0) + delta);
+    if (!cat) return 0;
+    const before = cat.totalHours || 0;
+    cat.totalHours = Math.max(0, before + delta);
     saveCategories();
     renderSidebar();
+    return cat.totalHours - before;
   }
 
   // Sidebar + toast state: js/ui/sidebar.js
@@ -462,7 +466,11 @@ import { initNudges } from './js/ui/nudges.js';
   // it never resurfaces in the day transition modal or anywhere else.
   function permanentlyDeleteGoal(index) {
     const goal = state.goals[index];
-    undoStack.push({ type: 'goal', item: goal, index });
+    // Take today's hours back out of the area total (prevHours were credited
+    // on earlier days and stay); undo re-adds exactly what was taken.
+    const catId = (goal && goal.category) || 'general';
+    const hoursDelta = goal ? accumulateCategoryHours(catId, -(goal.hours || 0)) : 0;
+    undoStack.push({ type: 'goal', item: goal, index, catId, hoursDelta });
     state.goals.splice(index, 1);
     // Also remove from _carryover (built at day-rollover, not updated on subsequent deletes)
     if (state._carryover && goal) {
@@ -850,7 +858,9 @@ import { initNudges } from './js/ui/nudges.js';
       if (isModalOpen()) return; // modal owns the keyboard (native text undo etc.)
       if (!undoStack.length) return;
       e.preventDefault();
-      const { type, item, index } = undoStack.pop();
+      const { type, item, index, catId, hoursDelta } = undoStack.pop();
+      // Deletes that took hours out of an area total record what they took.
+      if (hoursDelta) accumulateCategoryHours(catId, -hoursDelta);
       if (type === 'goal') {
         state.goals.splice(Math.min(index, state.goals.length), 0, item);
         saveState(); render();

@@ -11,7 +11,6 @@ pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
 *Data integrity: fix first (gate G2 in product-plan.md)*
-- **Quick-win delete leaves area hours too high.** The log-done modal adds a quick win's hours to its life area's `totalHours` on create; delete (and its undo) never subtract or re-add them. Deleting a completed goal from Done Today very likely has the same leak.
 - **Focus-session delete keeps its hours and can't be undone.** **Decision:** deleting a session subtracts its hours from the goal and the area total, and Cmd+Z restores the session and the hours, like every other delete.
 - **Rescue-to-backlog at rollover drops `prevHours`.** A part-done task keeps its progress, but its "Xh invested" badge disappears. Category totals are unaffected. `scripts/test-day-logic.mjs` pins the current behaviour in a commented assertion, which the fix should update.
 - **Carried-over repeatables lose `prevHours`** when they're added through "Start my day".
@@ -36,6 +35,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** deleting a quick win, an active goal or a completed goal left its hours in the life area's `totalHours`, since hours were added on create but never taken out on delete. Delete now subtracts today's hours and undo re-adds exactly what was taken. Guarded by the "Hours: deletes and undo" suite in `scripts/test-hours.mjs`.
 
 **Removed (2026-11):** browser notifications. The permission flow worked but notifications didn't appear in some browsers, so the Notification API code, the "Enable Notifications" prompt and the `daybyday_prefs` dismissed flag were removed. The in-app nudge banner stays. OS notifications come back with the native builds (see Product Vision), where each platform's notification system is reliable.
 

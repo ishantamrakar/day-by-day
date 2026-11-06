@@ -1,17 +1,17 @@
-// Minimal flat config. The app is a browser IIFE in 'use strict' with no build
-// step, so we keep rules permissive: catch genuine errors (undefined vars, dupe
-// keys, unreachable code) without churning the existing ~4,600-line file on style.
+// Minimal flat config. The app is native ES modules with no build step. Rules
+// are permissive on purpose: catch genuine errors (undefined vars, dupe keys,
+// unreachable code), not style. The one strict block is the js/core boundary.
 import globals from 'globals';
 
 export default [
   {
-    files: ['app.js', 'notifications.js'],
+    files: ['app.js', 'js/**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: 'script',
+      sourceType: 'module',
       globals: {
         ...globals.browser,
-        // Cross-file globals the two scripts expose to each other.
+        // Globals app.js and js/ui/nudges.js publish on window.
         DayByDayApp: 'readonly',
         DayByDayNotifications: 'readonly',
       },
@@ -26,6 +26,37 @@ export default [
       'no-func-assign': 'error',
       'valid-typeof': 'error',
       'no-unsafe-negation': 'error',
+    },
+  },
+  {
+    // THE PORTABILITY BOUNDARY, mechanically enforced.
+    //
+    // js/core holds the domain logic a native (iOS/Android) build reuses
+    // verbatim. It must never touch a browser API: anything it needs from the
+    // platform is passed in or imported from js/platform. Documentation alone
+    // would decay, so the rule lives here — if this errors, the fix is to move
+    // the browser call into js/platform, not to add an exception.
+    files: ['js/core/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {}, // no browser globals: `document` etc. become no-undef errors
+    },
+    rules: {
+      'no-undef': 'error',
+      'no-restricted-globals': ['error',
+        { name: 'window', message: 'js/core must stay portable — use js/platform.' },
+        { name: 'document', message: 'js/core must stay portable — no DOM.' },
+        { name: 'localStorage', message: 'js/core must stay portable — use js/platform/storage.js.' },
+        { name: 'navigator', message: 'js/core must stay portable — use js/platform.' },
+        { name: 'location', message: 'js/core must stay portable — use js/platform.' },
+      ],
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['../ui/*', '../../ui/*', '../platform/*', '../../platform/*'],
+            message: 'js/core may not import from ui/ or platform/ — dependencies point inward.' },
+        ],
+      }],
     },
   },
   {

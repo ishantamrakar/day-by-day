@@ -52,7 +52,9 @@ One shape for all task-like things, discriminated by `type`:
 ```
 `totalHours` is a running accumulator (`+= delta`, never recomputed) — preserve this when porting.
 
-## Store ⇄ view adapter (app.js)
+## Store ⇄ view adapter (js/core/store.js)
+
+The functions below take the store explicitly; app.js keeps same-named bindings that supply its live `store` / `state` / `backlog`.
 
 The store is the **source of truth**; `state.goals` / `state.distractions` / `state.quickDone` / `backlog` / `state.focusSessions` are **live views** over it so the existing rendering/undo/drag code is untouched. Each view object carries its entity id as `_eid`.
 

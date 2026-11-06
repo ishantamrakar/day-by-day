@@ -26,7 +26,7 @@ Stage 2. Small and shippable.
 | Gate | Status |
 |---|---|
 | G1 — 60+ days personal use | Believed done (maintainer-confirmed) |
-| G2 — data-integrity bugs fixed/accepted | Believed done — both accumulator bug families fixed (2026-07, 2026-08); remaining `totalHours` no-backfill is accepted, not a corruption risk |
+| G2 — data-integrity bugs fixed/accepted | **Reopened 2026-11.** Both earlier accumulator bug families were fixed (2026-07, 2026-08) and `totalHours` no-backfill is accepted, but the module split surfaced new data bugs (quick-win delete leaks area hours, lost `prevHours`, duplicated carryover builder, stale slider indices). See roadmap.md § Known Bugs |
 | G3 — export/import shipped, legacy keys retired | **Not done** — export/import shipped 2026-07, but `daybyday_data`/`daybyday_backlog`/`daybyday_categories`/`daybyday_history` are still actively written every save (data-model.md § Legacy keys). Retiring them is not required to post (see below) but is worth tracking |
 | G4 — ~3 unprompted asks | This checklist is how we pursue it |
 | G5 — honest weekly time budget | Decide before posting — see below |

@@ -28,7 +28,7 @@ So the phases below are separated by **gates, not dates**. The calendar never fo
 
 Everything here pays off even if the product phase never happens.
 
-1. **Fix the data-integrity bugs** (roadmap.md Known Bugs): carryover double-count in `archiveDay()`, decide on `totalHours` backfill.
+1. **Fix the data-integrity bugs** (roadmap.md Known Bugs): the original carryover double-count family was fixed 2026-07/08 and `totalHours` no-backfill was accepted. The 2026-11 module split surfaced a new set (quick-win delete hours leak, session delete, lost `prevHours`, duplicated carryover builder, stale slider indices); see roadmap.md § Known Bugs.
 2. ~~**JSON export/import**~~ — **done 2026-07** (Settings → Data). Exports every `daybyday_*` key verbatim, so it is both the backup against "Clear browsing data" and the account-migration path in Stage 2.
 3. **Retire legacy keys** once the store has a clean month (data-model.md already plans this).
 4. ~~**Split `app.js` into native ES modules**~~ — **mostly done 2026-11.** `app.js` is now the entry module and composition root; the code lives in `js/core/` (portable, no DOM, boundary enforced by ESLint), `js/platform/` (browser APIs) and `js/ui/` (DOM), still with no build step. The nudges were the last classic script. Still in `app.js`: the clock, the category archive/delete rules, the active/completed goal filters, a copy of `buildCarryover` inside `checkForNewDay`, and the add-row visibility toggle. See [architecture.md](architecture.md) § Module map.

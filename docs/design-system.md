@@ -35,12 +35,13 @@ Motion is split across two nested elements so drift and swirl never contend for 
 | Element | Owns | Notes |
 |---|---|---|
 | `.blob-layer` | visibility | Fixed, full-viewport. Single switch — hidden via `html.focus-fullscreen-open` |
-| `.blob-drift` | JS drift `transform` | Zero-size, never painted. `_driftTick` writes `translate3d()` here |
+| `.blob-drift` | JS drift `transform` | Zero-size, never painted. `_writeBlob` writes `translate3d()` here on each physics step |
 | `.blob` | CSS swirl `transform` + `opacity` | The painted blob; static blur, resting `opacity: 0.88` |
 
 **Performance rules (do not regress):**
 - Never animate `left`/`top`/`filter` on a blob — only `transform` and `opacity` are compositor-only. Animating the blur re-rasterizes three half-viewport gaussian blurs per frame.
-- The drift loop runs at ~24fps (`DRIFT_FPS`) and pauses on `document.hidden`, during focus fullscreen, and under `prefers-reduced-motion`.
+- The drift loop runs physics at ~24fps (`DRIFT_FPS`) inside a rAF loop, catches up by at most 2 steps after a stall, and pauses on `document.hidden`, during focus fullscreen, during a swirl, and under `prefers-reduced-motion`.
+- Drift is slow, wandering arcs (an oscillating turn rate plus soft edge repulsion), never a straight-line bounce. Keep it ambient: the background should never draw the eye. The motion model is in [architecture.md](architecture.md) § Module internals → Background blobs.
 - Swirl keyframes express their "brighten" beat with `opacity` (0.88 → 1), replacing the old `filter: brightness()`.
 - Don't add `will-change` to the other `backdrop-filter` elements — layer promotion is deliberately limited to the blobs.
 
@@ -69,7 +70,7 @@ background:
 
 | Variant | Base | Used for |
 |---------|------|----------|
-| `.btn-primary` | `#4a8c6e` | Add goal, start day, enable notifications |
+| `.btn-primary` | `#4a8c6e` | Add goal, start day, export backup |
 | `.btn-secondary-orange` | `#c87d20` | Quick wins actions |
 | `.btn-distraction` | `#a85058` | Add distraction |
 | `.btn-ghost` | `rgba(140,148,156,0.25)` | Start fresh, Maybe Later |

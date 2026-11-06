@@ -4,9 +4,42 @@
 
 ## Known Bugs
 
-- **Cross-card drag** — *likely fixed, needs hand-verification.* An automated pass (5 goal→backlog drops at two drag speeds) succeeded 5/5 with no ghost trail and no console errors. Plausibly fixed incidentally by the blob re-raster perf work in PR #7. Left listed until confirmed by hand on the deployed site, since the original report came from real use. Diagnosis kept in [drag-drop.md](drag-drop.md).
-- **Browser notifications** — permission flow works but notifications don't appear in some browsers. In-app nudge is the reliable fallback.
 - **`totalHours` not retroactive** — only reflects hours logged after categories feature was added. No backfill.
+
+**Found during the 2026-10/11 module split.** The extraction sessions were
+pure moves, so they recorded these instead of fixing them. Product decisions
+the maintainer made on the ambiguous ones are marked **Decision**.
+
+*Data integrity: fix first (gate G2 in product-plan.md)*
+- **Quick-win delete leaves area hours too high.** The log-done modal adds a quick win's hours to its life area's `totalHours` on create; delete (and its undo) never subtract or re-add them. Deleting a completed goal from Done Today very likely has the same leak.
+- **Focus-session delete keeps its hours and can't be undone.** **Decision:** deleting a session subtracts its hours from the goal and the area total, and Cmd+Z restores the session and the hours, like every other delete.
+- **Rescue-to-backlog at rollover drops `prevHours`.** A part-done task keeps its progress, but its "Xh invested" badge disappears. Category totals are unaffected. `scripts/test-day-logic.mjs` pins the current behaviour in a commented assertion, which the fix should update.
+- **Carried-over repeatables lose `prevHours`** when they're added through "Start my day".
+- **Two copies of the carryover builder.** `checkForNewDay()` (tab open past midnight) has an inline copy of `buildCarryover` (`js/core/state.js`, used on reopen), so the two rollover paths can drift apart. Breaking `buildCarryover` fails only the reopen path.
+- **Deleting a goal scrubs every `_carryover` entry with that name**, not just the one deleted.
+- **Enter-added goals get `category: null`.** The + button path and `addBacklogItem` stamp `'general'`. Nothing visible breaks, since the visibility rule treats null as General, but the stored data is inconsistent.
+- **Stale indices after a slider hits 100.** The row re-renders 350 ms later; in that window other rows still hold old array indices, so a quick delete or edit can hit the wrong goal.
+
+*Deliberate behaviour: not a bug*
+- **Distraction hours count toward the life area's `totalHours`.** **Decision:** intended; keep it. Should be documented in features.md § Life Areas.
+
+*Remove*
+- **Legacy carryover banner** (`js/ui/carryover.js`). It's superseded by the Day Transition modal, effectively unreachable (it needs a non-empty `_carryover` and a saved day with no goals, which contradict each other), and its accept can create duplicate goals. **Decision:** remove it entirely; the modal is the only carryover flow.
+- **`addGoal()` in `js/ui/tasks.js` is dead code.** Nothing calls it; the Enter handler inlines its body.
+
+*UX*
+- **Demoting a goal can't be undone.** **Decision:** make Cmd+Z restore it to Top 5 at its old position with hours and progress. The demote handler also calls `renderSidebar()` redundantly right after `render()`.
+- **Top 5 fills while the add-goal modal is open:** confirming silently does nothing and the typed text stays put.
+- **"All 1 goals done."** The encouragement line doesn't pluralize.
+- **`makeEditable` saves after Escape or an unchanged edit.** Nothing visible goes wrong; it's a needless storage write.
+
+*Code consistency (not bugs)*
+- `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
+- The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Removed (2026-11):** browser notifications. The permission flow worked but notifications didn't appear in some browsers, so the Notification API code, the "Enable Notifications" prompt and the `daybyday_prefs` dismissed flag were removed. The in-app nudge banner stays. OS notifications come back with the native builds (see Product Vision), where each platform's notification system is reliable.
+
+**Closed (2026-10):** cross-card drag (ghost paint trail, goal→backlog drop not registering). An automated pass (5 goal→backlog drops at two drag speeds) succeeded 5/5 with no ghost trail and no console errors, and the maintainer has not seen it in real daily use since. Most likely fixed incidentally by the blob re-raster perf work in PR #7 — no targeted fix was made, so if it reappears, start from the pointer-capture diagnosis kept in [drag-drop.md](drag-drop.md).
 
 **Fixed (2026-08):** `saveCategories()` wrote only the legacy `daybyday_categories` key, never the unified store — so `store.categories[].totalHours` in localStorage stayed stale until some unrelated action happened to call `saveStore()`. In-memory reads were correct (the two share one array), which is why it went unnoticed. Caught by the new `test-hours.mjs` regression suite the day it was written.
 
@@ -27,7 +60,7 @@
 - ~~Export data as JSON~~ — shipped 2026-07 (Settings → Data); CSV still open
 - Streak tracking per life area
 - Dark mode — will live in Settings → Appearance
-- Custom notification frequency
+- Custom nudge frequency
 
 **Big swings (separate projects)**
 - Agentic notification framework — fine-tuned model (Qwen + GRPO via [ART](https://github.com/OpenPipe/ART)) for context-aware nudges
@@ -41,14 +74,14 @@ This is not task management. It's **finitude-aware focus** — helping you feel 
 
 **Phases:**
 1. **Now** — vanilla web app, self-use, rapid iteration. No infra, no accounts.
-2. **PWA** — offline, home screen install, working push notifications. Still no backend.
-3. **Native iOS/macOS** — SwiftUI, iCloud sync. The glass design language maps directly to visionOS/iOS 26.
+2. **PWA** — offline, home screen install. Still no backend. (Web push deliberately skipped — browser notifications were unreliable and were removed 2026-11.)
+3. **Native iOS/macOS** — SwiftUI, iCloud sync, real OS notifications (the nudge messages in `js/core/nudges.js` are the starting content). The glass design language maps directly to visionOS/iOS 26.
 4. **Multi-platform** — subscription for sync + AI nudges.
 
 **Architectural decisions that matter for the future:**
 - State shape `{ date, goals, distractions, successes, failures, quickDone }` is portable — keep it clean
 - `totalHours` is a running accumulator by design — store as a field when porting to a backend, don't recompute
-- No DOM-coupled logic — business logic in functions makes porting to React/SwiftUI easier
+- No DOM-coupled logic — business logic lives in `js/core/`, which ESLint keeps free of DOM and browser APIs, so a React Native or SwiftUI port reuses or transliterates it (see architecture.md § Porting)
 - The Day Transition Modal will eventually suggest tasks based on momentum, not just hours imbalance
 
 **Open questions:**

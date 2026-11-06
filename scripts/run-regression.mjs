@@ -9,6 +9,7 @@ const SUITES = [
   'scripts/test-rollover.mjs',
   'scripts/test-hours.mjs',
   'scripts/test-growth.mjs',
+  'scripts/test-day-logic.mjs',
 ];
 
 const failed = [];

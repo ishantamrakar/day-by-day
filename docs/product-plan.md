@@ -1,6 +1,6 @@
 # Product Phase Plan
 
-→ [CLAUDE.md](../CLAUDE.md) | [roadmap.md](roadmap.md) § Product Vision | [data-model.md](data-model.md)
+→ [CLAUDE.md](../CLAUDE.md) | [roadmap.md](roadmap.md) § Product Vision | [data-model.md](data-model.md) | [launch-checklist.md](launch-checklist.md)
 
 *Written 2026-07. How and when Day by Day goes from personal tool to product. The decision to stay vanilla JS until Stage 2 is deliberate (see "Framework decision" below).*
 
@@ -21,18 +21,18 @@ So the phases below are separated by **gates, not dates**. The calendar never fo
 | G1 | **Personal proof** — 60+ days of genuine daily use; the day-transition modal has real history behind it | If the maintainer's own streak doesn't hold, nobody else's will |
 | G2 | **Data integrity clean** — the Known Bugs that touch data (category `totalHours` double-count on carryover, no-backfill) are fixed or consciously accepted; zero data-loss incidents in the last 30 days | Users forgive UI bugs, never lost data |
 | G3 | **Data safety shipped** — JSON export/import exists; the unified store has run 30+ clean days and the legacy backup keys are retired | Export is both a trust feature and the future migration tool |
-| G4 | **External pull** — at least ~3 people have asked to use it *unprompted* after seeing it | Ship to pull, don't push. If nobody asks, staying personal is success, not failure |
+| G4 | **External pull** — at least ~3 people have asked to use it *unprompted* after seeing it | Ship to pull, don't push. If nobody asks, staying personal is success, not failure. Deliberately pursuing this via social outreach? See [launch-checklist.md](launch-checklist.md) first |
 | G5 | **Honest time budget** — product means support, onboarding, infra. Decide the weekly hours it's worth *before* strangers depend on it | The finitude philosophy applies to the maintainer too |
 
 ## Stage 0 — Hardening (now → gates; still 100% personal)
 
 Everything here pays off even if the product phase never happens.
 
-1. **Fix the data-integrity bugs** (roadmap.md Known Bugs): carryover double-count in `archiveDay()`, decide on `totalHours` backfill.
-2. **JSON export/import** — one button each; exports the unified store verbatim. Doubles as backup against "Clear browsing data" and becomes the account-migration path in Stage 2.
+1. **Fix the data-integrity bugs** (roadmap.md Known Bugs): the original carryover double-count family was fixed 2026-07/08 and `totalHours` no-backfill was accepted. The 2026-11 module split surfaced a new set (quick-win delete hours leak, session delete, lost `prevHours`, duplicated carryover builder, stale slider indices); see roadmap.md § Known Bugs.
+2. ~~**JSON export/import**~~ — **done 2026-07** (Settings → Data). Exports every `daybyday_*` key verbatim, so it is both the backup against "Clear browsing data" and the account-migration path in Stage 2.
 3. **Retire legacy keys** once the store has a clean month (data-model.md already plans this).
-4. **Split `app.js` into native ES modules** (`store.js`, `focus.js`, `sidebar.js`, `drag.js`, …). `<script type="module">` keeps the no-build-step property. This is the agreed alternative to a framework rewrite.
-5. ~~**Formalize the verification scripts**~~ — **done 2026-08.** Four data-integrity suites (`scripts/test-*.mjs`) run via `npm run test:regression`, wired into CI and the deploy gate. Scoped to invariants where a regression loses or corrupts data, not UI behaviour. See [dev-workflow.md](dev-workflow.md) § Regression suites. Still open: crash-recovery and idle-check coverage.
+4. ~~**Split `app.js` into native ES modules**~~ — **mostly done 2026-11.** `app.js` is now the entry module and composition root; the code lives in `js/core/` (portable, no DOM, boundary enforced by ESLint), `js/platform/` (browser APIs) and `js/ui/` (DOM), still with no build step. The nudges were the last classic script. Still in `app.js`: the clock, the category archive/delete rules, the active/completed goal filters, a copy of `buildCarryover` inside `checkForNewDay`, and the add-row visibility toggle. See [architecture.md](architecture.md) § Module map.
+5. ~~**Formalize the verification scripts**~~ — **done 2026-08.** Data-integrity suites (`scripts/test-*.mjs`, five as of 2026-11) run via `npm run test:regression`, wired into CI and the deploy gate. Scoped to invariants where a regression loses or corrupts data, not UI behaviour. See [dev-workflow.md](dev-workflow.md) § Regression suites. Still open: crash-recovery and idle-check coverage.
 6. **Day-rollover edge cases** — multi-tab open at midnight, timezone changes, laptop-asleep-across-midnight.
 
 **Exit:** G1–G3 all true. **Target window:** through ~Sep 2026, alongside daily use — but gates rule, not the calendar.
@@ -69,7 +69,7 @@ Only entered on demonstrated Stage-1 pull. This is the expensive door.
 ## Stage 3 — Monetization + native (roadmap Phases 3–4)
 
 - **Pricing:** one-time purchase aligns with the finitude philosophy; sync's recurring cost argues subscription. Likely hybrid: free local-only forever, modest subscription for sync + AI nudges
-- **Native SwiftUI port** (roadmap Phase 3) only once the web product proves retention — the "no DOM-coupled logic" rule in roadmap.md is what keeps this port feasible
+- **Native SwiftUI port** (roadmap Phase 3) only once the web product proves retention — the `js/core` boundary (no DOM, no browser APIs, enforced by ESLint; see architecture.md § Porting) is what keeps this port feasible
 - **AI nudges** (the agentic notification framework big-swing) become the paid differentiator; they need the session/journal corpus that Stages 1–2 accumulate — the activity monitor and `sessions` data are already designed to feed it
 
 ## Standing rules (every stage)

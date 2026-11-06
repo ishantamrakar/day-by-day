@@ -74,6 +74,7 @@ const storedBacklog = (page) => page.evaluate(() => {
   return (s.backlogIds || []).map((id) => s.entities[id]).filter(Boolean).map((e) => ({
     name: e.name, hours: e.hours || 0, progress: e.progress || 0,
     repeatable: !!e.repeatable, category: e.category || null,
+    ...(e.prevHours > 0 ? { prevHours: e.prevHours } : {}),
   }));
 });
 
@@ -197,12 +198,12 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
 
   check('Top 5: checked repeatables first, then focused carryover, hours reset, progress + prevHours kept',
     await goalsView(page), [
-      { name: 'Morning run', hours: 0, progress: 0, repeatable: true, category: 'fitness' },
-      { name: 'Stretch', hours: 0, progress: 30, repeatable: true, category: 'fitness' },
+      { name: 'Morning run', hours: 0, progress: 0, repeatable: true, prevHours: 0.5, category: 'fitness' },
+      { name: 'Stretch', hours: 0, progress: 30, repeatable: true, prevHours: 0.25, category: 'fitness' },
       { name: 'Write the report', hours: 0, progress: 60, repeatable: false, prevHours: 3.5, category: 'career' },
     ]);
-  // Known gap, pinned: a task rescued to the backlog keeps progress but not
-  // prevHours (rescue copies `hours`, which is 0 on a carryover entry).
+  // Rescued tasks keep progress AND prevHours (asserted with real hours in
+  // the live suite; 'Call mum' has none to keep).
   check('unfocused leftover rescued to backlog', await storedBacklog(page), [
     { name: 'Call mum', hours: 0, progress: 0, repeatable: false, category: 'relationships' },
   ]);
@@ -252,7 +253,7 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
   await selectFocus(page, ['career', 'chores']);
   await clickModalButton(page, 'Start my day');
   check('multi-day: part-done goal resumes with progress and prevHours', await goalsView(page), [
-    { name: 'Water plants', hours: 0, progress: 0, repeatable: true, category: 'chores' },
+    { name: 'Water plants', hours: 0, progress: 0, repeatable: true, prevHours: 0.25, category: 'chores' },
     { name: 'Draft chapter', hours: 0, progress: 40, repeatable: false, prevHours: 2.5, category: 'career' },
   ]);
   check('multi-day: totals untouched', await categoryTotals(page), ORIGINAL_TOTALS);
@@ -326,9 +327,10 @@ await runSuite('Day boundary: carryover, intentions, multi-day gaps', 8305, asyn
   await page.evaluate(() => document.getElementById('carryover-dismiss').click());
   await page.waitForTimeout(300);
   check('banner dismiss: nothing added to Top 5', await goalsView(page), []);
-  check('banner dismiss: every leftover rescued with progress', await storedBacklog(page),
+  check('banner dismiss: every leftover rescued with progress and prevHours', await storedBacklog(page),
     SIX.slice(0, 3).map((g) => ({
       name: g.name, hours: 0, progress: g.progress, repeatable: g.repeatable, category: 'career',
+      ...(g.hours > 0 ? { prevHours: g.hours } : {}),
     })));
 });
 
@@ -371,9 +373,9 @@ await runSuite('Day boundary: live rollover with the tab open', 8306, async ({ p
     { name: 'Write the report', hours: 0, progress: 60, repeatable: false, prevHours: 3.5, category: 'career' },
   ]);
   // Repeatables outside today's focus are rescued as repeatables.
-  check('live: everything else rescued to backlog', await storedBacklog(page), [
-    { name: 'Morning run', hours: 0, progress: 0, repeatable: true, category: 'fitness' },
-    { name: 'Stretch', hours: 0, progress: 30, repeatable: true, category: 'fitness' },
+  check('live: everything else rescued to backlog, prevHours kept', await storedBacklog(page), [
+    { name: 'Morning run', hours: 0, progress: 0, repeatable: true, category: 'fitness', prevHours: 0.5 },
+    { name: 'Stretch', hours: 0, progress: 30, repeatable: true, category: 'fitness', prevHours: 0.25 },
     { name: 'Call mum', hours: 0, progress: 0, repeatable: false, category: 'relationships' },
   ]);
 
@@ -398,4 +400,25 @@ await runSuite('Day boundary: live rollover with the tab open', 8306, async ({ p
   check('live multi-day: Start fresh rescues the carried goal',
     (await storedBacklog(page)).map((b) => b.name), ['Morning run', 'Stretch', 'Call mum', 'Write the report']);
   check('live multi-day: totals untouched', await categoryTotals(page), ORIGINAL_TOTALS);
+
+  // ── prevHours survives a round trip through the backlog ──
+  console.log('  — promote and demote a rescued task');
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#backlog-list .backlog-item')]
+      .find((r) => r.textContent.includes('Write the report'));
+    row.querySelector('.btn-promote').click();
+  });
+  await page.waitForTimeout(300);
+  check('promoted from backlog: prevHours back on the goal',
+    (await goalsView(page)).find((g) => g.name === 'Write the report').prevHours, 3.5);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#goals-list .task-item')]
+      .find((r) => r.textContent.includes('Write the report'));
+    row.querySelector('.btn-demote').click();
+  });
+  await page.waitForTimeout(300);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  check('demoted again: prevHours stored on the backlog item',
+    (await storedBacklog(page)).find((b) => b.name === 'Write the report').prevHours, 3.5);
 });

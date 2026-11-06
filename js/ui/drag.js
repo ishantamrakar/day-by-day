@@ -14,6 +14,7 @@
 // kept separate on purpose.
 
 import { formatHours } from '../core/format.js';
+import { goalToBacklogItem, backlogItemToGoal } from '../core/backlog.js';
 
 let _ctx = null;
 export function configure(ctx) { _ctx = ctx; }
@@ -441,10 +442,7 @@ function onTaskDragEnd(e) {
       // ── Drop onto backlog ──
       const g = ctx.state.goals[goalIndex];
       if (g) {
-        const newItem = {
-          name: g.name, category: g.category || null, repeatable: g.repeatable || false,
-          hours: g.hours || 0, progress: g.progress || 0,
-        };
+        const newItem = goalToBacklogItem(g);
         const slot = activeDrag.crossSlot >= 0 ? ctx.backlogVisibleSlotToIndex(activeDrag.crossSlot) : ctx.backlog.length;
         ctx.backlog.splice(Math.min(slot, ctx.backlog.length), 0, newItem);
         ctx.state.goals.splice(goalIndex, 1);
@@ -613,7 +611,7 @@ export function setupSidebarBacklogDrag(dragEl, backlogItem) {
           const activeGoals = ctx.getActiveGoals();
           const clampedSlot = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
           // Find the real state.goals index to insert before
-          const newGoal = { name: backlogItem.name, hours: backlogItem.hours || 0, progress: backlogItem.progress || 0, category: backlogItem.category || null, repeatable: backlogItem.repeatable || false, fromBacklog: true };
+          const newGoal = backlogItemToGoal(backlogItem);
           if (clampedSlot >= activeGoals.length) {
             // Append after last active goal — find the real index of the last active goal
             const lastActive = activeGoals[activeGoals.length - 1];
@@ -723,7 +721,7 @@ export function setupBacklogItemDrag(dragEl, item, index) {
           ctx.backlog.splice(index, 1);
           const activeGoals = ctx.getActiveGoals();
           const clamped = Math.max(0, Math.min(insertAt < 0 ? activeGoals.length : insertAt, activeGoals.length));
-          const newGoal = { name: item.name, hours: item.hours || 0, progress: item.progress || 0, category: item.category || null, repeatable: item.repeatable || false, fromBacklog: true };
+          const newGoal = backlogItemToGoal(item);
           if (clamped >= activeGoals.length) {
             const last = activeGoals[activeGoals.length - 1];
             ctx.state.goals.splice(last ? ctx.state.goals.indexOf(last) + 1 : ctx.state.goals.length, 0, newGoal);

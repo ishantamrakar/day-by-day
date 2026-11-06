@@ -15,6 +15,7 @@ import { formatHours } from '../core/format.js';
 import { pulseBlobEvent } from './blobs.js';
 import { makeInlineHoursEditor } from './time-ring.js';
 import { makeEditable, updateSliderFill } from './editable.js';
+import { goalToBacklogItem } from '../core/backlog.js';
 
 let _ctx = null;
 export function configure(c) {
@@ -135,11 +136,7 @@ function createGoalElement(goal, index, displayNumber) {
   demoteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,149.66l-96,96a8,8,0,0,1-11.32,0l-96-96a8,8,0,0,1,11.32-11.32L120,226.69V40a8,8,0,0,1,16,0V226.69l82.34-88.35a8,8,0,0,1,11.32,11.32Z"/></svg> Backlog';
   demoteBtn.title = 'Move to backlog';
   demoteBtn.addEventListener('click', () => {
-    const g = ctx.state.goals[index];
-    ctx.backlog.push({
-      name: g.name, category: g.category || null, repeatable: g.repeatable || false,
-      hours: g.hours || 0, progress: g.progress || 0,
-    });
+    ctx.backlog.push(goalToBacklogItem(ctx.state.goals[index]));
     ctx.state.goals.splice(index, 1);
     ctx.saveState(); ctx.saveBacklog(); ctx.render(); ctx.renderSidebar();
   });

@@ -39,6 +39,9 @@ export function rescueItems(carryover, goals, backlog) {
       repeatable: g.repeatable || false,
       hours: g.hours || 0,
       progress: g.progress || 0,
+      // Earlier days' hours: the task's "Xh prev" history must survive the
+      // rescue (and later promotes — see js/core/backlog.js).
+      ...(g.prevHours > 0 ? { prevHours: g.prevHours } : {}),
     });
   });
   return out;

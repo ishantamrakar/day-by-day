@@ -17,6 +17,7 @@
 import { formatHours, hexToRgb } from '../core/format.js';
 import { getGrowthStage, GROWTH_STAGES } from '../core/growth.js';
 import { SIDEBAR_KEY } from '../core/keys.js';
+import { backlogItemToGoal } from '../core/backlog.js';
 
 let _ctx = null;
 export function configure(c) {
@@ -570,11 +571,7 @@ export function renderSidebar() {
               if (ctx.getActiveGoals().length >= ctx.MAX_GOALS) return;
               const i = ctx.backlog.indexOf(item);
               if (i === -1) return;
-              ctx.state.goals.push({
-                name: item.name, hours: item.hours || 0, progress: item.progress || 0,
-                category: item.category || null, repeatable: item.repeatable || false,
-                fromBacklog: true,
-              });
+              ctx.state.goals.push(backlogItemToGoal(item));
               ctx.backlog.splice(i, 1);
               ctx.saveState(); ctx.saveBacklog(); ctx.render(); renderSidebar();
               if (window.DayByDayNotifications) window.DayByDayNotifications.onGoalsUpdated(ctx.state.goals);

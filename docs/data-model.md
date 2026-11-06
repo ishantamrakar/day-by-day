@@ -33,7 +33,7 @@ One shape for all task-like things, discriminated by `type`:
 ```
 - `goal`: uses `progress`, `repeatable`, optional `prevHours`/`fromBacklog`/`completedAt`.
 - `distraction` / `quickDone`: `name`, `category`, `hours`.
-- `backlog`: `name`, `category`, `repeatable`, `progress` (no day membership — tracked by `backlogIds`). `hours` is carried generically for every entity type; `progress` is persisted so a demoted goal keeps its bar.
+- `backlog`: `name`, `category`, `repeatable`, `progress`, optional `prevHours` (no day membership — tracked by `backlogIds`). `hours` is carried generically for every entity type; `progress` and `prevHours` are persisted so a demoted or rescued goal keeps its bar and its "Xh prev" history.
 
 ### Session
 ```js

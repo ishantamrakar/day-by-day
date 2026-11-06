@@ -11,8 +11,6 @@ pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
 *Data integrity: fix first (gate G2 in product-plan.md)*
-- **Rescue-to-backlog at rollover drops `prevHours`.** A part-done task keeps its progress, but its "Xh invested" badge disappears. Category totals are unaffected. `scripts/test-day-logic.mjs` pins the current behaviour in a commented assertion, which the fix should update.
-- **Carried-over repeatables lose `prevHours`** when they're added through "Start my day".
 - **Two copies of the carryover builder.** `checkForNewDay()` (tab open past midnight) has an inline copy of `buildCarryover` (`js/core/state.js`, used on reopen), so the two rollover paths can drift apart. Breaking `buildCarryover` fails only the reopen path.
 - **Deleting a goal scrubs every `_carryover` entry with that name**, not just the one deleted.
 - **Enter-added goals get `category: null`.** The + button path and `addBacklogItem` stamp `'general'`. Nothing visible breaks, since the visibility rule treats null as General, but the stored data is inconsistent.
@@ -34,6 +32,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** a task's `prevHours` (its "Xh prev" history) was lost whenever it went through the backlog: rescue at rollover, any promote or demote, and repeatables pre-loaded by "Start my day". Backlog items didn't store the field at all. The store now persists it on backlog entities, and all six promote/demote copies go through `goalToBacklogItem` / `backlogItemToGoal` (`js/core/backlog.js`). Category totals were never affected. Guarded in `scripts/test-day-logic.mjs`, including a promote → demote → reload round trip.
 
 **Fixed (2026-11):** deleting a focus session kept its hours on the goal and the area and couldn't be undone. Per the maintainer's decision, delete now hands the hours back and Cmd+Z restores the session and both totals. Sessions now record `goalHoursAdded` so the amount is exact. Guarded by "Hours: focus-session delete and undo" in `scripts/test-hours.mjs`.
 

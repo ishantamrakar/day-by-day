@@ -255,14 +255,14 @@ export function showDayTransitionModal(prev) {
     carryover.forEach(g => {
       if (g.repeatable && !seen.has(g.name)) {
         seen.add(g.name);
-        tasks.push({ name: g.name, category: g.category || 'general', source: 'carryover', progress: g.progress || 0 });
+        tasks.push({ name: g.name, category: g.category || 'general', source: 'carryover', progress: g.progress || 0, prevHours: g.prevHours || 0 });
       }
     });
     // From backlog repeatable items
     backlog.forEach(b => {
       if (b.repeatable && !seen.has(b.name)) {
         seen.add(b.name);
-        tasks.push({ name: b.name, category: b.category || 'general', source: 'backlog' });
+        tasks.push({ name: b.name, category: b.category || 'general', source: 'backlog', prevHours: b.prevHours || 0 });
       }
     });
     return tasks.filter(t => selectedCats.has(t.category || 'general'));
@@ -455,11 +455,15 @@ export function showDayTransitionModal(prev) {
     tasks.forEach(task => {
       if (!checkedTasks.has(task.name)) return;
       if (state.goals.length < MAX_GOALS) {
-        state.goals.push({ name: task.name, hours: 0, progress: task.progress || 0, category: task.category, repeatable: true });
+        const goal = { name: task.name, hours: 0, progress: task.progress || 0, category: task.category, repeatable: true };
+        if (task.prevHours > 0) goal.prevHours = task.prevHours;
+        state.goals.push(goal);
       } else {
         // Top 5 full — put overflow in backlog (avoid duplicates)
         if (!backlog.find(b => b.name === task.name)) {
-          backlog.push({ name: task.name, category: task.category, repeatable: true });
+          const item = { name: task.name, category: task.category, repeatable: true };
+          if (task.prevHours > 0) item.prevHours = task.prevHours;
+          backlog.push(item);
         }
       }
     });

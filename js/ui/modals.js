@@ -820,13 +820,26 @@ export function openTaskDetailModal(initial, onConfirm) {
 
   const modal = document.createElement('div');
   modal.className = 'quick-add-modal';
+  // Optional `theme: { accent, dark }` so the modal can match where it was
+  // opened from (focus mode passes its session colour and dark). `accent` is
+  // any CSS colour; it tints the button, toggle, focus ring and background.
+  // No theme: the usual light look.
+  const theme = initial.theme;
+  if (theme) {
+    if (theme.accent) modal.style.setProperty('--modal-accent', theme.accent);
+    if (theme.dark) {
+      modal.classList.add('task-modal--dark');
+      overlay.classList.add('task-modal-overlay--dark');
+    }
+  }
 
   // Header
   const header = document.createElement('div');
   header.className = 'quick-add-header';
   const titleEl = document.createElement('div');
   titleEl.className = 'quick-add-title';
-  titleEl.textContent = 'Add to Today\'s Top 5';
+  // Callers that add somewhere other than Top 5 pass their own title.
+  titleEl.textContent = initial.title || 'Add to Today\'s Top 5';
   const closeBtn = document.createElement('button');
   closeBtn.className = 'cat-modal-close';
   closeBtn.style.marginLeft = 'auto';
@@ -877,7 +890,7 @@ export function openTaskDetailModal(initial, onConfirm) {
       closeModal();
       openNewCategoryModal(newId => {
         // Re-open this modal with the new category selected
-        openTaskDetailModal({ name: taskInput.value, category: newId, repeatable: toggleInput.checked }, onConfirm);
+        openTaskDetailModal({ name: taskInput.value, category: newId, repeatable: toggleInput.checked, title: initial.title, theme }, onConfirm);
       });
     });
     catGrid.appendChild(newChip);

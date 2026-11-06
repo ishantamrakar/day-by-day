@@ -54,7 +54,7 @@ that section header and is headed for the named file.
 | Done Today ordering, fold counts, quick-win record | ✅ `js/core/done-today.js` |
 | Journal card (focus sessions, wins & lessons) | ✅ `js/ui/journal.js` |
 | Session detail text, newest-first session order | ✅ `js/core/journal.js` |
-| Backlog card (rows, promote/delete, hidden-items note, add input) | ✅ `js/ui/backlog.js` |
+| Backlog card (rows, promote/delete, hidden-items note, add input, `openAddToBacklogModal`) | ✅ `js/ui/backlog.js` |
 | Adding Top 5 goals and distractions (inputs, + buttons) | ✅ `js/ui/tasks.js` |
 | Top 5 goal rows and distraction rows (`renderGoals`, `renderDistractions`) | ✅ `js/ui/tasks.js` |
 | Click-to-edit text (`makeEditable`), progress slider fill (`updateSliderFill`) | ✅ `js/ui/editable.js` |

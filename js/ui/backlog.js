@@ -13,7 +13,12 @@ let _ctx = null;
 export function configure(c) {
   _ctx = c;
   const { addBacklogBtn, backlogInputEl } = c;
-  if (addBacklogBtn) addBacklogBtn.addEventListener('click', addBacklogItem);
+  // + opens the task modal (like Top 5's +); Enter in the input stays the
+  // quick path that adds straight away.
+  if (addBacklogBtn) addBacklogBtn.addEventListener('click', () => {
+    const n = backlogInputEl ? backlogInputEl.value.trim() : '';
+    openAddToBacklogModal(n, () => { if (backlogInputEl) backlogInputEl.value = ''; });
+  });
   if (backlogInputEl) backlogInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') addBacklogItem(); });
 }
 const ctx = new Proxy({}, { get: (_, k) => _ctx[k] });
@@ -95,6 +100,21 @@ function createBacklogElement(item, index) {
   row.append(dragHandle, name, actions);
   ctx.setupBacklogItemDrag(row, item, index);
   return row;
+}
+
+// The task modal, saving to the backlog: name, life area (General unless
+// changed — the backlog's inbox) and repeatable. Used by the card's + and by
+// focus mode, so a task remembered mid-session can be parked without leaving
+// the session. `onAdded(item)` runs after it's saved; `theme` is passed
+// through to the modal (see openTaskDetailModal).
+export function openAddToBacklogModal(name = '', onAdded, theme) {
+  ctx.openTaskDetailModal({ name, category: null, repeatable: false, title: 'Add to Backlog', theme }, result => {
+    if (!result.name) return;
+    const item = { name: result.name, category: result.category || 'general', repeatable: result.repeatable || false };
+    ctx.backlog.push(item);
+    ctx.saveBacklog(); ctx.render();
+    if (onAdded) onAdded(item);
+  });
 }
 
 function addBacklogItem() {

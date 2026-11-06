@@ -263,3 +263,121 @@ await runSuite('Small UI rules', 8310, async ({ page, check }) => {
   }) > 0, true);
   check('…and sticks', (await getGoals(page)).some((g) => g.name === 'New name'), true);
 });
+
+// Adding to the backlog through the task modal: from the backlog card's +,
+// and from focus mode, so a task remembered mid-session can be parked
+// without leaving the session.
+await runSuite('Adding to the backlog', 8311, async ({ page, check }) => {
+  const modalTitle = () => page.evaluate(() => {
+    const t = document.querySelector('.quick-add-modal-overlay .quick-add-title');
+    return t ? t.textContent : null;
+  });
+  const stored = (name) => page.evaluate((n) => {
+    const s = JSON.parse(localStorage.getItem('daybyday_store') || '{}');
+    const e = (s.backlogIds || []).map((id) => s.entities[id]).find((x) => x && x.name === n);
+    return e ? { category: e.category, repeatable: !!e.repeatable } : null;
+  }, name);
+  const pickSecondArea = () => page.evaluate(() => {
+    const chips = [...document.querySelectorAll('.task-modal-cat-chip:not(.task-modal-cat-new)')];
+    const chip = chips.find((c) => !c.classList.contains('selected'));
+    chip.click();
+    return chips.indexOf(chip);
+  });
+  const areaIds = () => page.evaluate(() =>
+    JSON.parse(localStorage.getItem('daybyday_store') || '{}').categories.filter((c) => !c.archived && !c.deleted).map((c) => c.id));
+
+  // ── 1. The backlog card's + opens the modal ──
+  await page.click('#add-backlog-btn');
+  await page.waitForTimeout(300);
+  check('+ with nothing typed opens the modal, titled for the backlog', await modalTitle(), 'Add to Backlog');
+  await page.fill('.quick-add-input', 'Fix the bike light');
+  const chipIndex = await pickSecondArea();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  check('the task lands in the backlog with the chosen area',
+    (await stored('Fix the bike light')).category, (await areaIds())[chipIndex]);
+  check('nothing was added to Top 5', (await getGoals(page)).length, 0);
+
+  // ── 2. Typed text carries into the modal ──
+  await page.fill('#backlog-input', 'Call the plumber');
+  await page.click('#add-backlog-btn');
+  await page.waitForTimeout(300);
+  check('typed text is pre-filled', await page.inputValue('.quick-add-input'), 'Call the plumber');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  check('…saved to the backlog', (await stored('Call the plumber')) !== null, true);
+  check('…and the backlog input is cleared', await page.inputValue('#backlog-input'), '');
+
+  // ── 3. Enter in the backlog input is still the quick path ──
+  await addBacklogItem(page, 'Water the plants');
+  check('Enter still adds directly, no modal', [await modalTitle(), (await stored('Water the plants')) !== null], [null, true]);
+
+  // ── 4. From focus mode, without leaving the session ──
+  await addGoal(page, 'Deep work');
+  await page.click('#goals-list .task-focus-btn');
+  await page.waitForTimeout(400);
+  await page.click('.focus-enter-btn--secondary');
+  await page.waitForTimeout(500);
+  await page.click('.focus-skip-btn'); // skip intention
+  await page.waitForTimeout(500);
+  await page.click('.focus-skip-btn'); // skip entry check-in
+  await page.waitForTimeout(600);
+  check('a backlog card sits under Focus tools',
+    await page.evaluate(() => !!document.querySelector('.focus-col-right .focus-park-card')), true);
+  await page.click('.focus-park-card .focus-tool-btn');
+  await page.waitForTimeout(300);
+  check('it opens the same modal, titled for the backlog', await modalTitle(), 'Add to Backlog');
+  check('…dressed for focus mode: dark, in the session colour', await page.evaluate(() => {
+    const m = document.querySelector('.quick-add-modal');
+    const overlay = document.querySelector('body > .focus-fullscreen-overlay');
+    const session = getComputedStyle(overlay).getPropertyValue('--focus-cat-color-rgb').replace(/\s/g, '');
+    const accent = m.style.getPropertyValue('--modal-accent').replace(/\s/g, '');
+    const [r, g, b] = getComputedStyle(m).backgroundColor.match(/[\d.]+/g).map(Number);
+    return { dark: m.classList.contains('task-modal--dark') && (r + g + b) / 3 < 90, accent: accent === `rgb(${session})` };
+  }), { dark: true, accent: true });
+  await page.fill('.quick-add-input', 'Email Sam about the trip');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('the task is in the backlog', (await stored('Email Sam about the trip')) !== null, true);
+  check('the session is still running',
+    await page.evaluate(() => !!document.querySelector('body > .focus-fullscreen-overlay .focus-col-right')), true);
+  check('the card confirms it quietly', await page.evaluate(() =>
+    document.querySelector('.focus-park-card').textContent.includes('Email Sam about the trip')), true);
+
+  // ── 5. Session notes: write as much as you like ──
+  const longNote = 'A thought that keeps unfolding as I write it down. '.repeat(40);
+  await page.fill('.focus-notes-input', longNote);
+  await page.waitForTimeout(100);
+  check('the note box has no length limit', await page.evaluate(() =>
+    document.querySelector('.focus-notes-input').maxLength), -1);
+  check('the note box grows with the text instead of hiding it', await page.evaluate(() => {
+    const t = document.querySelector('.focus-notes-input');
+    return t.clientHeight > 150;
+  }), true);
+  await page.press('.focus-notes-input', 'Enter');
+  for (let i = 1; i <= 25; i++) {
+    await page.fill('.focus-notes-input', `Note ${i}`);
+    await page.press('.focus-notes-input', 'Enter');
+  }
+  check('the box shrinks back once the note is saved', await page.evaluate(() =>
+    document.querySelector('.focus-notes-input').clientHeight < 150), true);
+  check('every note is kept, the long one in full', await page.evaluate((n) => {
+    const items = [...document.querySelectorAll('.focus-note-item')];
+    return items.length === 26 && items[0].textContent.includes(n.trim());
+  }, longNote), true);
+  check('with many notes, the first ones can still be scrolled to', await page.evaluate(() => {
+    const col = document.querySelector('.focus-col-left');
+    col.scrollTop = 0;
+    const title = col.querySelector('.focus-col-title');
+    return title.getBoundingClientRect().top >= col.getBoundingClientRect().top - 1;
+  }), true);
+
+  // ── 6. Outside focus mode the modal keeps its usual light look ──
+  await page.click('.focus-ambient-close');
+  await page.waitForTimeout(600);
+  await page.click('#add-backlog-btn');
+  await page.waitForTimeout(300);
+  check('the backlog + modal is the plain light one', await page.evaluate(() =>
+    document.querySelector('.quick-add-modal').classList.contains('task-modal--dark')), false);
+  await page.keyboard.press('Escape');
+});

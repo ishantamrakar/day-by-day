@@ -19,6 +19,9 @@ import { goalToBacklogItem, backlogItemToGoal } from '../core/backlog.js';
 let _ctx = null;
 export function configure(ctx) { _ctx = ctx; }
 
+// True while any drag is in progress; a delayed re-render waits for it.
+export function isDragging() { return activeDrag !== null; }
+
 // Read through the context on every access rather than destructuring once at
 // module load: these must never be captured, or a drag after a day rollover
 // would mutate the previous day's arrays.
@@ -150,6 +153,8 @@ export function setupTaskDrag(item, list, type) {
 
   handle.addEventListener('pointerdown', e => {
     if (e.target.tagName === 'INPUT') return;
+    // A row mid-completion is already done; it leaves Top 5 on the next render.
+    if (item.classList.contains('task-completing')) return;
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
     startTaskDrag(e, item, list, type);
@@ -162,7 +167,10 @@ function startTaskDrag(e, item, list, type) {
   const gap   = parseFloat(getComputedStyle(list).gap) || 10;
   const step  = itemH + gap;
 
-  const allItems = Array.from(list.querySelectorAll('.task-item'));
+  // Rows still playing their completion animation are on screen but no
+  // longer active goals, so they're left out of the slot math — otherwise
+  // positions here and in getActiveGoals() disagree and the wrong goal moves.
+  const allItems = Array.from(list.querySelectorAll('.task-item:not(.task-completing)'));
   const siblings = allItems.filter(el => el !== item);
 
   // displayIndex = position among DOM items (0-based); used for all slot math
@@ -395,7 +403,7 @@ function insertGoalsReentryPlaceholder(slot, label) {
     ph.innerHTML = `<span class="task-reentry-name">${label}</span>`;
     activeDrag.goalsPlaceholderEl = ph;
   }
-  const rows = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.task-reentry-placeholder)'));
+  const rows = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.task-reentry-placeholder):not(.task-completing)'));
   const clamped = Math.max(0, Math.min(slot, rows.length));
   if (clamped !== activeDrag.goalsSlot) {
     activeDrag.goalsSlot = clamped;
@@ -453,9 +461,13 @@ function onTaskDragEnd(e) {
       const targetSlot = goalsSlot >= 0 ? goalsSlot : originalDisplayIndex;
       const activeGoals = ctx.getActiveGoals();
       const completedGoals = ctx.getCompletedGoals();
-      const [moved] = activeGoals.splice(originalDisplayIndex, 1);
-      activeGoals.splice(Math.min(targetSlot, activeGoals.length), 0, moved);
-      ctx.state.goals = [...activeGoals, ...completedGoals];
+      // By identity, not screen position (see onTaskDragEnd).
+      const from = activeGoals.indexOf(goalData);
+      if (from !== -1) {
+        activeGoals.splice(from, 1);
+        activeGoals.splice(Math.min(targetSlot, activeGoals.length), 0, goalData);
+        ctx.state.goals = [...activeGoals, ...completedGoals];
+      }
       ctx.saveState(); ctx.render();
     } else {
       // ── Cancelled: restore item to its original DOM position ──
@@ -485,11 +497,17 @@ function onTaskDragEnd(e) {
   if (currentSlot !== displayIndex) {
     if (type === 'goal') {
       // Reorder within active goals only, then rebuild state.goals preserving completed goals
+      // The goal is found by identity (its state index), not by screen
+      // position, so the row you grabbed is the one that moves.
       const activeGoals = ctx.getActiveGoals();
       const completedGoals = ctx.getCompletedGoals();
-      const [moved] = activeGoals.splice(displayIndex, 1);
-      activeGoals.splice(Math.min(currentSlot, activeGoals.length), 0, moved);
-      ctx.state.goals = [...activeGoals, ...completedGoals];
+      const moved = ctx.state.goals[stateIndex];
+      const from = activeGoals.indexOf(moved);
+      if (from !== -1) {
+        activeGoals.splice(from, 1);
+        activeGoals.splice(Math.min(currentSlot, activeGoals.length), 0, moved);
+        ctx.state.goals = [...activeGoals, ...completedGoals];
+      }
     } else {
       const arr = ctx.state.distractions;
       const [moved] = arr.splice(stateIndex, 1);
@@ -529,7 +547,7 @@ export function setupSidebarBacklogDrag(dragEl, backlogItem) {
     let currentSlot = -1;     // which index slot the placeholder is sitting at (-1 = not in list)
 
     function getStep() {
-      const items = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+      const items = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder):not(.task-completing)'));
       if (!items.length) return 52; // fallback height
       const r = items[0].getBoundingClientRect();
       const gap = parseFloat(getComputedStyle(ctx.goalsListEl).gap) || 10;
@@ -542,7 +560,7 @@ export function setupSidebarBacklogDrag(dragEl, backlogItem) {
         placeholder.className = 'task-item sidebar-placeholder';
         placeholder.textContent = backlogItem.name;
       }
-      const items = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+      const items = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder):not(.task-completing)'));
       const clampedSlot = Math.max(0, Math.min(slot, items.length));
       if (clampedSlot !== currentSlot) {
         currentSlot = clampedSlot;
@@ -659,7 +677,7 @@ export function setupBacklogItemDrag(dragEl, item, index) {
     let currentSlot = -1;
 
     function getStep() {
-      const items = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+      const items = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder):not(.task-completing)'));
       if (!items.length) return 52;
       const r = items[0].getBoundingClientRect();
       return r.height + (parseFloat(getComputedStyle(ctx.goalsListEl).gap) || 10);
@@ -671,7 +689,7 @@ export function setupBacklogItemDrag(dragEl, item, index) {
         placeholder.className = 'task-item sidebar-placeholder';
         placeholder.textContent = item.name;
       }
-      const rows = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder)'));
+      const rows = Array.from(ctx.goalsListEl.querySelectorAll('.task-item:not(.sidebar-placeholder):not(.task-completing)'));
       const clamped = Math.max(0, Math.min(slot, rows.length));
       if (clamped !== currentSlot) {
         currentSlot = clamped;

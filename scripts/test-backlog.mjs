@@ -83,3 +83,66 @@ function visibleRows(page) {
   return page.evaluate(() =>
     [...document.querySelectorAll('#backlog-list .backlog-item .backlog-name')].map((e) => e.textContent));
 }
+
+// Finishing a goal (slider to 100) keeps its row on screen for a short
+// completion animation before Top 5 re-renders. During that window the row is
+// done but still drawn, so anything that maps screen rows to goals must skip
+// it, and the delayed re-render must not tear down a drag or an edit.
+await runSuite('Top 5: the moment a goal completes', 8309, async ({ page, check }) => {
+  const reset = async () => {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(300);
+    for (const n of ['A', 'B', 'C', 'D']) await addGoal(page, `Goal ${n}`);
+  };
+  const rowSel = (n) => `[...document.querySelectorAll('#goals-list .task-item')].find((r) => r.querySelector('.task-name').textContent === 'Goal ${n}')`;
+  const slide = (n, v) => page.evaluate(({ sel, val }) => {
+    const s = eval(sel).querySelector('.progress-slider');
+    s.value = String(val);
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+  }, { sel: rowSel(n), val: v });
+  const activeOrder = async () =>
+    (await getGoals(page)).filter((g) => g.progress < 100).map((g) => g.name.slice(-1)).join('');
+  const dragDown = async (n, rows) => {
+    const b = await page.evaluate((sel) => {
+      const row = eval(sel);
+      const r = row.querySelector('.task-drag-handle').getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, h: row.getBoundingClientRect().height };
+    }, rowSel(n));
+    await page.mouse.move(b.x, b.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(b.x, b.y + ((b.h + 10) * rows * i) / 10);
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+  };
+
+  // ── 1. A drag right after a completion moves the row you grabbed ──
+  await reset();
+  await dragDown('B', 1);
+  check('control: B dragged down one slot', await activeOrder(), 'ACBD');
+  await reset();
+  await slide('A', 100);
+  check('completion animation still plays', await page.evaluate((sel) =>
+    eval(sel).classList.contains('task-completing'), rowSel('A')), true);
+  await dragDown('B', 1);
+  await page.waitForTimeout(500);
+  check('inside the window: B (not C) moves down one slot', await activeOrder(), 'CBD');
+
+  // ── 2. A rename started in the window isn't thrown away ──
+  await reset();
+  await slide('A', 100);
+  await page.evaluate((sel) => eval(sel).querySelector('.task-name').click(), rowSel('B'));
+  await page.waitForTimeout(600); // well past the completion delay
+  check('the editor is still open after the delay', await page.evaluate(() =>
+    !!document.querySelector('#goals-list .inline-edit-input')), true);
+  await page.evaluate(() => { // caret to the end (End doesn't do this on macOS)
+    const i = document.querySelector('#goals-list .inline-edit-input');
+    i.setSelectionRange(i.value.length, i.value.length);
+  });
+  await page.keyboard.type(' renamed');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(600);
+  check('the rename is saved', (await getGoals(page)).map((g) => g.name).includes('Goal B renamed'), true);
+  check('the completed goal still leaves Top 5 afterwards', await page.evaluate(() =>
+    [...document.querySelectorAll('#goals-list .task-name')].map((e) => e.textContent).includes('Goal A')), false);
+});

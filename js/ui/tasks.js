@@ -16,6 +16,7 @@ import { pulseBlobEvent } from './blobs.js';
 import { makeInlineHoursEditor } from './time-ring.js';
 import { makeEditable, updateSliderFill } from './editable.js';
 import { goalToBacklogItem } from '../core/backlog.js';
+import { isDragging } from './drag.js';
 
 let _ctx = null;
 export function configure(c) {
@@ -189,7 +190,16 @@ function createGoalElement(goal, index, displayNumber) {
     if (val >= 100) {
       item.classList.add('task-completing');
       pulseBlobEvent('complete');
-      setTimeout(() => ctx.render(), 350);
+      // Let the completion animation play, then re-render — but never under
+      // a drag or an open inline editor, which the rebuild would tear down
+      // (losing the edit). Those finish first; then the row leaves Top 5.
+      setTimeout(function settle() {
+        if (isDragging() || ctx.goalsListEl.querySelector('.inline-edit-input, .done-hours-input')) {
+          setTimeout(settle, 200);
+          return;
+        }
+        ctx.render();
+      }, 350);
     } else {
       ctx.renderSummary();
     }

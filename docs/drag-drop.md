@@ -21,10 +21,12 @@ Drags entire `.draggable-card` elements between `.col-left` / `.col-right`. Clon
 Reorders rows within Top 5 or Distractions list. Item stays in DOM (`position: relative`) and moves via `translateY`. Siblings get `translateY` shifts with a spring transition.
 
 **Two indices — critical distinction:**
-- `displayIndex` — position among DOM task items (0-based). All slot math, sibling shifting, and drop logic uses this.
-- `stateIndex` — position in `state.goals` / `state.distractions`. May differ from `displayIndex` if completed goals sit earlier in the array. Used only for state mutation and cross-card transition.
+- `displayIndex` — position among DOM task items (0-based), **excluding rows with `.task-completing`**. All slot math and sibling shifting use this.
+- `stateIndex` — position in `state.goals` / `state.distractions`. May differ from `displayIndex` if completed goals sit earlier in the array. Identifies *which* goal is being moved.
 
-**On drop:** Reorder operates on `getActiveGoals()` only, then rebuilds: `state.goals = [...activeGoals, ...completedGoals]`. This keeps completed goals from corrupting slot math.
+**On drop:** Reorder operates on `getActiveGoals()` only, then rebuilds: `state.goals = [...activeGoals, ...completedGoals]`. The moved goal is found **by identity** (`state.goals[stateIndex]`), never by `displayIndex`; the target slot is a display position. The Top 5 re-entry drop does the same with `goalData`.
+
+**The completion window.** When a slider hits 100 the row plays `.task-completing` for ~350 ms before Top 5 re-renders. During that window the row is done (not in `getActiveGoals()`) but still drawn. So: it can't be grabbed, every Top 5 row query in `js/ui/drag.js` skips `.task-completing`, and the delayed re-render waits while a drag (`isDragging()`) or an inline editor is open. Before 2026-11, dragging the row *below* a completing one moved the wrong goal.
 
 **Cross-card transition:** If pointer leaves the parent card while `dragType: 'task'`, transitions to `dragType: 'cross'` (see below).
 

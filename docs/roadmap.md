@@ -10,9 +10,6 @@
 pure moves, so they recorded these instead of fixing them. Product decisions
 the maintainer made on the ambiguous ones are marked **Decision**.
 
-*Data integrity: fix first (gate G2 in product-plan.md)*
-- **Stale indices after a slider hits 100.** The row re-renders 350 ms later; in that window other rows still hold old array indices, so a quick delete or edit can hit the wrong goal.
-
 *Deliberate behaviour: not a bug*
 - **Distraction hours count toward the life area's `totalHours`.** **Decision:** intended; keep it. Should be documented in features.md § Life Areas.
 
@@ -29,6 +26,8 @@ the maintainer made on the ambiguous ones are marked **Decision**.
 *Code consistency (not bugs)*
 - `makeEditable` reaches modules two ways: `js/ui/tasks.js` and `js/ui/done-today.js` import it directly, while Backlog and Journal get it through `configure()`. Pick one.
 - The encouragement-message choice is pure logic still sitting in `js/ui/summary.js`; it could move to `js/core/summary.js`.
+
+**Fixed (2026-11):** the ~350 ms after a slider hits 100. The completing row is still drawn but no longer an active goal, so drag's screen positions and `getActiveGoals()` disagreed: dragging the row below it moved the *next* goal instead. The delayed re-render also tore down any drag or inline rename in progress, losing the edit. Drag now finds the moved goal by identity and skips completing rows, and the re-render waits for drags and editors. (Delete, slider and rename targeting were checked and were already correct; the original report blamed those.) Guarded by "Top 5: the moment a goal completes" in `scripts/test-backlog.mjs`.
 
 **Fixed (2026-11):** goals added with Enter were stored with `category: null`, while the + button and backlog adds stored `'general'`. Every read already treated null as General, so nothing looked different; the Enter path now stores `'general'` too. Existing null values are left alone. Guarded in `scripts/test-backlog.mjs`.
 
